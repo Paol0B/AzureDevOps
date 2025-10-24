@@ -1,0 +1,146 @@
+<!-- Plugin Configuration File. Read more: https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
+<idea-plugin>
+    <!-- Unique identifier of the plugin. It should be FQN. It cannot be changed between the plugin versions. -->
+    <id>paol0b.AzureDevOps</id>
+
+    <!-- Public plugin name should be written in Title Case.
+         Guidelines: https://plugins.jetbrains.com/docs/marketplace/best-practices-for-listing.html#plugin-name -->
+    <name>Azure DevOps Integration</name>
+
+    <!-- A displayed Vendor name or Organization ID displayed on the Plugins Page. -->
+    <vendor url="https://github.com/paol0b">Paolo Bertinetti</vendor>
+
+    <!-- Description of the plugin displayed on the Plugin Page and IDE Plugin Manager.
+         Guidelines: https://plugins.jetbrains.com/docs/marketplace/best-practices-for-listing.html#plugin-description -->
+    <description><![CDATA[
+        <h2>Azure DevOps Integration for JetBrains IDEs</h2>
+        <p>Integra Azure DevOps direttamente nel tuo IDE JetBrains con un Tool Window dedicato per gestire Pull Request, simile a Visual Studio.</p>
+        
+        <h3>✨ Caratteristiche Principali:</h3>
+        <ul>
+            <li><b>🪟 Tool Window "Azure DevOps PRs":</b> Finestra dedicata nella sidebar per visualizzare e gestire tutte le PR</li>
+            <li><b>📋 Lista PR Organizzata:</b> Visualizza tutte le PR raggruppate per stato (Active, Completed, Abandoned)</b></li>
+            <li><b>� Dettagli Completi:</b> Pannello dettagli con titolo, descrizione, branch, author, reviewers e status</li>
+            <li><b>🎨 Badge Status:</b> Identificazione visiva immediata dello stato delle PR con colori</li>
+            <li><b>�🔍 Filtri:</b> Mostra solo PR attive o tutte con un click</li>
+            <li><b>🔍 Rilevamento Automatico:</b> Il plugin rileva automaticamente se il repository è di Azure DevOps analizzando l'URL Git remoto</li>
+            <li><b>⚡ Configurazione Semplice:</b> Richiede solo il Personal Access Token - Organization, Project e Repository vengono rilevati automaticamente</li>
+            <li><b>📝 Crea Pull Request:</b> Crea PR verso main/master direttamente dall'IDE o dal Tool Window</li>
+            <li><b>🌿 Selezione Branch:</b> Scegli branch di origine e destinazione con autocompletamento</li>
+            <li><b>🔒 Sicurezza:</b> Il PAT viene salvato in modo sicuro usando il sistema di password storage dell'IDE</li>
+            <li><b>🔔 Notifiche:</b> Ricevi feedback immediato sul successo o errore delle operazioni</li>
+            <li><b>🔗 Link Rapido:</b> Apri le PR direttamente nel browser con un click</li>
+            <li><b>👁️ Smart Visibility:</b> Tool window e actions appaiono solo per repository Azure DevOps</li>
+        </ul>
+        
+        <h3>📋 Requisiti:</h3>
+        <ul>
+            <li>Repository clonato da Azure DevOps (URL HTTPS o SSH)</li>
+            <li>Personal Access Token con permessi Code e Pull Request</li>
+        </ul>
+        
+        <h3>🚀 Come Usare:</h3>
+        <ol>
+            <li>Clona un repository da Azure DevOps</li>
+            <li>Vai in <b>Settings → Tools → Azure DevOps</b></li>
+            <li>Inserisci solo il <b>Personal Access Token</b> (Organization/Project/Repository sono auto-rilevati)</li>
+            <li>Apri il <b>Tool Window "Azure DevOps PRs"</b> nella sidebar</li>
+            <li>Visualizza, crea e gestisci le tue Pull Request!</li>
+        </ol>
+        
+        <h3>🌐 URL Supportati:</h3>
+        <ul>
+            <li>HTTPS: <code>https://dev.azure.com/{org}/{project}/_git/{repo}</code></li>
+            <li>SSH: <code>git@ssh.dev.azure.com:v3/{org}/{project}/{repo}</code></li>
+            <li>Legacy: <code>https://{org}.visualstudio.com/{project}/_git/{repo}</code></li>
+        </ul>
+        
+        <p><em>Funziona solo con repository Azure DevOps. Il plugin rileva automaticamente l'URL remoto Git e mostra le funzionalità solo se applicabile.</em></p>
+    ]]></description>
+
+    <!-- Product and plugin compatibility requirements.
+         Read more: https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html -->
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.vcs</depends>
+    <depends>Git4Idea</depends>
+
+    <!-- Extension points defined by the plugin.
+         Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
+    <extensions defaultExtensionNs="com.intellij">
+        <!-- Project Settings -->
+        <projectConfigurable 
+            parentId="tools" 
+            instance="paol0b.azuredevops.ui.AzureDevOpsConfigurable"
+            id="paol0b.azuredevops.settings"
+            displayName="Azure DevOps"
+            nonDefaultProject="true"/>
+        
+        <!-- Notification Group -->
+        <notificationGroup 
+            id="AzureDevOps.Notifications" 
+            displayType="BALLOON"
+            key="notification.group.azure.devops"/>
+        
+        <!-- Tool Window -->
+        <toolWindow
+            id="Azure DevOps PRs"
+            anchor="bottom"
+            icon="AllIcons.Vcs.Vendors.Github"
+            factoryClass="paol0b.azuredevops.toolwindow.PullRequestToolWindowFactory"/>
+        
+        <!-- Comments Navigator Tool Window -->
+        <toolWindow
+            id="PR Comments"
+            anchor="right"
+            icon="AllIcons.Toolwindows.ToolWindowMessages"
+            factoryClass="paol0b.azuredevops.toolwindow.CommentsNavigatorToolWindow"/>
+        
+        <!-- File Decorator for PR Comments -->
+        <projectViewNodeDecorator implementation="paol0b.azuredevops.decorators.FileWithCommentsDecorator"/>
+        
+        <!-- File Editor Listener for PR detection -->
+        <projectService serviceImplementation="paol0b.azuredevops.listeners.FileOpenedListener"/>
+    </extensions>
+    
+    <projectListeners>
+        <listener 
+            class="paol0b.azuredevops.listeners.FileOpenedListener"
+            topic="com.intellij.openapi.fileEditor.FileEditorManagerListener"/>
+    </projectListeners>
+
+    <actions>
+        <!-- Add to VCS menu -->
+        <action 
+            id="AzureDevOps.CreatePullRequest"
+            class="paol0b.azuredevops.actions.CreatePullRequestAction"
+            text="Create Azure DevOps PR"
+            description="Create a Pull Request on Azure DevOps"
+            icon="AllIcons.Vcs.Vendors.Github">
+            <add-to-group group-id="VcsGroups" anchor="last"/>
+            <add-to-group group-id="Vcs.MainMenu" anchor="last"/>
+        </action>
+        
+        <!-- Toggle PR Comments - Quick Access -->
+        <action
+            id="AzureDevOps.TogglePRComments"
+            class="paol0b.azuredevops.actions.TogglePRCommentsAction"
+            text="Show/Hide PR Comments"
+            description="Toggle Pull Request comments visibility in the editor"
+            icon="AllIcons.Toolwindows.ToolWindowMessages">
+            <add-to-group group-id="EditorPopupMenu" anchor="first"/>
+            <add-to-group group-id="Vcs.MainMenu" anchor="last"/>
+            <add-to-group group-id="MainToolBar" anchor="last"/>
+        </action>
+        
+        <!-- Show PR Comments in Editor (legacy action) -->
+        <action
+            id="AzureDevOps.ShowPRComments"
+            class="paol0b.azuredevops.actions.ShowPullRequestCommentsAction"
+            text="Show PR Comments"
+            description="Show Pull Request comments in the current file"
+            icon="AllIcons.Vcs.CommitNode">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+            <add-to-group group-id="Vcs.MainMenu" anchor="last"/>
+        </action>
+    </actions>
+</idea-plugin>

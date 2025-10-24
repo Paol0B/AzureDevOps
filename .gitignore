@@ -1,0 +1,118 @@
+# Generic
+.DS_Store
+Thumbs.db
+desktop.ini
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Node
+node_modules/
+.pnpm-store/
+.pnp.*
+dist/
+build/
+coverage/
+.nyc_output/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pycache/
+*.egg-info/
+venv/
+.env
+.env.*
+pip-log.txt
+
+# .NET / Visual Studio / Azure DevOps common
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vs/
+bin/
+obj/
+TestResults/
+*.nupkg
+*.snk
+*.pfx
+*.publishsettings
+migrations/
+_ReSharper*/
+*.DotSettings.user
+
+# Rider / IntelliJ / JetBrains
+.idea/
+*.iml
+.idea/*
+
+# Visual Studio Code
+.vscode/
+.history/
+
+# Java / Gradle / Maven
+target/
+build/
+.gradle/
+out/
+*.class
+
+# Containers / Docker
+docker-compose.override.yml
+docker-compose.*.yml
+**/docker-compose.override.yml
+.docker/
+
+# Terraform
+.terraform/
+terraform.tfstate
+terraform.tfstate.backup
+*.tfvars
+crash.log
+override.tf
+
+# SQL / Database files
+*.mdf
+*.ldf
+*.sqlite
+*.db
+
+# Logs, caches, artifacts
+*.log
+*.tmp
+*.temp
+*.cache
+*.bak
+*.orig
+
+# CI/CD / Azure DevOps agent
+_agent/
+_agent_work/
+_agent_work/
+_work/
+azdevops.local
+*.pubxml.user
+*.azure-pipelines.yml.local
+
+# Secrets
+secrets.yml
+secrets.json
+*.key
+*.pem
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Misc
+*.zip
+*.tar
+*.gz
+*.7z
+*.exe
+*.dll
+*.so
