@@ -1,28 +1,28 @@
 # Azure DevOps Integration Plugin
 
-Plugin per JetBrains IDEs (IntelliJ IDEA, Rider, PyCharm, ecc.) che permette di creare Pull Request su Azure DevOps direttamente dall'IDE.
+A plugin for JetBrains IDEs (IntelliJ IDEA, Rider, PyCharm, etc.) that allows you to create Pull Requests on Azure DevOps directly from your IDE.
 
-## 🎯 Funzionalità
+## 🎯 Features
 
-- ✅ **Tool Window dedicato** per visualizzare e gestire le Pull Request
-- ✅ **Visualizzazione PR** con lista organizzata per stato (Active, Completed, Abandoned)
-- ✅ **Dettagli PR completi** - titolo, descrizione, branch, author, reviewers
-- ✅ **Filtri intelligenti** - mostra solo PR attive o tutte
-- ✅ **Rilevamento Automatico** del repository Azure DevOps dall'URL Git remoto
-- ✅ **Creazione Pull Request** verso main/master dal proprio IDE
-- ✅ **Selezione Branch** con autocompletamento dai branch locali e remoti
-- ✅ **Configurazione Semplificata** - richiede solo il Personal Access Token (PAT)
-- ✅ **Auto-Detection** di Organization, Project e Repository dall'URL Git
-- ✅ **Notifiche** per feedback immediato
-- ✅ **Link Diretto** alla PR creata nel browser
-- ✅ **Compatibilità** con URL HTTPS e SSH di Azure DevOps
-- ✅ **Visibilità Intelligente** - tool window e actions appaiono solo per repository Azure DevOps
+- ✅ **Dedicated Tool Window** to view and manage Pull Requests
+- ✅ **PR Visualization** with list organized by state (Active, Completed, Abandoned)
+- ✅ **Complete PR Details** - title, description, branch, author, reviewers
+- ✅ **Smart Filters** - show only active PRs or all
+- ✅ **Automatic Detection** of Azure DevOps repository from Git remote URL
+- ✅ **Pull Request Creation** to main/master from your IDE
+- ✅ **Branch Selection** with autocomplete from local and remote branches
+- ✅ **Simple Configuration** - requires only Personal Access Token (PAT)
+- ✅ **Auto-Detection** of Organization, Project and Repository from Git URL
+- ✅ **Notifications** for immediate feedback
+- ✅ **Direct Link** to created PR in browser
+- ✅ **Compatibility** with HTTPS and SSH URLs of Azure DevOps
+- ✅ **Smart Visibility** - tool window and actions appear only for Azure DevOps repositories
 
-## 📋 Requisiti
+## 📋 Requirements
 
-### 1. Repository Azure DevOps
+### 1. Azure DevOps Repository
 
-Il plugin funziona **solo con repository clonati da Azure DevOps**. Deve rilevare automaticamente uno di questi formati di URL:
+The plugin works **only with repositories cloned from Azure DevOps**. It must automatically detect one of these URL formats:
 
 **HTTPS:**
 - `https://dev.azure.com/{organization}/{project}/_git/{repository}`
@@ -32,131 +32,131 @@ Il plugin funziona **solo con repository clonati da Azure DevOps**. Deve rilevar
 - `git@ssh.dev.azure.com:v3/{organization}/{project}/{repository}`
 - `{organization}@vs-ssh.visualstudio.com:v3/{organization}/{project}/{repository}`
 
-Il plugin rileva automaticamente **Organization**, **Project** e **Repository** dall'URL del remoto Git.
+The plugin automatically detects **Organization**, **Project**, and **Repository** from the Git remote URL.
 
 ### 2. Personal Access Token (PAT)
 
-Devi creare un Personal Access Token su Azure DevOps con i seguenti permessi:
+You need to create a Personal Access Token on Azure DevOps with the following permissions:
 
-1. Vai su Azure DevOps → User Settings → Personal Access Tokens
-2. Clicca "New Token"
-3. Seleziona i permessi:
+1. Go to Azure DevOps → User Settings → Personal Access Tokens
+2. Click "New Token"
+3. Select the permissions:
    - **Code**: Read & Write
    - **Pull Request**: Read & Write
-4. Copia il token generato (lo userai nella configurazione)
+4. Copy the generated token (you'll use it in the configuration)
 
-### 2. Repository Azure DevOps
+### 3. Azure DevOps Repository
 
-Il repository del tuo progetto deve essere clonato da Azure DevOps. Il plugin rileva automaticamente le informazioni dall'URL remoto Git.
+Your project repository must be cloned from Azure DevOps. The plugin automatically detects information from the Git remote URL.
 
-**Non è necessario configurare manualmente** organization, project o repository!
+**No need to manually configure** organization, project, or repository!
 
-## 🚀 Installazione
+## 🚀 Installation
 
-### Opzione 1: Da Marketplace (quando pubblicato)
-1. Apri IDE → Settings → Plugins
-2. Cerca "Azure DevOps Integration"
-3. Clicca Install e riavvia l'IDE
+### Option 1: From Marketplace (when published)
+1. Open IDE → Settings → Plugins
+2. Search for "Azure DevOps Integration"
+3. Click Install and restart IDE
 
-### Opzione 2: Build locale
+### Option 2: Local Build
 ```bash
-# Clona il repository
+# Clone the repository
 git clone https://github.com/paol0b/azuredevops-plugin.git
 cd azuredevops-plugin
 
-# Build del plugin
+# Build the plugin
 ./gradlew buildPlugin
 
-# Il file .zip sarà in build/distributions/
+# The .zip file will be in build/distributions/
 ```
 
-Poi installa manualmente:
+Then install manually:
 1. Settings → Plugins → ⚙️ → Install Plugin from Disk
-2. Seleziona il file `.zip` generato
+2. Select the generated `.zip` file
 
-## ⚙️ Configurazione
+## ⚙️ Configuration
 
-### Prima configurazione
+### First Setup
 
-1. **Assicurati di avere un repository Azure DevOps clonato**
+1. **Make sure you have an Azure DevOps repository cloned**
    ```bash
-   # Esempio clone HTTPS
+   # HTTPS clone example
    git clone https://dev.azure.com/mycompany/MyProject/_git/my-repo
    
-   # Esempio clone SSH
+   # SSH clone example
    git clone git@ssh.dev.azure.com:v3/mycompany/MyProject/my-repo
    ```
 
-2. **Apri il progetto nel tuo IDE JetBrains**
+2. **Open the project in your JetBrains IDE**
 
-3. **Vai nelle Settings**
-   - File → Settings su Windows/Linux
-   - IntelliJ IDEA → Preferences su macOS
-   - Oppure: `Ctrl+Alt+S` (Win/Linux) / `Cmd+,` (Mac)
+3. **Go to Settings**
+   - File → Settings on Windows/Linux
+   - IntelliJ IDEA → Preferences on macOS
+   - Or: `Ctrl+Alt+S` (Win/Linux) / `Cmd+,` (Mac)
 
-4. **Naviga in Tools → Azure DevOps**
+4. **Navigate to Tools → Azure DevOps**
 
-5. **Verifica il repository rilevato**
-   - Dovresti vedere: "Detected Repository: **mycompany/MyProject/my-repo**"
-   - Se non appare, il repository non è di Azure DevOps o l'URL remoto non è riconosciuto
+5. **Verify the detected repository**
+   - You should see: "Detected Repository: **mycompany/MyProject/my-repo**"
+   - If it doesn't appear, the repository is not from Azure DevOps or the remote URL is not recognized
 
-6. **Inserisci solo il Personal Access Token (PAT)**
-   - Incolla il token creato precedentemente
+6. **Enter only the Personal Access Token (PAT)**
+   - Paste the token created earlier
 
-7. **Clicca Test Connection** per verificare che tutto funzioni
+7. **Click Test Connection** to verify everything works
 
-8. **Clicca Apply → OK**
+8. **Click Apply → OK**
 
-> 💡 **Nota**: Organization, Project e Repository vengono rilevati automaticamente dall'URL Git remoto!
+> 💡 **Note**: Organization, Project and Repository are automatically detected from the Git remote URL!
 
-### Esempio configurazione
+### Configuration Example
 
 ```
 ✅ Detected Repository: mycompany/MyProject/my-repo
-   Auto-rilevato dall'URL Git remoto
+   Auto-detected from Git remote URL
 
 🔑 Personal Access Token: ••••••••••••••••••••
 ```
 
-## 📝 Utilizzo
+## 📝 Usage
 
-### Visualizzare Pull Request
+### Viewing Pull Requests
 
-1. **Apri il Tool Window "Pull Requests"**
-   - Si trova nella barra inferiore dell'IDE (come il tab Commit/Git/Terminal)
-   - Oppure: View → Tool Windows → Pull Requests
-   - Shortcut: Personalizzabile nelle Keymap
+1. **Open the "Pull Requests" Tool Window**
+   - Located in the IDE's bottom bar (like the Commit/Git/Terminal tab)
+   - Or: View → Tool Windows → Pull Requests
+   - Shortcut: Customizable in Keymap
 
-2. **Esplora le PR**
-   - **Lista PR**: Visualizza tutte le PR organizzate per stato (Active, Completed, Abandoned)
-   - **Dettagli PR**: Click su una PR per vedere titolo, descrizione, branch, author, reviewers e status
-   - **Filtro**: Toggle "Show Only Active" per mostrare solo PR attive
+2. **Explore PRs**
+   - **PR List**: View all PRs organized by state (Active, Completed, Abandoned)
+   - **PR Details**: Click on a PR to see title, description, branch, author, reviewers, and status
+   - **Filter**: Toggle "Show Only Active" to show only active PRs
 
-3. **Azioni disponibili**
-   - **New Pull Request**: Crea una nuova PR
-   - **Refresh**: Aggiorna la lista delle PR
-   - **Open in Browser**: Apri la PR selezionata su Azure DevOps
+3. **Available Actions**
+   - **New Pull Request**: Create a new PR
+   - **Refresh**: Update the PR list
+   - **Open in Browser**: Open the selected PR in Azure DevOps
 
-### Creare una Pull Request
+### Creating a Pull Request
 
-1. **Metodo 1 - Menu VCS:**
-   - Vai su **VCS → Create Azure DevOps PR**
+1. **Method 1 - VCS Menu:**
+   - Go to **VCS → Create Azure DevOps PR**
 
-2. **Metodo 2 - Toolbar:**
-   - Cerca l'icona nella toolbar VCS
+2. **Method 2 - Toolbar:**
+   - Look for the icon in the VCS toolbar
 
-3. **Nel Dialog:**
-   - **Source Branch**: seleziona il branch da cui vuoi creare la PR (default: branch corrente)
-   - **Target Branch**: seleziona il branch di destinazione (default: main o master)
-   - **Title**: inserisci il titolo della PR (obbligatorio)
-   - **Description**: aggiungi una descrizione opzionale
-   - Clicca **OK**
+3. **In the Dialog:**
+   - **Source Branch**: select the branch you want to create the PR from (default: current branch)
+   - **Target Branch**: select the destination branch (default: main or master)
+   - **Title**: enter the PR title (required)
+   - **Description**: add an optional description
+   - Click **OK**
 
-4. **Risultato:**
-   - Vedrai una notifica di successo con il numero della PR
-   - Puoi cliccare "Open in Browser" per aprire la PR su Azure DevOps
+4. **Result:**
+   - You'll see a success notification with the PR number
+   - You can click "Open in Browser" to open the PR in Azure DevOps
 
-### Screenshot Esempio
+### Example Screenshot
 
 ```
 ┌──────────────────────────────────────────────┐
@@ -176,63 +176,63 @@ Poi installa manualmente:
 └──────────────────────────────────────────────┘
 ```
 
-> 💡 **Nota**: Il plugin appare solo se il repository è clonato da Azure DevOps!
+> 💡 **Note**: The plugin only appears if the repository is cloned from Azure DevOps!
 
-## 🏗️ Architettura
+## 🏗️ Architecture
 
-### Struttura del progetto
+### Project Structure
 
 ```
 src/main/kotlin/paol0b/azuredevops/
 ├── actions/
-│   └── CreatePullRequestAction.kt      # Action per creare PR
+│   └── CreatePullRequestAction.kt      # Action to create PR
 ├── model/
 │   └── AzureDevOpsModels.kt           # Data classes
 ├── services/
-│   ├── AzureDevOpsApiClient.kt        # Client REST API
-│   ├── AzureDevOpsConfigService.kt    # Gestione configurazione
-│   └── GitRepositoryService.kt        # Servizio Git locale
+│   ├── AzureDevOpsApiClient.kt        # REST API Client
+│   ├── AzureDevOpsConfigService.kt    # Configuration management
+│   └── GitRepositoryService.kt        # Local Git service
 └── ui/
     ├── AzureDevOpsConfigurable.kt     # UI Settings
-    └── CreatePullRequestDialog.kt     # Dialog creazione PR
+    └── CreatePullRequestDialog.kt     # PR creation dialog
 ```
 
-### Componenti principali
+### Main Components
 
 #### 1. **AzureDevOpsRepositoryDetector**
-- Rileva automaticamente se il repository è di Azure DevOps
-- Supporta URL HTTPS e SSH (formati dev.azure.com e visualstudio.com)
-- Estrae Organization, Project e Repository dall'URL remoto Git
-- Pattern matching per tutti i formati Azure DevOps conosciuti
+- Automatically detects if the repository is from Azure DevOps
+- Supports HTTPS and SSH URLs (dev.azure.com and visualstudio.com formats)
+- Extracts Organization, Project, and Repository from Git remote URL
+- Pattern matching for all known Azure DevOps formats
 
 #### 2. **AzureDevOpsConfigService**
-- Gestisce solo il Personal Access Token (PAT)
-- Usa rilevamento automatico per organization, project, repository
-- Salva il PAT in modo sicuro usando `PasswordSafe`
-- Persistenza con `PersistentStateComponent`
+- Manages only the Personal Access Token (PAT)
+- Uses auto-detection for organization, project, repository
+- Securely saves PAT using `PasswordSafe`
+- Persistence with `PersistentStateComponent`
 
 #### 3. **AzureDevOpsApiClient**
-- Comunica con Azure DevOps REST API v7.0
-- Gestisce autenticazione Basic Auth
-- Error handling robusto
+- Communicates with Azure DevOps REST API v7.0
+- Handles Basic Auth authentication
+- Robust error handling
 
 #### 4. **GitRepositoryService**
-- Interagisce con Git4Idea plugin
-- Rileva branch locali e remoti
-- Determina automaticamente il target branch (main/master)
+- Interacts with Git4Idea plugin
+- Detects local and remote branches
+- Automatically determines target branch (main/master)
 
 #### 5. **CreatePullRequestAction**
-- Action registrata nel menu VCS
-- Mostra il dialog e gestisce la creazione
-- Task in background per non bloccare l'UI
-- Notifiche di successo/errore
+- Action registered in VCS menu
+- Shows dialog and handles creation
+- Background task to not block UI
+- Success/error notifications
 
-## 🔧 Sviluppo
+## 🔧 Development
 
-### Setup ambiente di sviluppo
+### Development Environment Setup
 
 ```bash
-# Clona il repository
+# Clone the repository
 git clone https://github.com/paol0b/azuredevops-plugin.git
 cd azuredevops-plugin
 
@@ -246,118 +246,117 @@ cd azuredevops-plugin
 ./gradlew test
 ```
 
-### Dipendenze
+### Dependencies
 
 - **Kotlin**: 2.1.0
 - **IntelliJ Platform**: 2025.1
-- **Gson**: 2.11.0 (per JSON parsing)
+- **Gson**: 2.11.0 (for JSON parsing)
 - **Git4Idea**: Plugin bundled
 
-### API Azure DevOps utilizzate
+### Azure DevOps APIs Used
 
-- **POST** `/git/repositories/{repositoryId}/pullrequests` - Crea PR
-- **GET** `/git/repositories/{repositoryId}` - Verifica connessione
+- **POST** `/git/repositories/{repositoryId}/pullrequests` - Create PR
+- **GET** `/git/repositories/{repositoryId}` - Verify connection
 
-Documentazione: [Azure DevOps REST API Reference](https://learn.microsoft.com/en-us/rest/api/azure/devops/)
+Documentation: [Azure DevOps REST API Reference](https://learn.microsoft.com/en-us/rest/api/azure/devops/)
 
 ## 🐛 Troubleshooting
 
-### "Questo non è un repository Azure DevOps"
-- Verifica che il repository sia clonato da Azure DevOps
-- Controlla l'URL remoto: `git remote -v`
-- L'URL deve corrispondere a uno dei formati supportati:
+### "This is not an Azure DevOps repository"
+- Verify that the repository is cloned from Azure DevOps
+- Check the remote URL: `git remote -v`
+- The URL must match one of the supported formats:
   - `https://dev.azure.com/{org}/{project}/_git/{repo}`
   - `git@ssh.dev.azure.com:v3/{org}/{project}/{repo}`
 
-### "Autenticazione fallita (401)"
-- Verifica che il PAT sia corretto
-- Controlla che il PAT non sia scaduto
-- Assicurati che il PAT abbia i permessi corretti
+### "Authentication failed (401)"
+- Verify that the PAT is correct
+- Check if the PAT has expired
+- Make sure the PAT has the correct permissions
 
-### "Risorsa non trovata (404)"
-- Il repository potrebbe non esistere o il nome è errato
-- Verifica su Azure DevOps che il repository esista
-- Assicurati di avere accesso al repository
-- Controlla che l'URL remoto Git sia corretto
+### "Resource not found (404)"
+- The repository might not exist or the name is incorrect
+- Verify on Azure DevOps that the repository exists
+- Make sure you have access to the repository
+- Check that the Git remote URL is correct
 
-### "Permessi insufficienti (403)"
-- Il PAT deve avere permessi:
+### "Insufficient permissions (403)"
+- The PAT must have permissions:
   - Code: Read & Write
   - Pull Request: Read & Write
 
-### "Nessun repository Git trovato"
-- Assicurati che il progetto abbia un repository Git inizializzato
-- Verifica che Git4Idea plugin sia abilitato
-- Controlla che ci sia almeno un remote configurato: `git remote -v`
+### "No Git repository found"
+- Make sure the project has an initialized Git repository
+- Verify that Git4Idea plugin is enabled
+- Check that there is at least one remote configured: `git remote -v`
 
-### "Il plugin non appare nel menu VCS"
-- Verifica che il repository sia clonato da Azure DevOps
-- L'action appare solo per repository Azure DevOps rilevati automaticamente
-- Controlla l'URL del remoto Git
+### "Plugin doesn't appear in VCS menu"
+- Verify that the repository is cloned from Azure DevOps
+- The action appears only for automatically detected Azure DevOps repositories
+- Check the Git remote URL
 
-### "Il branch di origine e destinazione non possono essere uguali"
-- Seleziona branch diversi per source e target
-- Tipicamente: feature branch → main/master
+### "Source and target branch cannot be the same"
+- Select different branches for source and target
+- Typically: feature branch → main/master
 
-## 📄 Licenza
+## 📄 License
 
-Questo progetto è rilasciato sotto licenza MIT.
+This project is released under the MIT license.
 
-## 👤 Autore
+## 👤 Author
 
 **Paolo Bertinetti**
 - GitHub: [@paol0b](https://github.com/paol0b)
 
-## 🤝 Contribuire
+## 🤝 Contributing
 
-I contributi sono benvenuti! 
+Contributions are welcome!
 
-1. Fork del progetto
-2. Crea un branch per la feature (`git checkout -b feature/AmazingFeature`)
-3. Commit delle modifiche (`git commit -m 'Add some AmazingFeature'`)
-4. Push al branch (`git push origin feature/AmazingFeature`)
-5. Apri una Pull Request
+1. Fork the project
+2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
 
-## 🗺️ Roadmap
+## Roadmap
 
-### MVP (Implementato ✅)
-- [x] Configurazione Azure DevOps
-- [x] Creazione Pull Request
-- [x] Selezione branch source/target
-- [x] Rilevamento automatico main/master
-- [x] Salvataggio sicuro credenziali
-- [x] Notifiche successo/errore
-- [x] Link alla PR creata
+### MVP (Implemented ✅)
+- [x] Azure DevOps configuration
+- [x] Create Pull Request
+- [x] Source/target branch selection
+- [x] Auto-detect main/master
+- [x] Secure credential storage
+- [x] Success/error notifications
+- [x] Link to created PR
+- [x] Integrated diff viewer
+- [x] Display list of active PRs
 
-### Future Features (Pianificate)
-- [ ] Visualizzare lista PR attive
-- [ ] Approvare/Rifiutare PR dall'IDE
-- [ ] Aggiungere commenti alle PR
-- [ ] Diff viewer integrato
-- [ ] Assegnare reviewer
-- [ ] Gestire work items collegati
-- [ ] Supporto multi-repository
-- [ ] Template per descrizioni PR
+### Planned Features
+- [ ] Approve/Reject PRs from the IDE
+- [ ] Add comments to PRs
+- [ ] Assign reviewers
+- [ ] Multi-repository support
+- [ ] PR description templates
 - [ ] Draft PR support
-- [ ] Auto-complete options
+- [ ] Autocomplete options
 
 ## ❓ FAQ
 
-**Q: Supporta GitHub?**  
-A: No, questo plugin è specifico per Azure DevOps. Per GitHub usa il plugin ufficiale.
+**Q: Does it support GitHub?**  
+A: No, this plugin is specific to Azure DevOps. For GitHub, use the official plugin.
 
-**Q: Funziona con GitLab/Bitbucket?**  
-A: No, solo Azure DevOps.
+**Q: Does it work with GitLab/Bitbucket?**  
+A: No, Azure DevOps only.
 
-**Q: Quali IDE sono supportati?**  
-A: Tutti gli IDE basati su IntelliJ Platform (2025.1+): IntelliJ IDEA, Rider, PyCharm, WebStorm, ecc.
+**Q: Which IDEs are supported?**  
+A: All IntelliJ Platform-based IDEs (2025.1+): IntelliJ IDEA, Rider, PyCharm, WebStorm, etc.
 
-**Q: Il PAT è sicuro?**  
-A: Sì, viene salvato usando PasswordSafe dell'IDE, che cripta le credenziali.
+**Q: Is the PAT secure?**  
+A: Yes, it's saved using the IDE's PasswordSafe, which encrypts credentials.
 
-**Q: Posso usarlo in progetti multi-repository?**  
-A: Attualmente supporta il primo repository trovato. Support multi-repo è nella roadmap.
+**Q: Can I use it in multi-repository projects?**  
+A: Currently supports the first repository found. Multi-repo support is on the roadmap.
 
 ---
 
-**Buon sviluppo! 🚀**
+**Happy coding! 🚀**
