@@ -286,6 +286,7 @@ class AzureDevOpsApiClient(private val project: Project) {
 
     /**
      * Aggiorna lo status di un thread di commenti
+     * Usa Azure DevOps API 7.2 con formato corretto
      * 
      * @param pullRequestId ID della PR
      * @param threadId ID del thread
@@ -300,20 +301,20 @@ class AzureDevOpsApiClient(private val project: Project) {
             throw AzureDevOpsApiException("Azure DevOps non configurato.")
         }
 
-        // Azure DevOps accetta solo il campo status nel PATCH
-        // Non serve inviare i commenti - il server li mantiene automaticamente
-        val request = UpdateThreadStatusRequest(status = status)
+        // Crea il request con il formato corretto per l'API
+        val request = UpdateThreadStatusRequest(status)
         
         val url = buildApiUrl(config.project, config.repository, "/pullRequests/$pullRequestId/threads/$threadId?api-version=$API_VERSION")
         
-        logger.info("Updating thread #$threadId status to ${status.getDisplayName()} in PR #$pullRequestId")
+        logger.info("Updating thread #$threadId status to ${status.getDisplayName()} (API value: ${status.toApiValue()}) in PR #$pullRequestId")
+        logger.info("Request body: ${gson.toJson(request)}")
         
         try {
-            executePatch(url, request, config.personalAccessToken)
-            logger.info("Thread status updated successfully")
+            val response = executePatch(url, request, config.personalAccessToken)
+            logger.info("Thread status updated successfully. Response: $response")
         } catch (e: Exception) {
             logger.error("Failed to update thread status", e)
-            throw AzureDevOpsApiException("Errore durante l'aggiornamento dello stato: ${e.message}", e)
+            throw AzureDevOpsApiException("Errore durante l'aggiornamento dello stato del thread: ${e.message}", e)
         }
     }
 
@@ -353,7 +354,7 @@ class AzureDevOpsApiClient(private val project: Project) {
      */
     @Throws(IOException::class, AzureDevOpsApiException::class)
     private fun executeGet(urlString: String, token: String): String {
-        val url = URL(urlString)
+        val url = java.net.URI(urlString).toURL()
         val connection = url.openConnection() as HttpURLConnection
         
         try {
@@ -381,7 +382,7 @@ class AzureDevOpsApiClient(private val project: Project) {
      */
     @Throws(IOException::class, AzureDevOpsApiException::class)
     private fun executePost(urlString: String, body: Any, token: String): String {
-        val url = URL(urlString)
+        val url = java.net.URI(urlString).toURL()
         val connection = url.openConnection() as HttpURLConnection
         
         try {
@@ -418,7 +419,7 @@ class AzureDevOpsApiClient(private val project: Project) {
      */
     @Throws(IOException::class, AzureDevOpsApiException::class)
     private fun executePatch(urlString: String, body: Any, token: String): String {
-        val url = URL(urlString)
+        val url = java.net.URI(urlString).toURL()
         val connection = url.openConnection() as HttpURLConnection
         
         try {

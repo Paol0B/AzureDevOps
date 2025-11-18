@@ -67,11 +67,19 @@ class PullRequestToolWindow(private val project: Project) {
 
             addSeparator()
 
-            // Action per creare una nuova PR
+            // Action for creating a new PR
             add(object : AnAction("New Pull Request", "Create a new Pull Request", AllIcons.General.Add) {
                 override fun actionPerformed(e: AnActionEvent) {
-                    CreatePullRequestAction().actionPerformed(e)
-                    // Refresh dopo la creazione
+                    // Use ActionManager to properly trigger the action
+                    val createPRAction = CreatePullRequestAction()
+                    ActionManager.getInstance().tryToExecute(
+                        createPRAction,
+                        e.inputEvent,
+                        null,
+                        e.place,
+                        true
+                    )
+                    // Refresh after the creation
                     pullRequestListPanel.refreshPullRequests()
                 }
             })

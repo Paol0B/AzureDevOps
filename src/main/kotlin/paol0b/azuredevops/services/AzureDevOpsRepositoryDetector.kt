@@ -29,6 +29,13 @@ data class AzureDevOpsRepoInfo(
 class AzureDevOpsRepositoryDetector(private val project: Project) {
 
     private val logger = Logger.getInstance(AzureDevOpsRepositoryDetector::class.java)
+    
+    // Cache per evitare rilevamenti ripetuti
+    @Volatile
+    private var cachedInfo: AzureDevOpsRepoInfo? = null
+    @Volatile
+    private var cacheTimestamp: Long = 0
+    private val CACHE_VALIDITY_MS = 30000L // 30 secondi
 
     companion object {
         // Pattern per URL HTTPS: https://[username@]dev.azure.com/{organization}/{project}/_git/{repository}
@@ -68,16 +75,23 @@ class AzureDevOpsRepositoryDetector(private val project: Project) {
      * Rileva automaticamente le informazioni di Azure DevOps dall'URL remoto del repository
      */
     fun detectAzureDevOpsInfo(): AzureDevOpsRepoInfo? {
+        // Controlla la cache
+        val now = System.currentTimeMillis()
+        if (cachedInfo != null && (now - cacheTimestamp) < CACHE_VALIDITY_MS) {
+            return cachedInfo
+        }
+        
         val gitService = GitRepositoryService.getInstance(project)
         val repository = gitService.getCurrentRepository() ?: run {
             logger.debug("No Git repository found")
-            return null
+            // Non aggiorniamo la cache se non c'è repository, potrebbe essere temporaneo
+            return cachedInfo // Ritorna cache precedente se esiste
         }
 
         val remotes = repository.remotes
         if (remotes.isEmpty()) {
             logger.debug("No Git remotes found")
-            return null
+            return cachedInfo // Ritorna cache precedente se esiste
         }
 
         // Prova tutti i remote (origin, upstream, ecc.)
@@ -89,13 +103,28 @@ class AzureDevOpsRepositoryDetector(private val project: Project) {
                 val info = parseAzureDevOpsUrl(url)
                 if (info != null) {
                     logger.info("Detected Azure DevOps repository: ${info.organization}/${info.project}/${info.repository}")
+                    // Aggiorna la cache
+                    cachedInfo = info
+                    cacheTimestamp = now
                     return info
                 }
             }
         }
 
         logger.debug("Not an Azure DevOps repository")
-        return null
+        // Aggiorna cache con null solo se non avevamo cache precedente
+        if (cachedInfo == null) {
+            cacheTimestamp = now
+        }
+        return cachedInfo
+    }
+    
+    /**
+     * Invalida la cache per forzare un nuovo rilevamento
+     */
+    fun invalidateCache() {
+        cachedInfo = null
+        cacheTimestamp = 0
     }
 
     /**

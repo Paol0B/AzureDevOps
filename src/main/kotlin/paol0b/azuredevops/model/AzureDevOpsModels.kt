@@ -328,6 +328,19 @@ enum class ThreadStatus {
         ByDesign -> "By Design"
         Pending -> "Pending"
     }
+    
+    /**
+     * Converte lo status nel formato richiesto dall'API Azure DevOps
+     */
+    fun toApiValue(): String = when(this) {
+        Unknown -> "unknown"
+        Active -> "active"
+        Fixed -> "fixed"
+        WontFix -> "wontFix"
+        Closed -> "closed"
+        ByDesign -> "byDesign"
+        Pending -> "pending"
+    }
 }
 
 /**
@@ -362,14 +375,14 @@ data class CreateCommentRequest(
 
 /**
  * Request per aggiornare lo stato di un thread
- */
-/**
- * Request per aggiornare lo status di un thread
- * Invia solo lo status - Azure DevOps mantiene i commenti automaticamente
+ * Azure DevOps API 7.2 richiede solo il campo status con il valore in minuscolo
  */
 data class UpdateThreadStatusRequest(
-    val status: ThreadStatus
-)
+    @SerializedName("status")
+    val status: String
+) {
+    constructor(status: ThreadStatus) : this(status.toApiValue())
+}
 
 /**
  * Response lista thread

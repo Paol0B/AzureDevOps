@@ -112,9 +112,4 @@ class FileWithCommentsDecorator(private val project: Project) : ProjectViewNodeD
             "Folder contains $total resolved PR comment${if (total != 1) "s" else ""}"
         }
     }
-
-    @Deprecated("Deprecated in base class")
-    override fun decorate(node: PackageDependenciesNode, cellRenderer: ColoredTreeCellRenderer) {
-        // Non necessario per questo use case
-    }
 }

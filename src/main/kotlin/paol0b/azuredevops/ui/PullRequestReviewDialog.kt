@@ -30,60 +30,139 @@ class PullRequestReviewDialog(
 ) : DialogWrapper(project, true) {
 
     private val logger = Logger.getInstance(PullRequestReviewDialog::class.java)
-    private val fileList: JBList<FileChangeItem>
+    private val fileListPanel: JPanel
+    private val selectedFiles = mutableSetOf<Int>() // Indici dei file selezionati
     private var currentFileIndex = 0
 
     init {
         title = "Review PR #${pullRequest.pullRequestId}: ${pullRequest.title}"
         
-        // Crea gli item per la lista
-        val items = fileChanges.mapIndexed { index, change ->
-            FileChangeItem(
+        // Crea il panel con checkbox per ogni file
+        fileListPanel = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            border = JBUI.Borders.empty(5)
+        }
+        
+        // Aggiungi checkbox per ogni file
+        fileChanges.forEachIndexed { index, change ->
+            val checkbox = JCheckBox().apply {
+                isSelected = true // Tutti selezionati di default
+                addActionListener {
+                    if (isSelected) {
+                        selectedFiles.add(index)
+                    } else {
+                        selectedFiles.remove(index)
+                    }
+                }
+            }
+            
+            val fileItem = FileChangeItem(
                 index = index,
                 path = change.item?.path ?: "Unknown",
                 changeType = change.changeType ?: "unknown",
                 change = change
             )
-        }
-        
-        fileList = JBList(items).apply {
-            cellRenderer = FileChangeListRenderer()
-            selectionMode = ListSelectionModel.SINGLE_SELECTION
             
-            addListSelectionListener { e ->
-                if (!e.valueIsAdjusting) {
-                    val selected = selectedValue
-                    if (selected != null) {
-                        currentFileIndex = selected.index
-                        openFileDiff(selected.change)
-                    }
+            val fileLabel = JLabel().apply {
+                val changeIcon = when (fileItem.changeType.lowercase()) {
+                    "add" -> "+ "
+                    "edit" -> "~ "
+                    "delete" -> "- "
+                    "rename" -> "→ "
+                    else -> "• "
                 }
+                
+                val changeColor = when (fileItem.changeType.lowercase()) {
+                    "add" -> "<font color='#00AA00'>"
+                    "edit" -> "<font color='#0066CC'>"
+                    "delete" -> "<font color='#AA0000'>"
+                    else -> "<font color='#888888'>"
+                }
+                
+                text = "<html><b>$changeColor$changeIcon</font></b>${fileItem.fileName}" +
+                        if (fileItem.folderPath.isNotEmpty()) 
+                            "<br><small><font color='#888888'>${fileItem.folderPath}</font></small>" 
+                        else ""
+                
+                cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
+                
+                addMouseListener(object : java.awt.event.MouseAdapter() {
+                    override fun mouseClicked(e: java.awt.event.MouseEvent?) {
+                        openFileDiff(fileItem.change)
+                    }
+                })
             }
+            
+            val itemPanel = JPanel(BorderLayout()).apply {
+                add(checkbox, BorderLayout.WEST)
+                add(fileLabel, BorderLayout.CENTER)
+                border = JBUI.Borders.empty(3, 5)
+                maximumSize = Dimension(Int.MAX_VALUE, 60)
+            }
+            
+            fileListPanel.add(itemPanel)
+            selectedFiles.add(index) // Tutti selezionati di default
         }
         
         init()
         
-        // Seleziona il primo file
-        if (items.isNotEmpty()) {
-            fileList.selectedIndex = 0
-        }
+        // Nessuna selezione iniziale automatica - l'utente clicca sul file
     }
 
     override fun createCenterPanel(): JComponent {
         val panel = JPanel(BorderLayout())
         
-        // Lista file a sinistra
+        // Lista file a sinistra con checkbox
         val leftPanel = JPanel(BorderLayout()).apply {
-            preferredSize = Dimension(300, 500)
+            preferredSize = Dimension(350, 500)
             border = JBUI.Borders.customLine(JBColor.border(), 0, 0, 0, 1)
         }
         
-        val titleLabel = JBLabel("Files Changed (${fileChanges.size})").apply {
+        val headerPanel = JPanel(BorderLayout()).apply {
             border = JBUI.Borders.empty(5, 10)
+        }
+        
+        val titleLabel = JBLabel("Files Changed (${fileChanges.size})").apply {
             font = font.deriveFont(font.style or java.awt.Font.BOLD)
         }
-        leftPanel.add(titleLabel, BorderLayout.NORTH)
-        leftPanel.add(JBScrollPane(fileList), BorderLayout.CENTER)
+        headerPanel.add(titleLabel, BorderLayout.WEST)
+        
+        // Pulsanti Select All / Deselect All
+        val buttonsPanel = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.X_AXIS)
+            
+            val selectAllBtn = JButton("All").apply {
+                toolTipText = "Select all files"
+                addActionListener {
+                    fileListPanel.components.forEach { comp ->
+                        if (comp is JPanel) {
+                            val checkbox = comp.components.firstOrNull { it is JCheckBox } as? JCheckBox
+                            checkbox?.isSelected = true
+                        }
+                    }
+                }
+            }
+            
+            val deselectAllBtn = JButton("None").apply {
+                toolTipText = "Deselect all files"
+                addActionListener {
+                    fileListPanel.components.forEach { comp ->
+                        if (comp is JPanel) {
+                            val checkbox = comp.components.firstOrNull { it is JCheckBox } as? JCheckBox
+                            checkbox?.isSelected = false
+                        }
+                    }
+                }
+            }
+            
+            add(selectAllBtn)
+            add(Box.createHorizontalStrut(5))
+            add(deselectAllBtn)
+        }
+        headerPanel.add(buttonsPanel, BorderLayout.EAST)
+        
+        leftPanel.add(headerPanel, BorderLayout.NORTH)
+        leftPanel.add(JBScrollPane(fileListPanel), BorderLayout.CENTER)
         
         panel.add(leftPanel, BorderLayout.WEST)
         
@@ -94,10 +173,11 @@ class PullRequestReviewDialog(
         
         val infoLabel = JBLabel(
             "<html><b>Review Mode</b><br><br>" +
-                    "1. Seleziona un file dalla lista a sinistra<br>" +
-                    "2. Il diff verrà aperto in una finestra separata<br>" +
-                    "3. Puoi vedere e aggiungere commenti nel diff<br><br>" +
-                    "<i>Usa i pulsanti Next/Previous per navigare</i></html>"
+                    "1. <b>Seleziona i file</b> con le checkbox (selezionati per default)<br>" +
+                    "2. <b>Clicca sul nome del file</b> per aprire il diff<br>" +
+                    "3. Usa il pulsante <b>'Show Combined Diff'</b> per vedere tutti i file selezionati<br>" +
+                    "4. Usa 'All'/'None' per selezionare/deselezionare tutti<br><br>" +
+                    "<i>Solo i file con checkbox selezionata saranno inclusi nel diff combinato</i></html>"
         )
         centerPanel.add(infoLabel, BorderLayout.NORTH)
         
@@ -110,10 +190,36 @@ class PullRequestReviewDialog(
 
     override fun createActions(): Array<Action> {
         return arrayOf(
-            PreviousFileAction(),
-            NextFileAction(),
+            ShowCombinedDiffAction(),
             okAction
         )
+    }
+    
+    /**
+     * Action per mostrare il diff combinato dei file selezionati
+     */
+    private inner class ShowCombinedDiffAction : AbstractAction("Show Combined Diff") {
+        init {
+            putValue(Action.MNEMONIC_KEY, 'D'.code)
+        }
+        
+        override fun actionPerformed(e: java.awt.event.ActionEvent?) {
+            if (selectedFiles.isEmpty()) {
+                JOptionPane.showMessageDialog(
+                    contentPane,
+                    "Seleziona almeno un file con la checkbox",
+                    "Nessun File Selezionato",
+                    JOptionPane.WARNING_MESSAGE
+                )
+                return
+            }
+            
+            // Apri i diff dei file selezionati in sequenza
+            val selectedChanges = selectedFiles.sorted().map { fileChanges[it] }
+            selectedChanges.forEach { change ->
+                openFileDiff(change)
+            }
+        }
     }
 
     /**
@@ -181,38 +287,6 @@ class PullRequestReviewDialog(
     }
 
     /**
-     * Action per navigare al file precedente
-     */
-    private inner class PreviousFileAction : AbstractAction("< Previous") {
-        init {
-            putValue(Action.MNEMONIC_KEY, 'P'.code)
-        }
-        
-        override fun actionPerformed(e: java.awt.event.ActionEvent?) {
-            if (currentFileIndex > 0) {
-                currentFileIndex--
-                fileList.selectedIndex = currentFileIndex
-            }
-        }
-    }
-
-    /**
-     * Action per navigare al file successivo
-     */
-    private inner class NextFileAction : AbstractAction("Next >") {
-        init {
-            putValue(Action.MNEMONIC_KEY, 'N'.code)
-        }
-        
-        override fun actionPerformed(e: java.awt.event.ActionEvent?) {
-            if (currentFileIndex < fileChanges.size - 1) {
-                currentFileIndex++
-                fileList.selectedIndex = currentFileIndex
-            }
-        }
-    }
-
-    /**
      * Item della lista file
      */
     data class FileChangeItem(
@@ -223,44 +297,5 @@ class PullRequestReviewDialog(
     ) {
         val fileName: String = path.substringAfterLast('/')
         val folderPath: String = path.substringBeforeLast('/', "")
-    }
-
-    /**
-     * Renderer per la lista file con icone colorate
-     */
-    private class FileChangeListRenderer : DefaultListCellRenderer() {
-        override fun getListCellRendererComponent(
-            list: JList<*>?,
-            value: Any?,
-            index: Int,
-            isSelected: Boolean,
-            cellHasFocus: Boolean
-        ): java.awt.Component {
-            val component = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus)
-            
-            if (value is FileChangeItem) {
-                val changeIcon = when (value.changeType.lowercase()) {
-                    "add" -> "+ "
-                    "edit" -> "~ "
-                    "delete" -> "- "
-                    "rename" -> "→ "
-                    else -> "• "
-                }
-                
-                val changeColor = when (value.changeType.lowercase()) {
-                    "add" -> "<font color='#00AA00'>"
-                    "edit" -> "<font color='#0066CC'>"
-                    "delete" -> "<font color='#AA0000'>"
-                    else -> "<font color='#888888'>"
-                }
-                
-                text = "<html><b>$changeColor$changeIcon</font></b>${value.fileName}" +
-                        if (value.folderPath.isNotEmpty()) "<br><small><font color='#888888'>${value.folderPath}</font></small>" else ""
-                
-                border = JBUI.Borders.empty(5, 10)
-            }
-            
-            return component
-        }
     }
 }

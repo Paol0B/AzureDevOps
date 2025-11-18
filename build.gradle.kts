@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "paol0b"
-version = "1.0"
+version = "1.1"
 
 repositories {
     mavenCentral()
@@ -36,7 +36,13 @@ intellijPlatform {
         }
 
         changeNotes = """
-            Initial version
+            Version 1.1:
+            - Added checkbox selection for files in PR review diff
+            - Enhanced PR comments management with auto-refresh and feedback
+            - Fixed all JetBrains API deprecations for IntelliJ 2025+
+            - Added custom Azure DevOps icon
+            - Tool window now always visible and positioned on the right
+            - Improved PR review workflow with combined diff support
         """.trimIndent()
     }
 }

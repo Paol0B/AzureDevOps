@@ -14,48 +14,50 @@
          Guidelines: https://plugins.jetbrains.com/docs/marketplace/best-practices-for-listing.html#plugin-description -->
     <description><![CDATA[
         <h2>Azure DevOps Integration for JetBrains IDEs</h2>
-        <p>Integra Azure DevOps direttamente nel tuo IDE JetBrains con un Tool Window dedicato per gestire Pull Request, simile a Visual Studio.</p>
-        
-        <h3>✨ Caratteristiche Principali:</h3>
+        <p>Integrate Azure DevOps directly into your JetBrains IDE with a dedicated Tool Window for managing Pull Requests, inspired by Visual Studio.</p>
+
+        <h3>✨ Key Features:</h3>
         <ul>
-            <li><b>🪟 Tool Window "Azure DevOps PRs":</b> Finestra dedicata nella sidebar per visualizzare e gestire tutte le PR</li>
-            <li><b>📋 Lista PR Organizzata:</b> Visualizza tutte le PR raggruppate per stato (Active, Completed, Abandoned)</b></li>
-            <li><b>� Dettagli Completi:</b> Pannello dettagli con titolo, descrizione, branch, author, reviewers e status</li>
-            <li><b>🎨 Badge Status:</b> Identificazione visiva immediata dello stato delle PR con colori</li>
-            <li><b>�🔍 Filtri:</b> Mostra solo PR attive o tutte con un click</li>
-            <li><b>🔍 Rilevamento Automatico:</b> Il plugin rileva automaticamente se il repository è di Azure DevOps analizzando l'URL Git remoto</li>
-            <li><b>⚡ Configurazione Semplice:</b> Richiede solo il Personal Access Token - Organization, Project e Repository vengono rilevati automaticamente</li>
-            <li><b>📝 Crea Pull Request:</b> Crea PR verso main/master direttamente dall'IDE o dal Tool Window</li>
-            <li><b>🌿 Selezione Branch:</b> Scegli branch di origine e destinazione con autocompletamento</li>
-            <li><b>🔒 Sicurezza:</b> Il PAT viene salvato in modo sicuro usando il sistema di password storage dell'IDE</li>
-            <li><b>🔔 Notifiche:</b> Ricevi feedback immediato sul successo o errore delle operazioni</li>
-            <li><b>🔗 Link Rapido:</b> Apri le PR direttamente nel browser con un click</li>
-            <li><b>👁️ Smart Visibility:</b> Tool window e actions appaiono solo per repository Azure DevOps</li>
+            <li><b>🪟 "Azure DevOps PRs" Tool Window:</b> Sidebar window to view and manage all pull requests</li>
+            <li><b>📋 Organized PR List:</b> See all PRs grouped by status (Active, Completed, Abandoned)</li>
+            <li><b>🔎 Full Details:</b> Panel with title, description, branch, author, reviewers, and status</li>
+            <li><b>🎨 Status Badges:</b> Instantly identify PR status with color-coded badges</li>
+            <li><b>🔍 Filters:</b> Show only active PRs or all PRs with one click</li>
+            <li><b>� Automatic Detection:</b> The plugin auto-detects Azure DevOps repositories by analyzing the Git remote URL</li>
+            <li><b>⚡ Easy Setup:</b> Only the Personal Access Token is required; Organization, Project, and Repository are auto-detected</li>
+            <li><b>📝 Create Pull Requests:</b> Create PRs to main/master directly from the IDE or Tool Window</li>
+            <li><b>🌿 Branch Selection:</b> Choose source and target branches with autocomplete</li>
+            <li><b>🔒 Secure Storage:</b> PAT is securely saved using the IDE's password storage system</li>
+            <li><b>🔔 Notifications:</b> Get instant feedback on success or errors</li>
+            <li><b>🔗 Quick Links:</b> Open PRs in your browser with one click</li>
+            <li><b>👁️ Smart Visibility:</b> Tool window and actions appear only for Azure DevOps repositories</li>
+            <li><b>☑️ File Selection for Diff:</b> Select which files to include in PR review diffs using checkboxes</li>
+            <li><b>💬 Enhanced Comments:</b> View, add, and manage PR comments with auto-refresh and feedback</li>
         </ul>
-        
-        <h3>📋 Requisiti:</h3>
+
+        <h3>📋 Requirements:</h3>
         <ul>
-            <li>Repository clonato da Azure DevOps (URL HTTPS o SSH)</li>
-            <li>Personal Access Token con permessi Code e Pull Request</li>
+            <li>Repository cloned from Azure DevOps (HTTPS or SSH URL)</li>
+            <li>Personal Access Token with Code and Pull Request permissions</li>
         </ul>
-        
-        <h3>🚀 Come Usare:</h3>
+
+        <h3>🚀 How to Use:</h3>
         <ol>
-            <li>Clona un repository da Azure DevOps</li>
-            <li>Vai in <b>Settings → Tools → Azure DevOps</b></li>
-            <li>Inserisci solo il <b>Personal Access Token</b> (Organization/Project/Repository sono auto-rilevati)</li>
-            <li>Apri il <b>Tool Window "Azure DevOps PRs"</b> nella sidebar</li>
-            <li>Visualizza, crea e gestisci le tue Pull Request!</li>
+            <li>Clone a repository from Azure DevOps</li>
+            <li>Go to <b>Settings → Tools → Azure DevOps</b></li>
+            <li>Enter only your <b>Personal Access Token</b> (Organization/Project/Repository are auto-detected)</li>
+            <li>Open the <b>"Azure DevOps PRs" Tool Window</b> in the sidebar</li>
+            <li>View, create, and manage your Pull Requests!</li>
         </ol>
-        
-        <h3>🌐 URL Supportati:</h3>
+
+        <h3>🌐 Supported URLs:</h3>
         <ul>
             <li>HTTPS: <code>https://dev.azure.com/{org}/{project}/_git/{repo}</code></li>
             <li>SSH: <code>git@ssh.dev.azure.com:v3/{org}/{project}/{repo}</code></li>
             <li>Legacy: <code>https://{org}.visualstudio.com/{project}/_git/{repo}</code></li>
         </ul>
-        
-        <p><em>Funziona solo con repository Azure DevOps. Il plugin rileva automaticamente l'URL remoto Git e mostra le funzionalità solo se applicabile.</em></p>
+
+        <p><em>Works only with Azure DevOps repositories. The plugin automatically detects the Git remote URL and shows features only when applicable.</em></p>
     ]]></description>
 
     <!-- Product and plugin compatibility requirements.
@@ -84,9 +86,11 @@
         <!-- Tool Window -->
         <toolWindow
             id="Azure DevOps PRs"
-            anchor="bottom"
-            icon="AllIcons.Vcs.Vendors.Github"
-            factoryClass="paol0b.azuredevops.toolwindow.PullRequestToolWindowFactory"/>
+            anchor="right"
+            icon="paol0b.azuredevops.AzureDevOpsIcons.ToolWindow"
+            factoryClass="paol0b.azuredevops.toolwindow.PullRequestToolWindowFactory"
+            canCloseContents="false"
+            doNotActivateOnStart="false"/>
         
         <!-- Comments Navigator Tool Window -->
         <toolWindow
@@ -106,6 +110,9 @@
         <listener 
             class="paol0b.azuredevops.listeners.FileOpenedListener"
             topic="com.intellij.openapi.fileEditor.FileEditorManagerListener"/>
+        <listener
+            class="paol0b.azuredevops.listeners.GitRepositoryChangeListener"
+            topic="com.intellij.openapi.vcs.BranchChangeListener"/>
     </projectListeners>
 
     <actions>

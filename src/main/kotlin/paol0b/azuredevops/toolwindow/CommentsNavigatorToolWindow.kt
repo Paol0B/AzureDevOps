@@ -139,16 +139,20 @@ class CommentsNavigatorPanel(private val project: Project) : JPanel(BorderLayout
                 // Carica tutti i thread di commenti
                 val threads = apiClient.getCommentThreads(pullRequest.pullRequestId)
                 
-                // Filtra solo thread con path e raggruppa per file
+                // Raggruppa commenti: prima quelli nei file, poi quelli generali
                 val commentItems = threads
-                    .filter { it.getFilePath() != null && it.getRightFileStart() != null }
-                    .sortedWith(compareBy({ it.getFilePath() }, { it.getRightFileStart() }))
+                    .sortedWith(compareBy(
+                        { it.getFilePath() == null }, // Commenti generali alla fine
+                        { it.getFilePath() }, 
+                        { it.getRightFileStart() ?: 0 }
+                    ))
                     .map { thread ->
                         CommentItem(
                             thread = thread,
-                            filePath = thread.getFilePath()!!,
-                            line = thread.getRightFileStart()!!,
-                            pullRequest = pullRequest
+                            filePath = thread.getFilePath() ?: "[Commento generale PR]",
+                            line = thread.getRightFileStart() ?: 0,
+                            pullRequest = pullRequest,
+                            isGeneralComment = thread.getFilePath() == null
                         )
                     }
 
@@ -159,7 +163,17 @@ class CommentsNavigatorPanel(private val project: Project) : JPanel(BorderLayout
                     commentItems.forEach { model.addElement(it) }
                     commentsList.model = model
 
-                    updateStatus("Found ${commentItems.size} comments in PR #${pullRequest.pullRequestId}")
+                    val fileComments = commentItems.count { !it.isGeneralComment }
+                    val generalComments = commentItems.count { it.isGeneralComment }
+                    val statusText = buildString {
+                        append("PR #${pullRequest.pullRequestId}: ")
+                        if (fileComments > 0) append("$fileComments commenti su file")
+                        if (generalComments > 0) {
+                            if (fileComments > 0) append(", ")
+                            append("$generalComments commenti generali")
+                        }
+                    }
+                    updateStatus(statusText)
                 }
 
             } catch (e: Exception) {
@@ -171,6 +185,18 @@ class CommentsNavigatorPanel(private val project: Project) : JPanel(BorderLayout
 
     private fun navigateToComment(item: CommentItem) {
         logger.info("Navigating to comment: ${item.filePath}:${item.line}")
+        
+        // Se è un commento generale, apri solo il dialog
+        if (item.isGeneralComment) {
+            val dialog = paol0b.azuredevops.ui.CommentThreadDialog(
+                project,
+                item.thread,
+                item.pullRequest,
+                paol0b.azuredevops.services.PullRequestCommentsService.getInstance(project)
+            )
+            dialog.show()
+            return
+        }
         
         // Trova il file nel progetto
         val projectBasePath = project.basePath ?: return
@@ -216,9 +242,10 @@ data class CommentItem(
     val thread: CommentThread,
     val filePath: String,
     val line: Int,
-    val pullRequest: PullRequest
+    val pullRequest: PullRequest,
+    val isGeneralComment: Boolean = false
 ) {
-    val fileName: String = filePath.substringAfterLast('/')
+    val fileName: String = if (isGeneralComment) filePath else filePath.substringAfterLast('/')
     val author: String = thread.comments?.firstOrNull()?.author?.displayName ?: "Unknown"
     val content: String = thread.comments?.firstOrNull()?.content?.take(100) ?: ""
     val isResolved: Boolean = thread.isResolved()
@@ -243,22 +270,30 @@ class CommentItemRenderer : DefaultListCellRenderer() {
             val statusIcon = if (value.isResolved) "✓" else "💬"
             val statusColor = if (value.isResolved) "gray" else "orange"
             val repliesText = if (value.commentCount > 1) " (+${value.commentCount - 1})" else ""
+            val locationText = if (value.isGeneralComment) {
+                "<b><font color='blue'>📋 ${value.fileName}</font></b>"
+            } else {
+                "<b><font color='$statusColor'>$statusIcon</font> ${value.fileName}:${value.line}</b>"
+            }
             
             text = """
                 <html>
                 <div style='padding: 5px;'>
-                    <b><font color='$statusColor'>$statusIcon</font> ${value.fileName}:${value.line}</b>$repliesText<br>
+                    $locationText$repliesText<br>
                     <font color='gray' size='-1'>${value.author}: ${value.content}</font>
                 </div>
                 </html>
             """.trimIndent()
             
-            // Colore di sfondo diverso per risolti/attivi
+            // Colore di sfondo diverso per risolti/attivi/generali
             if (!isSelected) {
-                background = if (value.isResolved) {
-                    list?.background
-                } else {
-                    JBColor(
+                background = when {
+                    value.isGeneralComment && !value.isResolved -> JBColor(
+                        java.awt.Color(240, 248, 255),
+                        java.awt.Color(45, 55, 70)
+                    )
+                    value.isResolved -> list?.background
+                    else -> JBColor(
                         java.awt.Color(255, 250, 240),
                         java.awt.Color(60, 55, 45)
                     )

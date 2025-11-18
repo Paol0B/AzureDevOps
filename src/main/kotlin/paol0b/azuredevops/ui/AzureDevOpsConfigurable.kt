@@ -379,7 +379,7 @@ class AzureDevOpsConfigurable(private val project: Project) : Configurable {
     }
     
     private fun testConnectionDirectly(url: String, token: String) {
-        val connection = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+        val connection = java.net.URI(url).toURL().openConnection() as java.net.HttpURLConnection
         
         try {
             connection.requestMethod = "GET"
