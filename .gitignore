@@ -116,3 +116,4 @@ secrets.json
 *.exe
 *.dll
 *.so
+.intellijPlatform/
