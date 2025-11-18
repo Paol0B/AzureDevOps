@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "paol0b"
-version = "1.1"
+version = "2.0-beta2"
 
 repositories {
     mavenCentral()
@@ -36,6 +36,13 @@ intellijPlatform {
         }
 
         changeNotes = """
+            Version 1.2:
+            - Added Changes and Commits tabs to Create Pull Request dialog
+            - Shows file changes grouped by directory with change type indicators [A]dded, [M]odified, [D]eleted
+            - Displays all commits that will be included in the pull request
+            - Changes and commits update automatically when selecting different branches
+            - Added Clone Repository integration with Azure DevOps account management
+            
             Version 1.1:
             - Added checkbox selection for files in PR review diff
             - Enhanced PR comments management with auto-refresh and feedback

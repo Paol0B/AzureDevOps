@@ -182,19 +182,36 @@ class GitCredentialHelperService(private val project: Project) {
      */
     fun isCredentialHelperAvailable(): Boolean {
         return try {
-            val processBuilder = ProcessBuilder("git", "credential", "--help")
-            
-            // IMPORTANTE: Previeni l'apertura di finestre su Windows
+            // First, check whether a credential.helper is configured for this repository or globally.
+            // This avoids calling `git credential --help` which on some Windows setups may open the
+            // local HTML documentation (file://...) in the browser.
+            val configBuilder = ProcessBuilder("git", "config", "--get", "credential.helper")
             if (System.getProperty("os.name").lowercase().contains("windows")) {
-                processBuilder.redirectError(ProcessBuilder.Redirect.PIPE)
-                processBuilder.redirectOutput(ProcessBuilder.Redirect.PIPE)
+                configBuilder.redirectError(ProcessBuilder.Redirect.PIPE)
+                configBuilder.redirectOutput(ProcessBuilder.Redirect.PIPE)
             } else {
-                processBuilder.redirectErrorStream(true)
+                configBuilder.redirectErrorStream(true)
             }
-            
-            val process = processBuilder.start()
-            val exitCode = process.waitFor()
-            exitCode == 0
+            val configProcess = configBuilder.start()
+            val output = configProcess.inputStream.bufferedReader().use { it.readText().trim() }
+            configProcess.waitFor()
+
+            if (output.isNotBlank()) {
+                // A helper is configured (e.g. 'manager' or 'manager-core') — consider it available
+                true
+            } else {
+                // Fallback: verify that git is present on PATH by checking version
+                val versionBuilder = ProcessBuilder("git", "--version")
+                if (System.getProperty("os.name").lowercase().contains("windows")) {
+                    versionBuilder.redirectError(ProcessBuilder.Redirect.PIPE)
+                    versionBuilder.redirectOutput(ProcessBuilder.Redirect.PIPE)
+                } else {
+                    versionBuilder.redirectErrorStream(true)
+                }
+                val versionProcess = versionBuilder.start()
+                val exitCode = versionProcess.waitFor()
+                exitCode == 0
+            }
         } catch (e: Exception) {
             logger.debug("Git credential helper not available", e)
             false

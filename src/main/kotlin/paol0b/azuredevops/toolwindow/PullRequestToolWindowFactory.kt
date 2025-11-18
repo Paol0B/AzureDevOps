@@ -15,6 +15,15 @@ class PullRequestToolWindowFactory : ToolWindowFactory, DumbAware {
         val pullRequestToolWindow = PullRequestToolWindow(project)
         val content = toolWindow.contentManager.factory.createContent(pullRequestToolWindow.getContent(), "", false)
         toolWindow.contentManager.addContent(content)
+
+        // Ensure we stop polling when the content is removed
+        toolWindow.contentManager.addContentManagerListener(object : com.intellij.ui.content.ContentManagerAdapter() {
+            override fun contentRemoved(event: com.intellij.ui.content.ContentManagerEvent) {
+                if (event.content == content) {
+                    pullRequestToolWindow.dispose()
+                }
+            }
+        })
     }
 
     override fun shouldBeAvailable(project: Project): Boolean = true

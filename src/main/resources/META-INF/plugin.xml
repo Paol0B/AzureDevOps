@@ -1,5 +1,6 @@
 <!-- Plugin Configuration File. Read more: https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
 <idea-plugin>
+    <idea-version since-build="251" />
     <!-- Unique identifier of the plugin. It should be FQN. It cannot be changed between the plugin versions. -->
     <id>paol0b.AzureDevOps</id>
 
@@ -69,6 +70,11 @@
     <!-- Extension points defined by the plugin.
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
     <extensions defaultExtensionNs="com.intellij">
+        <!-- Azure DevOps Checkout Provider for Clone Repository dialog -->
+        <checkoutProvider implementation="paol0b.azuredevops.checkout.AzureDevOpsCheckoutProvider"/>
+        <!-- Application-level service for account management -->
+        <applicationService serviceImplementation="paol0b.azuredevops.checkout.AzureDevOpsAccountManager"/>
+        
         <!-- Project Settings -->
         <projectConfigurable 
             parentId="tools" 
@@ -116,14 +122,29 @@
     </projectListeners>
 
     <actions>
-        <!-- Add to VCS menu -->
+        <!-- Azure DevOps Group in Git Menu -->
+          <group id="AzureDevOps.Group" 
+                    text="Azure DevOps" 
+                    icon="paol0b.azuredevops.AzureDevOpsIcons.ToolWindow"
+                    popup="true">
+                <!-- Place this group immediately after the GitHub menu entry -->
+                <add-to-group group-id="VcsGroups" anchor="after" relative-to-action="GitHub"/>
+            
+            <action 
+                id="AzureDevOps.CreatePullRequest"
+                class="paol0b.azuredevops.actions.CreatePullRequestAction"
+                text="Create Pull Request..."
+                description="Create a Pull Request on Azure DevOps"
+                icon="paol0b.azuredevops.AzureDevOpsIcons.ToolWindow"/>
+        </group>
+        
+        <!-- Add to VCS menu (legacy) -->
         <action 
-            id="AzureDevOps.CreatePullRequest"
+            id="AzureDevOps.CreatePullRequest.Legacy"
             class="paol0b.azuredevops.actions.CreatePullRequestAction"
             text="Create Azure DevOps PR"
             description="Create a Pull Request on Azure DevOps"
-            icon="AllIcons.Vcs.Vendors.Github">
-            <add-to-group group-id="VcsGroups" anchor="last"/>
+            icon="paol0b.azuredevops.AzureDevOpsIcons.ToolWindow">
             <add-to-group group-id="Vcs.MainMenu" anchor="last"/>
         </action>
         

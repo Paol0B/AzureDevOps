@@ -49,6 +49,8 @@ class AzureDevOpsApiClient(private val project: Project) {
      * @param targetBranch Branch di destinazione (es: "refs/heads/main")
      * @param title Titolo della PR
      * @param description Descrizione della PR (opzionale)
+     * @param requiredReviewers Lista di reviewer richiesti
+     * @param optionalReviewers Lista di reviewer opzionali
      * @return PullRequestResponse se successo, altrimenti lancia un'eccezione
      */
     @Throws(AzureDevOpsApiException::class)
@@ -56,7 +58,9 @@ class AzureDevOpsApiClient(private val project: Project) {
         sourceBranch: String,
         targetBranch: String,
         title: String,
-        description: String = ""
+        description: String = "",
+        requiredReviewers: List<Identity> = emptyList(),
+        optionalReviewers: List<Identity> = emptyList()
     ): PullRequestResponse {
         val configService = AzureDevOpsConfigService.getInstance(project)
         val config = configService.getConfig()
@@ -65,17 +69,32 @@ class AzureDevOpsApiClient(private val project: Project) {
             throw AzureDevOpsApiException("Azure DevOps non configurato. Configura Organization, Project, Repository e PAT nelle impostazioni.")
         }
 
+        // Crea la lista di reviewer nel formato richiesto dall'API
+        val reviewers = mutableListOf<ReviewerRequest>()
+        requiredReviewers.forEach { identity ->
+            identity.id?.let { id ->
+                reviewers.add(ReviewerRequest(id = id, isRequired = true))
+            }
+        }
+        optionalReviewers.forEach { identity ->
+            identity.id?.let { id ->
+                reviewers.add(ReviewerRequest(id = id, isRequired = false))
+            }
+        }
+
         val request = CreatePullRequestRequest(
             sourceRefName = sourceBranch,
             targetRefName = targetBranch,
             title = title,
-            description = description
+            description = description,
+            reviewers = if (reviewers.isNotEmpty()) reviewers else null
         )
 
         // URL: https://dev.azure.com/{organization}/{project}/_apis/git/repositories/{repositoryId}/pullrequests?api-version=7.0
         val url = buildApiUrl(config.project, config.repository, "/pullrequests?api-version=$API_VERSION")
         
         logger.info("Creating Pull Request: $sourceBranch -> $targetBranch")
+        logger.info("Reviewers: ${reviewers.size} (${requiredReviewers.size} required, ${optionalReviewers.size} optional)")
         
         return try {
             val response = executePost(url, request, config.personalAccessToken)
@@ -584,6 +603,98 @@ class AzureDevOpsApiClient(private val project: Project) {
             logger.error("Failed to parse file content response", e)
             logger.error("Response was: $response")
             ""
+        }
+    }
+    
+    /**
+     * Cerca identities (utenti/gruppi) per aggiungere reviewer alla PR
+     * Strategia: ottiene gli utenti dalle PR recenti del repository
+     * Questo approccio non richiede permessi speciali, solo quelli già usati per le PR
+     * 
+     * @param searchText Testo di ricerca (nome, email, etc.)
+     * @return Lista di identities trovate
+     */
+    @Throws(AzureDevOpsApiException::class)
+    fun searchIdentities(searchText: String): List<Identity> {
+        val configService = AzureDevOpsConfigService.getInstance(project)
+        val config = configService.getConfig()
+
+        if (!config.isValid()) {
+            logger.error("Config not valid for searchIdentities")
+            throw AzureDevOpsApiException("Azure DevOps non configurato.")
+        }
+
+        logger.info("=== SEARCHING IDENTITIES ===")
+        logger.info("Search text: '$searchText'")
+        logger.info("Organization: ${config.organization}")
+        logger.info("Project: ${config.project}")
+        
+        return try {
+            // Strategia: ottiene utenti dalle PR recenti (createdBy + reviewers)
+            // Questo usa gli stessi permessi già funzionanti per getPullRequests
+            logger.info("Getting identities from recent pull requests...")
+            
+            val pullRequests = getPullRequests(status = "all", top = 100)
+            logger.info("Retrieved ${pullRequests.size} pull requests")
+            
+            val identitiesMap = mutableMapOf<String, Identity>()
+            
+            // Raccogli tutti gli utenti unici da createdBy e reviewers
+            pullRequests.forEach { pr ->
+                // Aggiungi il creatore della PR
+                pr.createdBy?.let { creator ->
+                    creator.id?.let { id ->
+                        if (!identitiesMap.containsKey(id)) {
+                            identitiesMap[id] = Identity(
+                                id = creator.id,
+                                displayName = creator.displayName,
+                                uniqueName = creator.uniqueName,
+                                imageUrl = creator.imageUrl,
+                                descriptor = null
+                            )
+                        }
+                    }
+                }
+                
+                // Aggiungi i reviewers
+                pr.reviewers?.forEach { reviewer ->
+                    reviewer.id?.let { id ->
+                        if (!identitiesMap.containsKey(id)) {
+                            identitiesMap[id] = Identity(
+                                id = reviewer.id,
+                                displayName = reviewer.displayName,
+                                uniqueName = reviewer.uniqueName,
+                                imageUrl = reviewer.imageUrl,
+                                descriptor = null
+                            )
+                        }
+                    }
+                }
+            }
+            
+            logger.info("Collected ${identitiesMap.size} unique users from pull requests")
+            
+            // Filtra per il testo di ricerca
+            val filtered = identitiesMap.values.filter { identity ->
+                val displayName = identity.displayName ?: ""
+                val uniqueName = identity.uniqueName ?: ""
+                (displayName.contains(searchText, ignoreCase = true) || 
+                 uniqueName.contains(searchText, ignoreCase = true)) &&
+                displayName.isNotBlank()
+            }.sortedBy { it.displayName }
+            
+            logger.info("Found ${filtered.size} matching users after filtering")
+            filtered.forEachIndexed { index, identity ->
+                logger.info("Match $index: displayName=${identity.displayName}, uniqueName=${identity.uniqueName}")
+            }
+            
+            filtered.take(10)
+            
+        } catch (e: Exception) {
+            logger.error("Failed to search identities from pull requests", e)
+            logger.error("Exception type: ${e.javaClass.name}")
+            logger.error("Exception message: ${e.message}")
+            emptyList()
         }
     }
 }

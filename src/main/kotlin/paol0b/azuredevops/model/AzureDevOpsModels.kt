@@ -26,7 +26,17 @@ data class CreatePullRequestRequest(
     val sourceRefName: String,
     val targetRefName: String,
     val title: String,
-    val description: String = ""
+    val description: String = "",
+    val reviewers: List<ReviewerRequest>? = null
+)
+
+/**
+ * Reviewer da aggiungere alla PR durante la creazione
+ */
+data class ReviewerRequest(
+    val id: String,
+    @SerializedName("isRequired")
+    val isRequired: Boolean = false
 )
 
 /**
@@ -400,4 +410,25 @@ data class CommitRef(
     val commitId: String?,
     @SerializedName("url")
     val url: String?
+)
+
+/**
+ * Identity (user/group) da Azure DevOps per la ricerca reviewer
+ */
+data class Identity(
+    val id: String?,
+    val displayName: String?,
+    @SerializedName("uniqueName")
+    val uniqueName: String?,
+    @SerializedName("imageUrl")
+    val imageUrl: String?,
+    val descriptor: String?
+)
+
+/**
+ * Response dalla ricerca identities
+ */
+data class IdentitySearchResponse(
+    val value: List<Identity>?,
+    val count: Int?
 )

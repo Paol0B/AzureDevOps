@@ -10,6 +10,7 @@ import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
+import paol0b.azuredevops.model.Identity
 import paol0b.azuredevops.model.PullRequestResponse
 import paol0b.azuredevops.services.AzureDevOpsApiClient
 import paol0b.azuredevops.services.AzureDevOpsApiException
@@ -82,15 +83,25 @@ class CreatePullRequestAction : AnAction() {
         }
 
         // Mostra il dialog per creare la PR
-        val dialog = CreatePullRequestDialog(project, gitService)
-        if (dialog.showAndGet()) {
+        val dialog = CreatePullRequestDialog.create(project, gitService)
+        if (dialog != null && dialog.showAndGet()) {
             val sourceBranch = dialog.getSourceBranch()
             val targetBranch = dialog.getTargetBranch()
             val title = dialog.getPrTitle()
             val description = dialog.getDescription()
+            val requiredReviewers = dialog.getRequiredReviewers()
+            val optionalReviewers = dialog.getOptionalReviewers()
 
             if (sourceBranch != null && targetBranch != null) {
-                createPullRequest(project, sourceBranch.name, targetBranch.name, title, description)
+                createPullRequest(
+                    project, 
+                    sourceBranch.name, 
+                    targetBranch.name, 
+                    title, 
+                    description,
+                    requiredReviewers,
+                    optionalReviewers
+                )
             }
         }
     }
@@ -115,7 +126,9 @@ class CreatePullRequestAction : AnAction() {
         sourceBranch: String,
         targetBranch: String,
         title: String,
-        description: String
+        description: String,
+        requiredReviewers: List<Identity>,
+        optionalReviewers: List<Identity>
     ) {
         ProgressManager.getInstance().run(object : Task.Backgroundable(
             project,
@@ -153,7 +166,9 @@ class CreatePullRequestAction : AnAction() {
                         sourceBranch = sourceBranch,
                         targetBranch = targetBranch,
                         title = title,
-                        description = description
+                        description = description,
+                        requiredReviewers = requiredReviewers,
+                        optionalReviewers = optionalReviewers
                     )
 
                     // Mostra notifica di successo

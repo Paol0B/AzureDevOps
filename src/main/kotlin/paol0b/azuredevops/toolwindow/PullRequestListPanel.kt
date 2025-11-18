@@ -75,6 +75,9 @@ class PullRequestListPanel(
         statusLabel.text = "Loading Pull Requests..."
         statusLabel.icon = AllIcons.Process.Step_1
         
+        // Salva la PR attualmente selezionata
+        val selectedPrId = getSelectedPullRequest()?.pullRequestId
+        
         ProgressManager.getInstance().run(object : Task.Backgroundable(
             project,
             "Loading Pull Requests...",
@@ -87,7 +90,7 @@ class PullRequestListPanel(
                     val pullRequests = apiClient.getPullRequests(status = currentFilter)
 
                     ApplicationManager.getApplication().invokeLater {
-                        updateTreeWithPullRequests(pullRequests)
+                        updateTreeWithPullRequests(pullRequests, selectedPrId)
                         statusLabel.text = "Loaded ${pullRequests.size} Pull Request(s)"
                         statusLabel.icon = AllIcons.General.InspectionsOK
                     }
@@ -112,7 +115,7 @@ class PullRequestListPanel(
         return selectedNode?.userObject as? PullRequest
     }
 
-    private fun updateTreeWithPullRequests(pullRequests: List<PullRequest>) {
+    private fun updateTreeWithPullRequests(pullRequests: List<PullRequest>, previouslySelectedPrId: Int? = null) {
         rootNode.removeAllChildren()
 
         if (pullRequests.isEmpty()) {
@@ -154,6 +157,32 @@ class PullRequestListPanel(
         // Espandi tutti i nodi
         for (i in 0 until tree.rowCount) {
             tree.expandRow(i)
+        }
+        
+        // Ripristina la selezione se c'era una PR selezionata
+        if (previouslySelectedPrId != null) {
+            restoreSelection(previouslySelectedPrId)
+        }
+    }
+    
+    /**
+     * Ripristina la selezione di una PR dopo il refresh
+     */
+    private fun restoreSelection(prId: Int) {
+        // Cerca il nodo corrispondente alla PR
+        for (i in 0 until rootNode.childCount) {
+            val folderNode = rootNode.getChildAt(i) as? DefaultMutableTreeNode ?: continue
+            for (j in 0 until folderNode.childCount) {
+                val prNode = folderNode.getChildAt(j) as? DefaultMutableTreeNode ?: continue
+                val pr = prNode.userObject as? PullRequest ?: continue
+                if (pr.pullRequestId == prId) {
+                    // Seleziona questo nodo
+                    val path = javax.swing.tree.TreePath(prNode.path)
+                    tree.selectionPath = path
+                    tree.scrollPathToVisible(path)
+                    return
+                }
+            }
         }
     }
 

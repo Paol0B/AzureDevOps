@@ -25,7 +25,7 @@ class CommentsPollingService(private val project: Project) {
     private var isPollingActive = false
 
     companion object {
-        private const val POLLING_INTERVAL_SECONDS = 30L
+    private const val POLLING_INTERVAL_SECONDS = 5L
 
         fun getInstance(project: Project): CommentsPollingService {
             return project.getService(CommentsPollingService::class.java)

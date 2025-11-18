@@ -3,8 +3,10 @@ package paol0b.azuredevops.services
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.vcs.changes.Change
 import git4idea.GitLocalBranch
 import git4idea.GitRemoteBranch
+import git4idea.history.GitHistoryUtils
 import git4idea.repo.GitRepository
 import git4idea.repo.GitRepositoryManager
 import paol0b.azuredevops.model.GitBranch
@@ -203,5 +205,56 @@ class GitRepositoryService(private val project: Project) {
         // Se non c'è origin, restituisci il primo remote disponibile
         val firstRemote = repository.remotes.firstOrNull()
         return firstRemote?.firstUrl
+    }
+
+    /**
+     * Ottiene il repository Git per uso interno
+     */
+    fun getRepository(): GitRepository? = getCurrentRepository()
+
+    /**
+     * Ottiene le modifiche tra due branch
+     */
+    fun getChangesBetweenBranches(sourceBranch: String, targetBranch: String): List<Change> {
+        val repository = getCurrentRepository() ?: return emptyList()
+        
+        try {
+            // Rimuovi il prefisso refs/heads/ se presente
+            val sourceRef = sourceBranch.removePrefix("refs/heads/")
+            val targetRef = targetBranch.removePrefix("refs/heads/")
+            
+            // Ottieni i commit tra i due branch
+            val commits = GitHistoryUtils.history(project, repository.root, "$targetRef..$sourceRef")
+            
+            // Raccogli tutte le modifiche dai commit
+            val changes = mutableListOf<Change>()
+            commits.forEach { commit ->
+                changes.addAll(commit.changes)
+            }
+            
+            return changes.distinctBy { it.afterRevision?.file?.path ?: it.beforeRevision?.file?.path }
+        } catch (e: Exception) {
+            logger.error("Error getting changes between branches", e)
+            return emptyList()
+        }
+    }
+
+    /**
+     * Ottiene i commit tra due branch
+     */
+    fun getCommitsBetweenBranches(sourceBranch: String, targetBranch: String): List<git4idea.GitCommit> {
+        val repository = getCurrentRepository() ?: return emptyList()
+        
+        try {
+            // Rimuovi il prefisso refs/heads/ se presente
+            val sourceRef = sourceBranch.removePrefix("refs/heads/")
+            val targetRef = targetBranch.removePrefix("refs/heads/")
+            
+            // Ottieni i commit tra i due branch (da target a source)
+            return GitHistoryUtils.history(project, repository.root, "$targetRef..$sourceRef")
+        } catch (e: Exception) {
+            logger.error("Error getting commits between branches", e)
+            return emptyList()
+        }
     }
 }

@@ -25,6 +25,7 @@ class PullRequestToolWindow(private val project: Project) {
     private val mainPanel: SimpleToolWindowPanel
     private val pullRequestListPanel: PullRequestListPanel
     private val pullRequestDetailsPanel: PullRequestDetailsPanel
+    private val pollingService = paol0b.azuredevops.services.PullRequestsPollingService.getInstance(project)
 
     init {
         pullRequestListPanel = PullRequestListPanel(project) { selectedPR ->
@@ -47,6 +48,11 @@ class PullRequestToolWindow(private val project: Project) {
 
         // Carica le PR all'avvio
         pullRequestListPanel.refreshPullRequests()
+
+        // Avvia polling per aggiornare automaticamente la lista PR
+        pollingService.startPolling {
+            pullRequestListPanel.refreshPullRequests()
+        }
     }
 
     fun getContent(): JPanel = mainPanel
@@ -208,6 +214,17 @@ class PullRequestToolWindow(private val project: Project) {
             }
         } catch (e: Exception) {
             // Log error
+        }
+    }
+
+    /**
+     * Called when the tool window is being disposed or the plugin is unloaded to stop polling.
+     */
+    fun dispose() {
+        try {
+            pollingService.stopPolling()
+        } catch (e: Exception) {
+            // ignore
         }
     }
 }
