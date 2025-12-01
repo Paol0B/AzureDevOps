@@ -57,7 +57,7 @@ class AzureDevOpsConfigService(private val project: com.intellij.openapi.project
         val project = myState.manualProject.ifBlank { repoInfo?.project ?: "" }
         val repository = myState.manualRepository.ifBlank { repoInfo?.repository ?: "" }
         
-        return AzureDevOpsConfig(
+        return AzureDevOpsConfig.create(
             organization = organization,
             project = project,
             repository = repository,

@@ -1,11 +1,13 @@
 package paol0b.azuredevops.model
 
 import com.google.gson.annotations.SerializedName
+import java.net.URI
 
 /**
  * Rappresenta la configurazione dell'account Azure DevOps
  */
-data class AzureDevOpsConfig(
+@ConsistentCopyVisibility
+data class AzureDevOpsConfig private constructor(
     val organization: String = "",
     val project: String = "",
     val repository: String = "",
@@ -16,6 +18,22 @@ data class AzureDevOpsConfig(
                 project.isNotBlank() &&
                 repository.isNotBlank() &&
                 personalAccessToken.isNotBlank()
+    }
+
+    companion object {
+        fun create(
+            organization: String,
+            project: String,
+            repository: String,
+            personalAccessToken: String
+        ): AzureDevOpsConfig {
+            return AzureDevOpsConfig(
+                organization = URI(null, null, organization, null).rawPath,
+                project = URI(null, null, project, null).rawPath,
+                repository = URI(null, null, repository, null).rawPath,
+                personalAccessToken = personalAccessToken
+            )
+        }
     }
 }
 
