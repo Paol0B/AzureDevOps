@@ -15,8 +15,8 @@ import paol0b.azuredevops.services.PullRequestCommentsTracker
 import java.awt.Color
 
 /**
- * Decorator per mostrare badge con numero di commenti nei file e cartelle
- * Stile Visual Studio/Rider: badge arancioni nell'esplora soluzioni
+ * Decorator to show badges with the number of comments on files and folders
+ * Visual Studio/Rider style: orange badges in the solution explorer
  */
 class FileWithCommentsDecorator(private val project: Project) : ProjectViewNodeDecorator {
 
@@ -27,15 +27,15 @@ class FileWithCommentsDecorator(private val project: Project) : ProjectViewNodeD
         val file = node.virtualFile ?: return
         
         if (file.isDirectory) {
-            // Per le cartelle, conta ricorsivamente i commenti nei file figli
+            // For folders, recursively count comments in child files
             val (totalComments, activeComments) = countCommentsInDirectory(file)
             
             if (totalComments > 0) {
-                // Badge arancione con numero per cartelle
+                // Orange badge with number for folders
                 val badgeColor = if (activeComments > 0) {
-                    JBColor(Color(255, 140, 0), Color(255, 160, 50)) // Arancione
+                    JBColor(Color(255, 140, 0), Color(255, 160, 50)) // Orange
                 } else {
-                    JBColor(Color(100, 200, 100), Color(80, 150, 80)) // Verde se tutti risolti
+                    JBColor(Color(100, 200, 100), Color(80, 150, 80)) // Green if all resolved
                 }
                 
                 val badge = if (activeComments > 0) " 💬$activeComments" else " ✓$totalComments"
@@ -48,12 +48,12 @@ class FileWithCommentsDecorator(private val project: Project) : ProjectViewNodeD
                 data.tooltip = buildFolderTooltip(totalComments, activeComments)
             }
         } else {
-            // Per i file singoli
+            // For single files
             val commentCount = commentsTracker.getCommentCount(file)
             val activeCount = commentsTracker.getActiveCommentCount(file)
             
             if (commentCount > 0) {
-                // Badge arancione/verde con numero
+                // Orange/green badge with number
                 val badgeColor = if (activeCount > 0) {
                     JBColor(Color(255, 140, 0), Color(255, 160, 50)) // Arancione
                 } else {
@@ -73,7 +73,7 @@ class FileWithCommentsDecorator(private val project: Project) : ProjectViewNodeD
     }
 
     /**
-     * Conta ricorsivamente i commenti in una directory
+     * Recursively count comments in a directory
      */
     private fun countCommentsInDirectory(dir: VirtualFile): Pair<Int, Int> {
         var totalComments = 0

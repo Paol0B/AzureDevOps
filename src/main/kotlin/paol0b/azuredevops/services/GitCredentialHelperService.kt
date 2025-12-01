@@ -5,8 +5,8 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 
 /**
- * Servizio per interagire con Git Credential Helper
- * per recuperare automaticamente il Personal Access Token salvato
+ * Service to interact with Git Credential Helper
+ * to automatically retrieve the saved Personal Access Token
  */
 @Service(Service.Level.PROJECT)
 class GitCredentialHelperService(private val project: Project) {
@@ -20,16 +20,16 @@ class GitCredentialHelperService(private val project: Project) {
     }
 
     /**
-     * Tenta di recuperare le credenziali per Azure DevOps dal Git Credential Helper
-     * 
-     * @param url URL del repository Azure DevOps
-     * @return Il Personal Access Token se trovato, null altrimenti
+     * Attempts to retrieve credentials for Azure DevOps from Git Credential Helper
+     *
+     * @param url Azure DevOps repository URL
+     * @return The Personal Access Token if found, null otherwise
      */
     fun getCredentialsFromHelper(url: String): String? {
         return try {
-            // Prova prima con il protocollo specifico
-            getCredentialForUrl(url) ?: 
-            // Se non funziona, prova con URL generiche Azure DevOps
+            // Try first with the specific protocol
+            getCredentialForUrl(url) ?:
+            // If it doesn't work, try with generic Azure DevOps URLs
             getCredentialForUrl("https://dev.azure.com") ?:
             getCredentialForUrl("https://ssh.dev.azure.com")
         } catch (e: Exception) {
@@ -39,31 +39,31 @@ class GitCredentialHelperService(private val project: Project) {
     }
 
     /**
-     * Recupera le credenziali per un URL specifico usando git credential fill
+     * Retrieves credentials for a specific URL using git credential fill
      */
     private fun getCredentialForUrl(url: String): String? {
         try {
-            // Estrai il protocollo e host dall'URL
+            // Extract protocol and host from the URL
             val (protocol, host, path) = parseUrl(url) ?: return null
             
             logger.info("Attempting to get credentials for: protocol=$protocol, host=$host, path=$path")
             
-            // Prepara l'input per git credential fill
+            // Prepare input for git credential fill
             val input = buildString {
                 appendLine("protocol=$protocol")
                 appendLine("host=$host")
                 if (path.isNotBlank()) {
                     appendLine("path=$path")
                 }
-                appendLine() // Riga vuota per terminare
+                appendLine() // Empty line to terminate
             }
             
-            // Esegui git credential fill con redirectErrorStream per evitare finestre popup
+            // Run git credential fill with redirectErrorStream to avoid popup windows
             val processBuilder = ProcessBuilder("git", "credential", "fill")
             
-            // IMPORTANTE: Previeni l'apertura di finestre su Windows
+            // IMPORTANT: Prevent process window from opening on Windows
             if (System.getProperty("os.name").lowercase().contains("windows")) {
-                // Nascondi la finestra del processo su Windows
+                // Hide process window on Windows
                 processBuilder.redirectError(ProcessBuilder.Redirect.PIPE)
                 processBuilder.redirectOutput(ProcessBuilder.Redirect.PIPE)
             } else {
@@ -72,19 +72,19 @@ class GitCredentialHelperService(private val project: Project) {
             
             val process = processBuilder.start()
             
-            // Invia input
+            // Send input
             process.outputStream.use { outputStream ->
                 outputStream.write(input.toByteArray())
                 outputStream.flush()
             }
             
-            // Leggi output con timeout per evitare blocchi
-            val output = readProcessOutput(process, 5000) // 5 secondi timeout
-            
+            // Read output with timeout to avoid blocking
+            val output = readProcessOutput(process, 5000) // 5 seconds timeout
+
             val exitCode = process.waitFor()
             
             if (exitCode == 0 && output.isNotBlank()) {
-                // Parse l'output per estrarre la password (PAT)
+                // Parse output to extract password (PAT)
                 return parseCredentialOutput(output)
             } else {
                 logger.debug("git credential fill returned exit code: $exitCode, output: $output")
@@ -97,7 +97,7 @@ class GitCredentialHelperService(private val project: Project) {
     }
     
     /**
-     * Legge l'output del processo con timeout per evitare blocchi
+     * Reads the output of the process with timeout to avoid blocking
      */
     private fun readProcessOutput(process: Process, timeoutMs: Long): String {
         val output = StringBuilder()
@@ -110,9 +110,9 @@ class GitCredentialHelperService(private val project: Project) {
                     output.appendLine(line)
                 } else {
                     Thread.sleep(50)
-                    // Controlla se il processo è terminato
+                    // Check if the process has terminated
                     if (!process.isAlive) {
-                        // Leggi eventuali dati rimanenti
+                        // Read any remaining data
                         reader.lines().forEach { output.appendLine(it) }
                         break
                     }
@@ -124,10 +124,10 @@ class GitCredentialHelperService(private val project: Project) {
     }
 
     /**
-     * Salva le credenziali nel Git Credential Helper
-     * 
-     * @param url URL del repository
-     * @param username Username (per Azure DevOps può essere vuoto o qualsiasi valore)
+     * Saves credentials in Git Credential Helper
+     *
+     * @param url Repository URL
+     * @param username Username (for Azure DevOps can be blank or any value)
      * @param password Personal Access Token
      */
     fun saveCredentialsToHelper(url: String, username: String = "", password: String): Boolean {
@@ -147,7 +147,7 @@ class GitCredentialHelperService(private val project: Project) {
             
             val processBuilder = ProcessBuilder("git", "credential", "approve")
             
-            // IMPORTANTE: Previeni l'apertura di finestre su Windows
+            // IMPORTANT: Prevent process window from opening on Windows
             if (System.getProperty("os.name").lowercase().contains("windows")) {
                 processBuilder.redirectError(ProcessBuilder.Redirect.PIPE)
                 processBuilder.redirectOutput(ProcessBuilder.Redirect.PIPE)
@@ -178,7 +178,7 @@ class GitCredentialHelperService(private val project: Project) {
     }
 
     /**
-     * Verifica se Git Credential Helper è disponibile
+     * Checks if Git Credential Helper is available
      */
     fun isCredentialHelperAvailable(): Boolean {
         return try {
@@ -219,8 +219,8 @@ class GitCredentialHelperService(private val project: Project) {
     }
 
     /**
-     * Parse l'output di git credential fill
-     * Formato:
+     * Parses the output of git credential fill
+     * Format:
      * protocol=https
      * host=dev.azure.com
      * username=...
@@ -240,20 +240,20 @@ class GitCredentialHelperService(private val project: Project) {
     }
 
     /**
-     * Parse un URL e estrae protocollo, host e path
-     * 
-     * @return Triple di (protocol, host, path) o null se parsing fallisce
+     * Parses a URL and extracts protocol, host, and path
+     *
+     * @return Triple of (protocol, host, path) or null if parsing fails
      */
     private fun parseUrl(url: String): Triple<String, String, String>? {
         return try {
-            // Gestisci URL SSH
+            // Handle SSH URLs
             if (url.startsWith("git@") || url.startsWith("ssh://")) {
                 val cleanUrl = url.replace("git@", "ssh://").replace(":", "/")
                 val uri = java.net.URI(cleanUrl)
                 return Triple("ssh", uri.host ?: "", uri.path?.removePrefix("/") ?: "")
             }
             
-            // Gestisci URL HTTPS
+            // Handle HTTPS URLs
             val uri = java.net.URI(url)
             val protocol = uri.scheme ?: "https"
             val host = uri.host ?: return null
@@ -267,7 +267,7 @@ class GitCredentialHelperService(private val project: Project) {
     }
 
     /**
-     * Tenta di recuperare le credenziali per il repository corrente
+     * Attempts to retrieve credentials for the current repository
      */
     fun getCredentialsForCurrentRepository(): String? {
         val gitService = GitRepositoryService.getInstance(project)

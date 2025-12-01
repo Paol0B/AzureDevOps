@@ -24,8 +24,8 @@ import java.time.format.DateTimeFormatter
 import javax.swing.*
 
 /**
- * Tool Window per navigare tutti i commenti della PR attiva
- * Permette di scorrere i commenti e aprire automaticamente i file
+ * Tool Window to navigate all comments of the active PR
+ * Allows scrolling through comments and automatically opening files
  */
 class CommentsNavigatorToolWindow : ToolWindowFactory {
 
@@ -42,7 +42,7 @@ class CommentsNavigatorToolWindow : ToolWindowFactory {
 }
 
 /**
- * Panel principale della tool window
+ * Main panel of the tool window
  */
 class CommentsNavigatorPanel(private val project: Project) : JPanel(BorderLayout()) {
 
@@ -53,11 +53,11 @@ class CommentsNavigatorPanel(private val project: Project) : JPanel(BorderLayout
     private var allComments: List<CommentItem> = emptyList()
 
     init {
-        // Header con info e pulsante refresh
+        // Header with info and refresh button
         val headerPanel = createHeaderPanel()
         add(headerPanel, BorderLayout.NORTH)
 
-        // Lista commenti
+        // List of comments
         commentsList = JBList<CommentItem>().apply {
             cellRenderer = CommentItemRenderer()
             selectionMode = ListSelectionModel.SINGLE_SELECTION
@@ -72,12 +72,12 @@ class CommentsNavigatorPanel(private val project: Project) : JPanel(BorderLayout
         val scrollPane = JBScrollPane(commentsList)
         add(scrollPane, BorderLayout.CENTER)
 
-        // Status bar in basso
+        // Status bar at the bottom
         statusLabel = JLabel("No active Pull Request")
         statusLabel.border = JBUI.Borders.empty(5)
         add(statusLabel, BorderLayout.SOUTH)
 
-        // Carica commenti automaticamente
+        // Automatically load comments
         loadComments()
     }
 
@@ -92,7 +92,7 @@ class CommentsNavigatorPanel(private val project: Project) : JPanel(BorderLayout
         
         val refreshButton = JButton("Refresh", AllIcons.Actions.Refresh)
         refreshButton.addActionListener { 
-            // Refresh manuale + riavvia polling
+            // Manual refresh + restart polling
             val pollingService = paol0b.azuredevops.services.CommentsPollingService.getInstance(project)
             pollingService.refreshNow()
             loadComments()
@@ -117,7 +117,7 @@ class CommentsNavigatorPanel(private val project: Project) : JPanel(BorderLayout
         
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
-                // Trova PR per branch corrente
+                // Find PR for current branch
                 val gitService = GitRepositoryService.getInstance(project)
                 val currentBranch = gitService.getCurrentBranch()
                 
@@ -136,20 +136,20 @@ class CommentsNavigatorPanel(private val project: Project) : JPanel(BorderLayout
 
                 currentPullRequest = pullRequest
                 
-                // Carica tutti i thread di commenti
+                // Load all comment threads
                 val threads = apiClient.getCommentThreads(pullRequest.pullRequestId)
                 
-                // Raggruppa commenti: prima quelli nei file, poi quelli generali
+                // Group comments: first those in files, then general ones
                 val commentItems = threads
                     .sortedWith(compareBy(
-                        { it.getFilePath() == null }, // Commenti generali alla fine
-                        { it.getFilePath() }, 
+                        { it.getFilePath() == null }, // General comments at the end
+                        { it.getFilePath() },
                         { it.getRightFileStart() ?: 0 }
                     ))
                     .map { thread ->
                         CommentItem(
                             thread = thread,
-                            filePath = thread.getFilePath() ?: "[Commento generale PR]",
+                            filePath = thread.getFilePath() ?: "[General PR comment]",
                             line = thread.getRightFileStart() ?: 0,
                             pullRequest = pullRequest,
                             isGeneralComment = thread.getFilePath() == null
@@ -167,10 +167,10 @@ class CommentsNavigatorPanel(private val project: Project) : JPanel(BorderLayout
                     val generalComments = commentItems.count { it.isGeneralComment }
                     val statusText = buildString {
                         append("PR #${pullRequest.pullRequestId}: ")
-                        if (fileComments > 0) append("$fileComments commenti su file")
+                        if (fileComments > 0) append("$fileComments file comments")
                         if (generalComments > 0) {
                             if (fileComments > 0) append(", ")
-                            append("$generalComments commenti generali")
+                            append("$generalComments general comments")
                         }
                     }
                     updateStatus(statusText)
@@ -186,7 +186,7 @@ class CommentsNavigatorPanel(private val project: Project) : JPanel(BorderLayout
     private fun navigateToComment(item: CommentItem) {
         logger.info("Navigating to comment: ${item.filePath}:${item.line}")
         
-        // Se è un commento generale, apri solo il dialog
+        // If it's a general comment, just open the dialog
         if (item.isGeneralComment) {
             val dialog = paol0b.azuredevops.ui.CommentThreadDialog(
                 project,
@@ -198,7 +198,7 @@ class CommentsNavigatorPanel(private val project: Project) : JPanel(BorderLayout
             return
         }
         
-        // Trova il file nel progetto
+        // Find the file in the project
         val projectBasePath = project.basePath ?: return
         val fullPath = "$projectBasePath/${item.filePath.trimStart('/')}"
         
@@ -217,12 +217,12 @@ class CommentsNavigatorPanel(private val project: Project) : JPanel(BorderLayout
         }
 
         ApplicationManager.getApplication().invokeLater {
-            // Apri il file e vai alla riga del commento
+            // Open the file and go to the comment line
             val descriptor = OpenFileDescriptor(project, virtualFile, item.line - 1, 0)
             val editor = FileEditorManager.getInstance(project).openTextEditor(descriptor, true)
             
             if (editor != null) {
-                // Scroll alla riga
+                // Scroll to the line
                 editor.scrollingModel.scrollToCaret(com.intellij.openapi.editor.ScrollType.CENTER)
             }
         }
@@ -236,7 +236,7 @@ class CommentsNavigatorPanel(private val project: Project) : JPanel(BorderLayout
 }
 
 /**
- * Item della lista: rappresenta un commento
+ * List item: represents a comment
  */
 data class CommentItem(
     val thread: CommentThread,
@@ -253,7 +253,7 @@ data class CommentItem(
 }
 
 /**
- * Renderer personalizzato per gli item della lista
+ * Custom renderer for list items
  */
 class CommentItemRenderer : DefaultListCellRenderer() {
     
@@ -285,7 +285,7 @@ class CommentItemRenderer : DefaultListCellRenderer() {
                 </html>
             """.trimIndent()
             
-            // Colore di sfondo diverso per risolti/attivi/generali
+            // Different background color for resolved/active/general
             if (!isSelected) {
                 background = when {
                     value.isGeneralComment && !value.isResolved -> JBColor(

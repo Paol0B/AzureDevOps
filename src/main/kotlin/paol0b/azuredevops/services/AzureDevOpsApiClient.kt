@@ -13,8 +13,8 @@ import java.nio.charset.StandardCharsets
 import java.util.Base64
 
 /**
- * Client per comunicare con Azure DevOps REST API
- * Documentazione API: https://learn.microsoft.com/en-us/rest/api/azure/devops/
+ * Client for communicating with Azure DevOps REST API
+ * API documentation: https://learn.microsoft.com/en-us/rest/api/azure/devops/
  */
 @Service(Service.Level.PROJECT)
 class AzureDevOpsApiClient(private val project: Project) {
@@ -40,15 +40,14 @@ class AzureDevOpsApiClient(private val project: Project) {
     }
 
     /**
-     * Crea una Pull Request su Azure DevOps
-     * 
-     * @param sourceBranch Branch di origine (es: "refs/heads/feature/xyz")
-     * @param targetBranch Branch di destinazione (es: "refs/heads/main")
-     * @param title Titolo della PR
-     * @param description Descrizione della PR (opzionale)
-     * @param requiredReviewers Lista di reviewer richiesti
-     * @param optionalReviewers Lista di reviewer opzionali
-     * @return PullRequestResponse se successo, altrimenti lancia un'eccezione
+     * Creates a Pull Request on Azure DevOps
+     * @param sourceBranch Source branch (e.g., "refs/heads/feature/xyz")
+     * @param targetBranch Target branch (e.g., "refs/heads/main")
+     * @param title PR title
+     * @param description PR description (optional)
+     * @param requiredReviewers List of required reviewers
+     * @param optionalReviewers List of optional reviewers
+     * @return PullRequestResponse if successful, otherwise throws an exception
      */
     @Throws(AzureDevOpsApiException::class)
     fun createPullRequest(
@@ -63,10 +62,10 @@ class AzureDevOpsApiClient(private val project: Project) {
         val config = configService.getConfig()
 
         if (!config.isValid()) {
-            throw AzureDevOpsApiException("Azure DevOps non configurato. Configura Organization, Project, Repository e PAT nelle impostazioni.")
+            throw AzureDevOpsApiException("Azure DevOps not configured. Please configure Organization, Project, Repository, and PAT in settings.")
         }
 
-        // Crea la lista di reviewer nel formato richiesto dall'API
+        // Create the list of reviewers in the format required by the API
         val reviewers = mutableListOf<ReviewerRequest>()
         requiredReviewers.forEach { identity ->
             identity.id?.let { id ->
@@ -98,16 +97,15 @@ class AzureDevOpsApiClient(private val project: Project) {
             gson.fromJson(response, PullRequestResponse::class.java)
         } catch (e: Exception) {
             logger.error("Failed to create pull request", e)
-            throw AzureDevOpsApiException("Errore durante la creazione della Pull Request: ${e.message}", e)
+            throw AzureDevOpsApiException("Error while creating Pull Request: ${e.message}", e)
         }
     }
 
     /**
-     * Recupera la lista delle Pull Request del repository
-     * 
-     * @param status Filtra per stato (es: "active", "completed", "abandoned", "all")
-     * @param top Numero massimo di PR da recuperare
-     * @return Lista di Pull Request
+     * Retrieves the list of Pull Requests for the repository
+     * @param status Filter by status (e.g., "active", "completed", "abandoned", "all")
+     * @param top Maximum number of PRs to retrieve
+     * @return List of Pull Requests
      */
     @Throws(AzureDevOpsApiException::class)
     fun getPullRequests(
@@ -118,7 +116,7 @@ class AzureDevOpsApiClient(private val project: Project) {
         val config = configService.getConfig()
 
         if (!config.isValid()) {
-            throw AzureDevOpsApiException("Azure DevOps non configurato.")
+            throw AzureDevOpsApiException("Azure DevOps not configured.")
         }
 
         val statusParam = if (status == "all") "all" else status
@@ -133,15 +131,14 @@ class AzureDevOpsApiClient(private val project: Project) {
             listResponse.value
         } catch (e: Exception) {
             logger.error("Failed to fetch pull requests", e)
-            throw AzureDevOpsApiException("Errore durante il recupero delle Pull Request: ${e.message}", e)
+            throw AzureDevOpsApiException("Error while retrieving Pull Requests: ${e.message}", e)
         }
     }
 
     /**
-     * Recupera una singola Pull Request con tutti i dettagli
-     * 
-     * @param pullRequestId ID della PR
-     * @return Pull Request completa
+     * Retrieves a single Pull Request with all details
+     * @param pullRequestId PR ID
+     * @return Complete Pull Request
      */
     @Throws(AzureDevOpsApiException::class)
     fun getPullRequest(pullRequestId: Int): PullRequest {
@@ -149,7 +146,7 @@ class AzureDevOpsApiClient(private val project: Project) {
         val config = configService.getConfig()
 
         if (!config.isValid()) {
-            throw AzureDevOpsApiException("Azure DevOps non configurato.")
+            throw AzureDevOpsApiException("Azure DevOps not configured.")
         }
 
         val url = buildApiUrl(config.project, config.repository, "/pullrequests/$pullRequestId?api-version=$API_VERSION")
@@ -161,12 +158,12 @@ class AzureDevOpsApiClient(private val project: Project) {
             gson.fromJson(response, PullRequest::class.java)
         } catch (e: Exception) {
             logger.error("Failed to fetch pull request #$pullRequestId", e)
-            throw AzureDevOpsApiException("Errore durante il recupero della Pull Request: ${e.message}", e)
+            throw AzureDevOpsApiException("Error while retrieving Pull Request: ${e.message}", e)
         }
     }
 
     /**
-     * Verifica la connessione e le credenziali con Azure DevOps
+     * Verifies connection and credentials with Azure DevOps
      */
     @Throws(AzureDevOpsApiException::class)
     fun testConnection(): Boolean {
@@ -174,7 +171,7 @@ class AzureDevOpsApiClient(private val project: Project) {
         val config = configService.getConfig()
 
         if (!config.isValid()) {
-            throw AzureDevOpsApiException("Configurazione non valida")
+            throw AzureDevOpsApiException("Invalid configuration")
         }
 
         val url = buildApiUrl(config.project, config.repository, "?api-version=$API_VERSION")
@@ -184,16 +181,15 @@ class AzureDevOpsApiClient(private val project: Project) {
             true
         } catch (e: Exception) {
             logger.error("Connection test failed", e)
-            throw AzureDevOpsApiException("Test connessione fallito: ${e.message}", e)
+            throw AzureDevOpsApiException("Connection test failed: ${e.message}", e)
         }
     }
     
     /**
-     * Cerca una Pull Request attiva tra due branch specifici
-     * 
-     * @param sourceBranch Branch sorgente (es: "refs/heads/feature")
-     * @param targetBranch Branch target (es: "refs/heads/main")
-     * @return La PR esistente o null se non trovata
+     * Searches for an active Pull Request between two specific branches
+     * @param sourceBranch Source branch (e.g., "refs/heads/feature")
+     * @param targetBranch Target branch (e.g., "refs/heads/main")
+     * @return The existing PR or null if not found
      */
     @Throws(AzureDevOpsApiException::class)
     fun findActivePullRequest(sourceBranch: String, targetBranch: String): PullRequest? {
@@ -201,7 +197,7 @@ class AzureDevOpsApiClient(private val project: Project) {
         val config = configService.getConfig()
 
         if (!config.isValid()) {
-            throw AzureDevOpsApiException("Azure DevOps non configurato.")
+            throw AzureDevOpsApiException("Azure DevOps not configured.")
         }
 
         val url = buildApiUrl(
@@ -223,10 +219,9 @@ class AzureDevOpsApiClient(private val project: Project) {
     }
 
     /**
-     * Recupera tutti i thread di commenti per una Pull Request
-     * 
-     * @param pullRequestId ID della PR
-     * @return Lista di thread di commenti
+     * Retrieves all comment threads for a Pull Request
+     * @param pullRequestId PR ID
+     * @return List of comment threads
      */
     @Throws(AzureDevOpsApiException::class)
     fun getCommentThreads(pullRequestId: Int): List<CommentThread> {
@@ -234,7 +229,7 @@ class AzureDevOpsApiClient(private val project: Project) {
         val config = configService.getConfig()
 
         if (!config.isValid()) {
-            throw AzureDevOpsApiException("Azure DevOps non configurato.")
+            throw AzureDevOpsApiException("Azure DevOps not configured.")
         }
 
         val url = buildApiUrl(config.project, config.repository, "/pullRequests/$pullRequestId/threads?api-version=$API_VERSION")
@@ -245,7 +240,7 @@ class AzureDevOpsApiClient(private val project: Project) {
         return try {
             val response = executeGet(url, config.personalAccessToken)
             
-            // Log della risposta raw per debug
+            // Raw response log for debugging
             logger.info("=== RAW RESPONSE (first 2000 chars) ===")
             logger.info(response.take(2000))
             logger.info("=== END RAW RESPONSE ===")
@@ -253,7 +248,7 @@ class AzureDevOpsApiClient(private val project: Project) {
             val listResponse = gson.fromJson(response, CommentThreadListResponse::class.java)
             val threads = listResponse.value.filter { it.isDeleted != true }
             
-            // Log dettagliato di ogni thread
+            // Detailed log of each thread
             threads.forEachIndexed { index, thread ->
                 logger.info("Thread $index: id=${thread.id}")
                 logger.info("  - pullRequestThreadContext: ${thread.pullRequestThreadContext}")
@@ -265,17 +260,16 @@ class AzureDevOpsApiClient(private val project: Project) {
             threads
         } catch (e: Exception) {
             logger.error("Failed to fetch comment threads", e)
-            throw AzureDevOpsApiException("Errore durante il recupero dei commenti: ${e.message}", e)
+            throw AzureDevOpsApiException("Error while retrieving comments: ${e.message}", e)
         }
     }
 
     /**
-     * Aggiunge un commento a un thread esistente
-     * 
-     * @param pullRequestId ID della PR
-     * @param threadId ID del thread
-     * @param content Contenuto del commento
-     * @return Il commento creato
+     * Adds a comment to an existing thread
+     * @param pullRequestId PR ID
+     * @param threadId Thread ID
+     * @param content Comment content
+     * @return The created comment
      */
     @Throws(AzureDevOpsApiException::class)
     fun addCommentToThread(pullRequestId: Int, threadId: Int, content: String): Comment {
@@ -283,7 +277,7 @@ class AzureDevOpsApiClient(private val project: Project) {
         val config = configService.getConfig()
 
         if (!config.isValid()) {
-            throw AzureDevOpsApiException("Azure DevOps non configurato.")
+            throw AzureDevOpsApiException("Azure DevOps not configured.")
         }
 
         val request = CreateCommentRequest(content = content)
@@ -296,17 +290,16 @@ class AzureDevOpsApiClient(private val project: Project) {
             gson.fromJson(response, Comment::class.java)
         } catch (e: Exception) {
             logger.error("Failed to add comment", e)
-            throw AzureDevOpsApiException("Errore durante l'aggiunta del commento: ${e.message}", e)
+            throw AzureDevOpsApiException("Error while adding comment: ${e.message}", e)
         }
     }
 
     /**
-     * Aggiorna lo status di un thread di commenti
-     * Usa Azure DevOps API 7.2 con formato corretto
-     * 
-     * @param pullRequestId ID della PR
-     * @param threadId ID del thread
-     * @param status Nuovo status (Active, Fixed, etc.)
+     * Updates the status of a comment thread (e.g., resolves or reopens)
+     * @param pullRequestId PR ID
+     * @param threadId Thread ID
+     * @param status New status (e.g., "active", "fixed", "closed")
+     * @return Updated thread
      */
     @Throws(AzureDevOpsApiException::class)
     fun updateThreadStatus(pullRequestId: Int, threadId: Int, status: ThreadStatus) {
@@ -314,10 +307,10 @@ class AzureDevOpsApiClient(private val project: Project) {
         val config = configService.getConfig()
 
         if (!config.isValid()) {
-            throw AzureDevOpsApiException("Azure DevOps non configurato.")
+            throw AzureDevOpsApiException("Azure DevOps not configured.")
         }
 
-        // Crea il request con il formato corretto per l'API
+        // Create the request with the correct format for the API
         val request = UpdateThreadStatusRequest(status)
         
         val url = buildApiUrl(config.project, config.repository, "/pullRequests/$pullRequestId/threads/$threadId?api-version=$API_VERSION")
@@ -330,15 +323,14 @@ class AzureDevOpsApiClient(private val project: Project) {
             logger.info("Thread status updated successfully. Response: $response")
         } catch (e: Exception) {
             logger.error("Failed to update thread status", e)
-            throw AzureDevOpsApiException("Errore durante l'aggiornamento dello stato del thread: ${e.message}", e)
+            throw AzureDevOpsApiException("Error while updating thread status: ${e.message}", e)
         }
     }
 
     /**
-     * Trova la Pull Request associata a un branch specifico
-     * 
-     * @param branchName Nome del branch (senza refs/heads/)
-     * @return La PR attiva associata al branch, o null se non esiste
+     * Finds the Pull Request associated with a specific branch
+     * @param branchName Branch name (without refs/heads/)
+     * @return The active PR associated with the branch, or null if it does not exist
      */
     @Throws(AzureDevOpsApiException::class)
     fun findPullRequestForBranch(branchName: String): PullRequest? {
@@ -346,7 +338,7 @@ class AzureDevOpsApiClient(private val project: Project) {
         val config = configService.getConfig()
 
         if (!config.isValid()) {
-            throw AzureDevOpsApiException("Azure DevOps non configurato.")
+            throw AzureDevOpsApiException("Azure DevOps not configured.")
         }
 
         val refName = "refs/heads/$branchName"
@@ -361,12 +353,12 @@ class AzureDevOpsApiClient(private val project: Project) {
             listResponse.value.firstOrNull()
         } catch (e: Exception) {
             logger.error("Failed to find PR for branch $branchName", e)
-            null // Ritorna null invece di lanciare eccezione
+            null // Returns null instead of throwing exception
         }
     }
 
     /**
-     * Esegue una richiesta GET
+     * Executes a GET request
      */
     @Throws(IOException::class, AzureDevOpsApiException::class)
     private fun executeGet(urlString: String, token: String): String {
@@ -394,7 +386,7 @@ class AzureDevOpsApiClient(private val project: Project) {
     }
 
     /**
-     * Esegue una richiesta POST
+     * Executes a POST request
      */
     @Throws(IOException::class, AzureDevOpsApiException::class)
     private fun executePost(urlString: String, body: Any, token: String): String {
@@ -410,7 +402,7 @@ class AzureDevOpsApiClient(private val project: Project) {
             connection.connectTimeout = 10000
             connection.readTimeout = 10000
 
-            // Scrivi il body
+            // Write the body
             val jsonBody = gson.toJson(body)
             connection.outputStream.bufferedWriter(StandardCharsets.UTF_8).use { writer ->
                 writer.write(jsonBody)
@@ -430,8 +422,8 @@ class AzureDevOpsApiClient(private val project: Project) {
     }
 
     /**
-     * Esegue una richiesta PATCH
-     * Usa reflection per abilitare PATCH in HttpURLConnection
+     * Executes a PATCH request
+     * Uses reflection to enable PATCH in HttpURLConnection
      */
     @Throws(IOException::class, AzureDevOpsApiException::class)
     private fun executePatch(urlString: String, body: Any, token: String): String {
@@ -439,15 +431,15 @@ class AzureDevOpsApiClient(private val project: Project) {
         val connection = url.openConnection() as HttpURLConnection
         
         try {
-            // Workaround per PATCH: usa reflection per impostare il metodo
-            // HttpURLConnection non supporta PATCH di default
+            // Workaround for PATCH: use reflection to set the method
+            // HttpURLConnection does not support PATCH by default
             try {
                 val methodField = HttpURLConnection::class.java.getDeclaredField("method")
                 methodField.isAccessible = true
                 methodField.set(connection, "PATCH")
             } catch (e: Exception) {
                 logger.warn("Failed to set PATCH method via reflection, trying setRequestMethod", e)
-                // Fallback: prova comunque (funziona su alcune JVM)
+                // Fallback: still try (works on some JVMs)
                 connection.requestMethod = "PATCH"
             }
             
@@ -458,7 +450,7 @@ class AzureDevOpsApiClient(private val project: Project) {
             connection.connectTimeout = 10000
             connection.readTimeout = 10000
 
-            // Scrivi il body
+            // Write the body
             val jsonBody = gson.toJson(body)
             logger.info("PATCH request body: $jsonBody")
             
@@ -480,7 +472,7 @@ class AzureDevOpsApiClient(private val project: Project) {
     }
 
     /**
-     * Crea l'header di autenticazione Basic Auth con il PAT
+     * Creates the Basic Auth header with the PAT
      */
     private fun createAuthHeader(token: String): String {
         val credentials = ":$token"
@@ -489,50 +481,49 @@ class AzureDevOpsApiClient(private val project: Project) {
     }
 
     /**
-     * Gestisce le risposte di errore da Azure DevOps
+     * Handles error responses from Azure DevOps
      */
     private fun handleErrorResponse(statusCode: Int, errorBody: String): AzureDevOpsApiException {
         logger.warn("Azure DevOps API error - Status: $statusCode, Body: $errorBody")
         
-        // Prova a parsare l'errore
+        // Try to parse the error
         val errorMessage = try {
             val error = gson.fromJson(errorBody, AzureDevOpsErrorResponse::class.java)
-            error.message ?: "Errore sconosciuto"
+            error.message ?: "Unknown error"
         } catch (e: JsonSyntaxException) {
-            errorBody.ifEmpty { "Errore HTTP $statusCode" }
+            errorBody.ifEmpty { "HTTP Error $statusCode" }
         }
 
         return when (statusCode) {
             HttpURLConnection.HTTP_UNAUTHORIZED -> 
-                AzureDevOpsApiException("Autenticazione fallita. Verifica il Personal Access Token (401)")
-            HttpURLConnection.HTTP_FORBIDDEN -> 
-                AzureDevOpsApiException("Permessi insufficienti. Verifica i permessi del PAT (403)")
-            HttpURLConnection.HTTP_NOT_FOUND -> 
-                AzureDevOpsApiException("Risorsa non trovata. Verifica Organization, Project e Repository (404)")
-            HttpURLConnection.HTTP_CONFLICT -> 
-                AzureDevOpsApiException("Conflitto: $errorMessage (409)")
-            HttpURLConnection.HTTP_BAD_REQUEST -> 
-                AzureDevOpsApiException("Richiesta non valida: $errorMessage (400)")
-            else -> 
-                AzureDevOpsApiException("Errore HTTP $statusCode: $errorMessage")
+                AzureDevOpsApiException("Authentication failed. Check the Personal Access Token (401)")
+            HttpURLConnection.HTTP_FORBIDDEN ->
+                AzureDevOpsApiException("Insufficient permissions. Check PAT permissions (403)")
+            HttpURLConnection.HTTP_NOT_FOUND ->
+                AzureDevOpsApiException("Resource not found. Check Organization, Project, and Repository (404)")
+            HttpURLConnection.HTTP_CONFLICT ->
+                AzureDevOpsApiException("Conflict: $errorMessage (409)")
+            HttpURLConnection.HTTP_BAD_REQUEST ->
+                AzureDevOpsApiException("Invalid request: $errorMessage (400)")
+            else ->
+                AzureDevOpsApiException("HTTP Error $statusCode: $errorMessage")
         }
     }
     
     /**
-     * Recupera tutte le modifiche (file changes) di una Pull Request
-     * 
-     * @param pullRequestId ID della PR
-     * @return Lista di modifiche
+     * Gets all file changes of a Pull Request
+     * @param pullRequestId PR ID
+     * @return List of changes
      */
     @Throws(AzureDevOpsApiException::class)
     fun getPullRequestChanges(pullRequestId: Int): List<PullRequestChange> {
         val configService = AzureDevOpsConfigService.getInstance(project)
         val config = configService.getConfig()
         
-        // Prima ottieni la PR per avere l'ultima iteration
+        // First get the PR to have the last iteration
         val pr = getPullRequest(pullRequestId)
         
-        // Ora ottieni le modifiche dell'ultima iteration
+        // Now get the changes of the last iteration
         val url = buildApiUrl(
             config.project,
             config.repository,
@@ -551,31 +542,23 @@ class AzureDevOpsApiClient(private val project: Project) {
             emptyList()
         }
     }
-    
+
     /**
-     * Recupera il contenuto di un file a un commit specifico
-     * 
-     * @param commitId SHA del commit
-     * @param filePath Path del file (es: "/src/main/Program.cs")
-     * @return Contenuto del file come stringa
+     * Retrieves the content of a file at a specific commit
+     * @param commitId SHA of the commit
+     * @param filePath Path of the file (e.g., "/src/main/Program.cs")
+     * @return Content of the file as a string
      */
     @Throws(AzureDevOpsApiException::class)
-    /**
-     * Recupera il contenuto di un file a un commit specifico
-     * 
-     * @param commitId SHA del commit
-     * @param filePath Percorso del file (es: /src/main.cs)
-     * @return Contenuto del file come stringa
-     */
     fun getFileContent(commitId: String, filePath: String): String {
         val configService = AzureDevOpsConfigService.getInstance(project)
         val config = configService.getConfig()
         
-        // Encode del path per URL
+        // Encode the path for URL
         val encodedPath = URLEncoder.encode(filePath, StandardCharsets.UTF_8.toString())
         
-        // Endpoint per ottenere il contenuto del file
-        // includeContent=true fa tornare il contenuto nel campo "content"
+        // Endpoint to get the file content
+        // includeContent=true returns the content in the "content" field
         val url = buildApiUrl(
             config.project,
             config.repository,
@@ -586,15 +569,12 @@ class AzureDevOpsApiClient(private val project: Project) {
         
         val response = executeGet(url, config.personalAccessToken)
         
-        // Parsa la risposta JSON per estrarre il contenuto
+        // Parse the JSON response to extract the content
         return try {
             val jsonObject = gson.fromJson(response, com.google.gson.JsonObject::class.java)
-            
-            // Il contenuto è nel campo "content"
+            // The content is in the "content" field
             val content = jsonObject.get("content")?.asString ?: ""
-            
             logger.info("Extracted content: ${content.length} characters")
-            
             content
         } catch (e: Exception) {
             logger.error("Failed to parse file content response", e)
@@ -604,12 +584,11 @@ class AzureDevOpsApiClient(private val project: Project) {
     }
     
     /**
-     * Cerca identities (utenti/gruppi) per aggiungere reviewer alla PR
-     * Strategia: ottiene gli utenti dalle PR recenti del repository
-     * Questo approccio non richiede permessi speciali, solo quelli già usati per le PR
-     * 
-     * @param searchText Testo di ricerca (nome, email, etc.)
-     * @return Lista di identities trovate
+     * Searches identities (users/groups) to add as reviewers to the PR
+     * Strategy: gets users from recent PRs in the repository
+     * This approach does not require special permissions, only those already used for PRs
+     * @param searchText Search text (name, email, etc.)
+     * @return List of found identities
      */
     @Throws(AzureDevOpsApiException::class)
     fun searchIdentities(searchText: String): List<Identity> {
@@ -618,7 +597,7 @@ class AzureDevOpsApiClient(private val project: Project) {
 
         if (!config.isValid()) {
             logger.error("Config not valid for searchIdentities")
-            throw AzureDevOpsApiException("Azure DevOps non configurato.")
+            throw AzureDevOpsApiException("Azure DevOps not configured.")
         }
 
         logger.info("=== SEARCHING IDENTITIES ===")
@@ -627,8 +606,8 @@ class AzureDevOpsApiClient(private val project: Project) {
         logger.info("Project: ${config.project}")
         
         return try {
-            // Strategia: ottiene utenti dalle PR recenti (createdBy + reviewers)
-            // Questo usa gli stessi permessi già funzionanti per getPullRequests
+            // Strategy: get users from recent PRs (createdBy + reviewers)
+            // This uses the same permissions already working for getPullRequests
             logger.info("Getting identities from recent pull requests...")
             
             val pullRequests = getPullRequests(status = "all", top = 100)
@@ -636,9 +615,9 @@ class AzureDevOpsApiClient(private val project: Project) {
             
             val identitiesMap = mutableMapOf<String, Identity>()
             
-            // Raccogli tutti gli utenti unici da createdBy e reviewers
+            // Collect all unique users from createdBy and reviewers
             pullRequests.forEach { pr ->
-                // Aggiungi il creatore della PR
+                // Add the PR creator
                 pr.createdBy?.let { creator ->
                     creator.id?.let { id ->
                         if (!identitiesMap.containsKey(id)) {
@@ -653,7 +632,7 @@ class AzureDevOpsApiClient(private val project: Project) {
                     }
                 }
                 
-                // Aggiungi i reviewers
+                // Add reviewers
                 pr.reviewers?.forEach { reviewer ->
                     reviewer.id?.let { id ->
                         if (!identitiesMap.containsKey(id)) {
@@ -671,7 +650,7 @@ class AzureDevOpsApiClient(private val project: Project) {
             
             logger.info("Collected ${identitiesMap.size} unique users from pull requests")
             
-            // Filtra per il testo di ricerca
+            // Filter by search text
             val filtered = identitiesMap.values.filter { identity ->
                 val displayName = identity.displayName ?: ""
                 val uniqueName = identity.uniqueName ?: ""
@@ -684,7 +663,7 @@ class AzureDevOpsApiClient(private val project: Project) {
             filtered.forEachIndexed { index, identity ->
                 logger.info("Match $index: displayName=${identity.displayName}, uniqueName=${identity.uniqueName}")
             }
-            
+            // Return only the first 10 matches
             filtered.take(10)
             
         } catch (e: Exception) {
@@ -697,6 +676,6 @@ class AzureDevOpsApiClient(private val project: Project) {
 }
 
 /**
- * Eccezione personalizzata per errori dell'API di Azure DevOps
+ * Custom exception for Azure DevOps API errors
  */
 class AzureDevOpsApiException(message: String, cause: Throwable? = null) : Exception(message, cause)

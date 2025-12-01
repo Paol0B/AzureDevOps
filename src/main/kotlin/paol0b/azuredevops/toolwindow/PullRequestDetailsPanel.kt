@@ -19,8 +19,8 @@ import java.awt.*
 import javax.swing.*
 
 /**
- * Pannello migliorato che mostra i dettagli di una Pull Request
- * Design ispirato a Visual Studio con layout più moderno
+ * Improved panel showing details of a Pull Request
+ * Design inspired by Visual Studio with a more modern layout
  */
 class PullRequestDetailsPanel(private val project: Project) {
 
@@ -102,29 +102,29 @@ class PullRequestDetailsPanel(private val project: Project) {
         
         currentPullRequest = pullRequest
 
-        // Titolo con ID colorato
+        // Title with colored ID
         titleLabel.text = "<html><span style='color: #6897BB;'>PR #${pullRequest.pullRequestId}:</span> " +
                 "${pullRequest.title}</html>"
 
-        // Status badge con colori migliorati
+        // Status badge with improved colors
         updateStatusBadge(pullRequest.status, pullRequest.isDraft == true)
 
         // Draft badge
         draftBadge.isVisible = pullRequest.isDraft == true
 
-        // Branch info con design migliorato
+        // Branch info with improved design
         updateBranchPanel(pullRequest.getSourceBranchName(), pullRequest.getTargetBranchName())
 
-        // Author con icona e stile migliorato
+        // Author with improved icon and style
         val authorName = pullRequest.createdBy?.displayName ?: "Unknown"
         authorLabel.text = "<html><b>Created by:</b> <span style='color: #6897BB;'>$authorName</span></html>"
 
-        // Created date con formattazione migliorata
+        // Created date with improved formatting
         val createdDate = pullRequest.creationDate ?: "Unknown"
         createdDateLabel.text = "<html><b>Created:</b> ${formatDate(createdDate)}</html>"
 
-        // Description con bordi e sfondo
-        descriptionArea.text = pullRequest.description?.takeIf { it.isNotBlank() } 
+        // Description with borders and background
+        descriptionArea.text = pullRequest.description?.takeIf { it.isNotBlank() }
             ?: "No description provided for this pull request."
 
         // Reviewers
@@ -281,7 +281,7 @@ class PullRequestDetailsPanel(private val project: Project) {
             border = JBUI.Borders.empty(10)
         }
 
-        // Header con titolo e badges
+        // Header with title and badges
         val headerPanel = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             alignmentX = Component.LEFT_ALIGNMENT
@@ -309,7 +309,7 @@ class PullRequestDetailsPanel(private val project: Project) {
         scrollPanel.add(branchPanel)
         scrollPanel.add(Box.createVerticalStrut(10))
 
-        // Metadata (author e data)
+        // Metadata (author and date)
         val metaPanel = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             alignmentX = Component.LEFT_ALIGNMENT
@@ -355,7 +355,7 @@ class PullRequestDetailsPanel(private val project: Project) {
         scrollPanel.add(Box.createVerticalStrut(10))
         scrollPanel.add(actionButtonsPanel)
 
-        // Wrapper panel con scroll
+        // Wrapper panel with scroll
         val wrapperPanel = JPanel(BorderLayout())
         wrapperPanel.add(JBScrollPane(scrollPanel).apply {
             border = JBUI.Borders.empty()
@@ -366,7 +366,7 @@ class PullRequestDetailsPanel(private val project: Project) {
     }
     
     /**
-     * Crea il pannello con i bottoni di azione (Review, Approve, etc.)
+     * Creates the panel with action buttons (Review, Approve, etc.)
      */
     private fun createActionButtonsPanel(): JPanel {
         val panel = JPanel(FlowLayout(FlowLayout.LEFT, 10, 5)).apply {
@@ -374,7 +374,7 @@ class PullRequestDetailsPanel(private val project: Project) {
             border = JBUI.Borders.empty(5)
         }
         
-        // Bottone Review PR
+        // Review PR button
         val reviewButton = JButton("Review Changes", AllIcons.Actions.Diff).apply {
             toolTipText = "Review all changes in this PR with integrated diff viewer"
             addActionListener {
@@ -393,17 +393,17 @@ class PullRequestDetailsPanel(private val project: Project) {
         }
         panel.add(reviewButton)
         
-        // Bottone Approve (placeholder per futura implementazione)
+        // Approve button (placeholder for future implementation)
         val approveButton = JButton("Approve", AllIcons.Actions.Checked).apply {
             toolTipText = "Approve this Pull Request"
-            isEnabled = false // TODO: Implementare approvazione
+            isEnabled = false // TODO: Implement approval
         }
         panel.add(approveButton)
         
-        // Bottone Request Changes (placeholder)
+        // Request Changes button (placeholder)
         val requestChangesButton = JButton("Request Changes", AllIcons.General.Warning).apply {
             toolTipText = "Request changes for this Pull Request"
-            isEnabled = false // TODO: Implementare richiesta modifiche
+            isEnabled = false // TODO: Implement request changes
         }
         panel.add(requestChangesButton)
         

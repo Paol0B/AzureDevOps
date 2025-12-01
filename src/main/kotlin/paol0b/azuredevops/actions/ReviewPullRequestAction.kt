@@ -7,8 +7,8 @@ import paol0b.azuredevops.model.PullRequest
 import paol0b.azuredevops.services.PullRequestReviewService
 
 /**
- * Action per avviare la review di una Pull Request
- * Apre il diff viewer con tutte le modifiche e permette di aggiungere commenti
+ * Action to start the review of a Pull Request
+ * Opens the diff viewer with all changes and allows adding comments
  */
 class ReviewPullRequestAction(
     private val pullRequest: PullRequest

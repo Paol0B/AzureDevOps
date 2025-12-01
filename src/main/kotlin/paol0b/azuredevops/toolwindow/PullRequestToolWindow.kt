@@ -17,8 +17,8 @@ import paol0b.azuredevops.services.PullRequestCommentsService
 import javax.swing.JPanel
 
 /**
- * Pannello principale del ToolWindow delle Pull Request
- * Simile alla finestra Commit/PR di Visual Studio
+ * Main panel of the Pull Request ToolWindow
+ * Similar to the Commit/PR window in Visual Studio
  */
 class PullRequestToolWindow(private val project: Project) {
 
@@ -34,22 +34,22 @@ class PullRequestToolWindow(private val project: Project) {
         
         pullRequestDetailsPanel = PullRequestDetailsPanel(project)
 
-        // Splitter verticale: lista sopra, dettagli sotto (come Visual Studio)
+        // Vertical splitter: list above, details below (like Visual Studio)
         val splitter = JBSplitter(true, 0.5f).apply {
             firstComponent = JBScrollPane(pullRequestListPanel.getComponent())
             secondComponent = JBScrollPane(pullRequestDetailsPanel.getComponent())
         }
 
-        // Pannello con toolbar
+        // Panel with toolbar
         mainPanel = SimpleToolWindowPanel(true, true).apply {
             toolbar = createToolbar()
             setContent(splitter)
         }
 
-        // Carica le PR all'avvio
+        // Load PRs at startup
         pullRequestListPanel.refreshPullRequests()
 
-        // Avvia polling per aggiornare automaticamente la lista PR
+        // Start polling to automatically update the PR list
         pollingService.startPolling {
             pullRequestListPanel.refreshPullRequests()
         }
@@ -59,14 +59,14 @@ class PullRequestToolWindow(private val project: Project) {
 
     private fun createToolbar(): JPanel {
         val actionGroup = DefaultActionGroup().apply {
-            // Action per mostrare i commenti del branch corrente
+            // Action to show comments for the current branch
             add(object : AnAction("Show PR Comments", "Show comments for current branch's Pull Request", AllIcons.General.InlineVariables) {
                 override fun actionPerformed(e: AnActionEvent) {
                     showCurrentBranchPRComments()
                 }
 
                 override fun update(e: AnActionEvent) {
-                    // L'azione è sempre visibile
+                    // The action is always visible
                     e.presentation.isEnabledAndVisible = true
                 }
             })
@@ -92,14 +92,14 @@ class PullRequestToolWindow(private val project: Project) {
 
             addSeparator()
 
-            // Action per refresh
+            // Action for refresh
             add(object : AnAction("Refresh", "Refresh Pull Requests", AllIcons.Actions.Refresh) {
                 override fun actionPerformed(e: AnActionEvent) {
                     pullRequestListPanel.refreshPullRequests()
                 }
             })
 
-            // Action per filtrare per stato
+            // Action to filter by status
             add(object : ToggleAction("Show Only Active", "Show only active Pull Requests", AllIcons.General.Filter) {
                 private var showOnlyActive = true
 
@@ -113,7 +113,7 @@ class PullRequestToolWindow(private val project: Project) {
 
             addSeparator()
 
-            // Action per aprire PR selezionata nel browser
+            // Action to open selected PR in browser
             add(object : AnAction("Open in Browser", "Open selected PR in browser", AllIcons.Ide.External_link_arrow) {
                 override fun actionPerformed(e: AnActionEvent) {
                     pullRequestListPanel.getSelectedPullRequest()?.let { pr ->
@@ -137,7 +137,7 @@ class PullRequestToolWindow(private val project: Project) {
     }
 
     /**
-     * Mostra i commenti della PR associata al branch corrente
+     * Shows the comments of the PR associated with the current branch
      */
     private fun showCurrentBranchPRComments() {
         val gitService = GitRepositoryService.getInstance(project)
@@ -146,8 +146,8 @@ class PullRequestToolWindow(private val project: Project) {
         if (currentBranch == null) {
             Messages.showWarningDialog(
                 project,
-                "Nessun branch Git attivo.",
-                "Impossibile Visualizzare Commenti"
+                "No active Git branch.",
+                "Unable to Show Comments"
             )
             return
         }
@@ -161,13 +161,13 @@ class PullRequestToolWindow(private val project: Project) {
                     if (pullRequest == null) {
                         Messages.showMessageDialog(
                             project,
-                            "Il branch '${currentBranch.displayName}' non ha una Pull Request attiva.\n\n" +
-                                    "Crea una Pull Request per questo branch per visualizzare i commenti.",
-                            "Nessuna Pull Request",
+                            "The branch '${currentBranch.displayName}' does not have an active Pull Request.\n\n" +
+                                    "Create a Pull Request for this branch to view comments.",
+                            "No Pull Request",
                             Messages.getInformationIcon()
                         )
                     } else {
-                        // Carica i commenti nell'editor aperto
+                        // Load comments in the open editor
                         val fileEditorManager = FileEditorManager.getInstance(project)
                         val selectedEditor = fileEditorManager.selectedTextEditor
                         val selectedFile = fileEditorManager.selectedFiles.firstOrNull()
@@ -178,18 +178,18 @@ class PullRequestToolWindow(private val project: Project) {
 
                             Messages.showMessageDialog(
                                 project,
-                                "Commenti caricati per PR #${pullRequest.pullRequestId}:\n${pullRequest.title}\n\n" +
-                                        "I commenti sono evidenziati nel codice.\n" +
-                                        "Clicca sull'icona nella gutter per visualizzare e rispondere.",
-                                "Commenti Caricati",
+                                "Comments loaded for PR #${pullRequest.pullRequestId}:\n${pullRequest.title}\n\n" +
+                                        "Comments are highlighted in the code.\n" +
+                                        "Click the icon in the gutter to view and reply.",
+                                "Comments Loaded",
                                 Messages.getInformationIcon()
                             )
                         } else {
                             Messages.showMessageDialog(
                                 project,
-                                "PR trovata: #${pullRequest.pullRequestId} - ${pullRequest.title}\n\n" +
-                                        "Apri un file per visualizzare i commenti.",
-                                "Pull Request Trovata",
+                                "PR found: #${pullRequest.pullRequestId} - ${pullRequest.title}\n\n" +
+                                        "Open a file to view comments.",
+                                "Pull Request Found",
                                 Messages.getInformationIcon()
                             )
                         }
@@ -199,8 +199,8 @@ class PullRequestToolWindow(private val project: Project) {
                 ApplicationManager.getApplication().invokeLater {
                     Messages.showErrorDialog(
                         project,
-                        "Errore durante la ricerca della Pull Request:\n${e.message}",
-                        "Errore"
+                        "Error while searching for the Pull Request:\n${e.message}",
+                        "Error"
                     )
                 }
             }

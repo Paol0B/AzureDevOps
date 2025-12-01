@@ -21,8 +21,8 @@ import java.time.format.DateTimeFormatter
 import javax.swing.*
 
 /**
- * Dialog per visualizzare e gestire un thread di commenti
- * Migliorato con auto-refresh, feedback visivo e gestione errori
+ * Dialog to view and manage a comment thread
+ * Improved with auto-refresh, visual feedback, and error handling
  */
 class CommentThreadDialog(
     private val project: Project,
@@ -38,7 +38,7 @@ class CommentThreadDialog(
     private var isLoading = false
 
     init {
-        title = "Commenti PR #${pullRequest.pullRequestId}"
+        title = "PR Comments #${pullRequest.pullRequestId}"
         init()
     }
 
@@ -46,19 +46,19 @@ class CommentThreadDialog(
         val panel = JPanel(BorderLayout(0, 10))
         panel.border = JBUI.Borders.empty(10)
 
-        // Info thread
+        // Thread info
         val infoPanel = JPanel(BorderLayout())
         val statusLabel = JLabel(
-            if (thread.isResolved()) "✓ Risolto" else "○ Attivo",
+            if (thread.isResolved()) "✓ Resolved" else "○ Active",
             if (thread.isResolved()) AllIcons.RunConfigurations.TestPassed else AllIcons.General.InspectionsWarning,
             SwingConstants.LEFT
         )
         statusLabel.font = statusLabel.font.deriveFont(12f)
         
         val locationText = if (thread.getFilePath() != null) {
-            "Linea ${thread.getRightFileStart() ?: "?"} in ${thread.getFilePath()}"
+            "Line ${thread.getRightFileStart() ?: "?"} in ${thread.getFilePath()}"
         } else {
-            "Commento generale sulla PR"
+            "General comment on the PR"
         }
         val locationLabel = JLabel(locationText)
         locationLabel.font = locationLabel.font.deriveFont(10f)
@@ -71,7 +71,7 @@ class CommentThreadDialog(
         infoPanel.add(topPanel, BorderLayout.NORTH)
         panel.add(infoPanel, BorderLayout.NORTH)
 
-        // Lista commenti
+        // List of comments
         commentsPanel.layout = BoxLayout(commentsPanel, BoxLayout.Y_AXIS)
         buildCommentsPanel()
         
@@ -79,18 +79,18 @@ class CommentThreadDialog(
         scrollPane.preferredSize = Dimension(600, 300)
         panel.add(scrollPane, BorderLayout.CENTER)
 
-        // Area risposta
+        // Reply area
         val replyPanel = JPanel(BorderLayout(0, 5))
         replyPanel.border = JBUI.Borders.empty(10, 0, 0, 0)
         
-        val replyLabel = JLabel("Rispondi:")
+        val replyLabel = JLabel("Reply:")
         replyPanel.add(replyLabel, BorderLayout.NORTH)
         
         replyTextArea.lineWrap = true
         replyTextArea.wrapStyleWord = true
-        replyTextArea.toolTipText = "Scrivi la tua risposta qui (Ctrl+Enter per inviare)"
-        
-        // Aggiungi scorciatoia Ctrl+Enter per inviare
+        replyTextArea.toolTipText = "Write your reply here (Ctrl+Enter to send)"
+
+        // Add Ctrl+Enter shortcut to send
         replyTextArea.addKeyListener(object : java.awt.event.KeyAdapter() {
             override fun keyPressed(e: java.awt.event.KeyEvent) {
                 if (e.keyCode == java.awt.event.KeyEvent.VK_ENTER && e.isControlDown) {
@@ -110,18 +110,18 @@ class CommentThreadDialog(
         val buttonsPanel = JPanel()
         buttonsPanel.layout = BoxLayout(buttonsPanel, BoxLayout.X_AXIS)
         
-        val replyButton = JButton("Invia Risposta", AllIcons.Actions.MenuSaveall)
-        replyButton.toolTipText = "Invia la risposta al thread di commenti"
+        val replyButton = JButton("Send Reply", AllIcons.Actions.MenuSaveall)
+        replyButton.toolTipText = "Send the reply to the comment thread"
         replyButton.addActionListener {
             val content = replyTextArea.text.trim()
             if (content.isNotEmpty()) {
                 sendReply(content)
             } else {
-                Messages.showWarningDialog(project, "Inserisci un commento prima di inviare.", "Commento Vuoto")
+                Messages.showWarningDialog(project, "Enter a comment before sending.", "Empty Comment")
             }
         }
         
-        resolveButton.toolTipText = "Cambia lo stato del thread (risolto/attivo)"
+        resolveButton.toolTipText = "Change the thread status (resolved/active)"
         resolveButton.addActionListener {
             toggleResolveStatus()
         }
@@ -132,7 +132,7 @@ class CommentThreadDialog(
         buttonsPanel.add(Box.createHorizontalStrut(10))
         buttonsPanel.add(replyButton)
         
-        // Status panel per feedback
+        // Status panel for feedback
         statusPanel.border = JBUI.Borders.empty(5, 0, 0, 0)
         statusPanel.isVisible = false
         replyPanel.add(statusPanel, BorderLayout.NORTH)
@@ -166,7 +166,7 @@ class CommentThreadDialog(
         val panel = JPanel(BorderLayout(5, 5))
         panel.border = JBUI.Borders.empty(5)
         
-        // Header con autore e data
+        // Header with author and date
         val headerPanel = JPanel(BorderLayout())
         
         val authorLabel = JLabel(comment.author?.displayName ?: "Unknown")
@@ -181,7 +181,7 @@ class CommentThreadDialog(
         
         panel.add(headerPanel, BorderLayout.NORTH)
         
-        // Contenuto
+        // Content
         val contentArea = JBTextArea(comment.content ?: "")
         contentArea.isEditable = false
         contentArea.lineWrap = true
@@ -209,34 +209,34 @@ class CommentThreadDialog(
         if (isLoading) return
         
         val threadId = thread.id ?: run {
-            Messages.showErrorDialog(project, "ID thread non valido.", "Errore")
+            Messages.showErrorDialog(project, "Invalid thread ID.", "Error")
             return
         }
         
         isLoading = true
-        showStatus("Invio in corso...", JBColor.BLUE)
-        
+        showStatus("Sending...", JBColor.BLUE)
+
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
                 val apiClient = AzureDevOpsApiClient.getInstance(project)
                 apiClient.addCommentToThread(pullRequest.pullRequestId, threadId, content)
                 
-                // Ricarica il thread aggiornato
+                // Reload the updated thread
                 val updatedThreads = apiClient.getCommentThreads(pullRequest.pullRequestId)
                 val updatedThread = updatedThreads.firstOrNull { it.id == threadId }
                 
                 ApplicationManager.getApplication().invokeLater {
                     isLoading = false
-                    replyTextArea.text = ""  // Pulisci la textbox
-                    showStatus("✓ Risposta inviata con successo!", JBColor.GREEN)
-                    
-                    // Auto-refresh dei commenti
+                    replyTextArea.text = ""  // Clear the textbox
+                    showStatus("✓ Reply sent successfully!", JBColor.GREEN)
+
+                    // Auto-refresh comments
                     if (updatedThread != null) {
                         thread = updatedThread
                         buildCommentsPanel()
                     }
                     
-                    // Nascondi il messaggio di successo dopo 3 secondi
+                    // Hide the success message after 3 seconds
                     Timer(3000) {
                         hideStatus()
                     }.apply {
@@ -247,11 +247,11 @@ class CommentThreadDialog(
             } catch (e: Exception) {
                 ApplicationManager.getApplication().invokeLater {
                     isLoading = false
-                    showStatus("✗ Errore: ${e.message}", JBColor.RED)
+                    showStatus("✗ Error: ${e.message}", JBColor.RED)
                     Messages.showErrorDialog(
                         project,
-                        "Errore durante l'invio della risposta:\n${e.message}",
-                        "Errore Invio"
+                        "Error while sending reply:\n${e.message}",
+                        "Send Error"
                     )
                 }
             }
@@ -262,14 +262,14 @@ class CommentThreadDialog(
         if (isLoading) return
         
         val threadId = thread.id ?: run {
-            Messages.showErrorDialog(project, "ID thread non valido.", "Errore")
+            Messages.showErrorDialog(project, "Invalid thread ID.", "Error")
             return
         }
         
         isLoading = true
-        val action = if (thread.isResolved()) "Riapertura" else "Risoluzione"
-        showStatus("$action in corso...", JBColor.BLUE)
-        
+        val action = if (thread.isResolved()) "Reopening" else "Resolving"
+        showStatus("$action...", JBColor.BLUE)
+
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
                 val apiClient = AzureDevOpsApiClient.getInstance(project)
@@ -281,21 +281,21 @@ class CommentThreadDialog(
                 
                 apiClient.updateThreadStatus(pullRequest.pullRequestId, threadId, newStatus)
                 
-                // Ricarica il thread aggiornato
+                // Reload the updated thread
                 val updatedThreads = apiClient.getCommentThreads(pullRequest.pullRequestId)
                 val updatedThread = updatedThreads.firstOrNull { it.id == threadId }
                 
                 ApplicationManager.getApplication().invokeLater {
                     isLoading = false
-                    showStatus("✓ Status aggiornato con successo!", JBColor.GREEN)
-                    
+                    showStatus("✓ Status updated successfully!", JBColor.GREEN)
+
                     if (updatedThread != null) {
                         thread = updatedThread
                         updateResolveButton()
                         buildCommentsPanel()
                     }
                     
-                    // Nascondi il messaggio dopo 3 secondi
+                    // Hide the message after 3 seconds
                     Timer(3000) {
                         hideStatus()
                     }.apply {
@@ -306,11 +306,11 @@ class CommentThreadDialog(
             } catch (e: Exception) {
                 ApplicationManager.getApplication().invokeLater {
                     isLoading = false
-                    showStatus("✗ Errore: ${e.message}", JBColor.RED)
+                    showStatus("✗ Error: ${e.message}", JBColor.RED)
                     Messages.showErrorDialog(
                         project,
-                        "Errore durante l'aggiornamento dello stato:\n${e.message}",
-                        "Errore Aggiornamento"
+                        "Error while updating status:\n${e.message}",
+                        "Update Error"
                     )
                 }
             }
@@ -335,10 +335,10 @@ class CommentThreadDialog(
 
     private fun updateResolveButton() {
         if (thread.isResolved()) {
-            resolveButton.text = "Riapri"
+            resolveButton.text = "Reopen"
             resolveButton.icon = AllIcons.General.InspectionsWarning
         } else {
-            resolveButton.text = "Risolvi"
+            resolveButton.text = "Resolve"
             resolveButton.icon = AllIcons.RunConfigurations.TestPassed
         }
     }

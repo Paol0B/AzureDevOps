@@ -8,8 +8,8 @@ import paol0b.azuredevops.model.PullRequest
 import paol0b.azuredevops.ui.PullRequestReviewDialog
 
 /**
- * Servizio per gestire la review delle Pull Request
- * Apre diff viewer integrato di Rider per visualizzare le modifiche
+ * Service to manage the review of Pull Requests
+ * Opens Rider's integrated diff viewer to display changes
  */
 @Service(Service.Level.PROJECT)
 class PullRequestReviewService(private val project: Project) {
@@ -23,9 +23,9 @@ class PullRequestReviewService(private val project: Project) {
     }
 
     /**
-     * Apre la review completa di una PR mostrando tutti i file modificati
-     * 
-     * @param pullRequest La PR da revieware
+     * Opens the complete review of a PR showing all modified files
+     *
+     * @param pullRequest The PR to review
      */
     fun startReview(pullRequest: PullRequest) {
         logger.info("=== START REVIEW FOR PR #${pullRequest.pullRequestId} ===")
@@ -48,7 +48,7 @@ class PullRequestReviewService(private val project: Project) {
                     return@executeOnPooledThread
                 }
                 
-                // Filtra solo i file (hanno un path e un changeType valido)
+                // Filter only files (they have a path and a valid changeType)
                 val fileChanges = changes.filter { change ->
                     val changeType = change.changeType?.lowercase() ?: ""
                     val hasPath = change.item?.path?.isNotBlank() == true
@@ -64,7 +64,7 @@ class PullRequestReviewService(private val project: Project) {
                     return@executeOnPooledThread
                 }
                 
-                // Apri il dialog di review
+                // Open the review dialog
                 ApplicationManager.getApplication().invokeLater {
                     val dialog = PullRequestReviewDialog(project, pullRequest, fileChanges)
                     dialog.show()

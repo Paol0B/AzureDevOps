@@ -9,9 +9,9 @@ import com.intellij.util.xmlb.XmlSerializerUtil
 import paol0b.azuredevops.model.AzureDevOpsConfig
 
 /**
- * Servizio per gestire la configurazione di Azure DevOps.
- * Rileva automaticamente organization, project e repository dall'URL Git remoto.
- * Salva solo il PAT in modo sicuro usando PasswordSafe.
+ * Service to manage Azure DevOps configuration.
+ * Automatically detects organization, project, and repository from the remote Git URL.
+ * Only saves the PAT securely using PasswordSafe.
  */
 @Service(Service.Level.PROJECT)
 @State(
@@ -31,7 +31,7 @@ class AzureDevOpsConfigService(private val project: com.intellij.openapi.project
     }
 
     data class State(
-        // Manteniamo questi campi per retrocompatibilità e override manuale (opzionale)
+        // Keep these fields for backward compatibility and optional manual override
         var manualOrganization: String = "",
         var manualProject: String = "",
         var manualRepository: String = ""
@@ -44,15 +44,15 @@ class AzureDevOpsConfigService(private val project: com.intellij.openapi.project
     }
 
     /**
-     * Ottiene la configurazione completa includendo il PAT dal secure storage
-     * e le informazioni auto-rilevate dal repository Git
+     * Gets the complete configuration including PAT from secure storage
+     * and auto-detected info from the Git repository
      */
     fun getConfig(): AzureDevOpsConfig {
         val pat = getPersonalAccessToken()
         val detector = AzureDevOpsRepositoryDetector.getInstance(project)
         val repoInfo = detector.detectAzureDevOpsInfo()
         
-        // Usa i valori auto-rilevati, oppure quelli manuali se impostati (override)
+        // Use auto-detected values, or manual ones if set (override)
         val organization = myState.manualOrganization.ifBlank { repoInfo?.organization ?: "" }
         val project = myState.manualProject.ifBlank { repoInfo?.project ?: "" }
         val repository = myState.manualRepository.ifBlank { repoInfo?.repository ?: "" }
@@ -66,7 +66,7 @@ class AzureDevOpsConfigService(private val project: com.intellij.openapi.project
     }
 
     /**
-     * Salva la configurazione completa (opzionale per override manuale)
+     * Saves the complete configuration (optional for manual override)
      */
     fun saveConfig(config: AzureDevOpsConfig) {
         myState.manualOrganization = config.organization
@@ -76,18 +76,18 @@ class AzureDevOpsConfigService(private val project: com.intellij.openapi.project
     }
     
     /**
-     * Salva solo il PAT (metodo consigliato)
+     * Saves only the PAT (recommended method)
      */
     fun savePersonalAccessTokenOnly(token: String) {
         savePersonalAccessToken(token)
     }
 
     /**
-     * Ottiene il Personal Access Token dal secure storage
-     * Se non trovato, tenta di recuperarlo dal Git Credential Helper
+     * Gets the Personal Access Token from secure storage
+     * If not found, tries to retrieve it from the Git Credential Helper
      */
     private fun getPersonalAccessToken(): String {
-        // Prima prova dal PasswordSafe dell'IDE
+        // First try from IDE's PasswordSafe
         val credentialAttributes = createCredentialAttributes()
         val credentials = PasswordSafe.instance.get(credentialAttributes)
         val savedToken = credentials?.getPasswordAsString() ?: ""
@@ -96,27 +96,27 @@ class AzureDevOpsConfigService(private val project: com.intellij.openapi.project
             return savedToken
         }
         
-        // Se non trovato, tenta di recuperarlo dal Git Credential Helper
+        // If not found, try to retrieve it from Git Credential Helper
         return tryGetTokenFromGitCredentialHelper() ?: ""
     }
     
     /**
-     * Tenta di recuperare il PAT dal Git Credential Helper
+     * Attempts to retrieve the PAT from Git Credential Helper
      */
     private fun tryGetTokenFromGitCredentialHelper(): String? {
         return try {
             val gitCredHelper = GitCredentialHelperService.getInstance(project)
             
-            // Verifica se il credential helper è disponibile
+            // Check if credential helper is available
             if (!gitCredHelper.isCredentialHelperAvailable()) {
                 return null
             }
             
-            // Tenta di recuperare le credenziali
+            // Try to retrieve credentials
             val token = gitCredHelper.getCredentialsForCurrentRepository()
             
             if (token != null) {
-                // Salva il token nel PasswordSafe per uso futuro
+                // Save the token in PasswordSafe for future use
                 savePersonalAccessToken(token)
             }
             
@@ -127,22 +127,22 @@ class AzureDevOpsConfigService(private val project: com.intellij.openapi.project
     }
 
     /**
-     * Salva il Personal Access Token nel secure storage
-     * Opzionalmente salva anche nel Git Credential Helper
+     * Saves the Personal Access Token in secure storage
+     * Optionally also saves it in Git Credential Helper
      */
     private fun savePersonalAccessToken(token: String) {
-        // Salva nel PasswordSafe dell'IDE
+        // Save in IDE's PasswordSafe
         val credentialAttributes = createCredentialAttributes()
         val credentials = Credentials("azure-devops", token)
         PasswordSafe.instance.set(credentialAttributes, credentials)
         
-        // Tenta di salvare anche nel Git Credential Helper
+        // Try to also save in Git Credential Helper
         trySaveTokenToGitCredentialHelper(token)
     }
     
     /**
-     * Tenta di salvare il PAT anche nel Git Credential Helper
-     * per sincronizzazione con Git CLI
+     * Attempts to also save the PAT in Git Credential Helper
+     * for synchronization with Git CLI
      */
     private fun trySaveTokenToGitCredentialHelper(token: String) {
         try {
@@ -154,12 +154,12 @@ class AzureDevOpsConfigService(private val project: com.intellij.openapi.project
                 gitCredHelper.saveCredentialsToHelper(remoteUrl, "", token)
             }
         } catch (e: Exception) {
-            // Ignora errori, non è critico
+            // Ignore errors, not critical
         }
     }
 
     /**
-     * Pulisce il Personal Access Token dal secure storage
+     * Clears the Personal Access Token from secure storage
      */
     fun clearPersonalAccessToken() {
         val credentialAttributes = createCredentialAttributes()
@@ -167,7 +167,7 @@ class AzureDevOpsConfigService(private val project: com.intellij.openapi.project
     }
 
     /**
-     * Verifica se la configurazione è valida
+     * Checks if the configuration is valid
      */
     fun isConfigured(): Boolean = getConfig().isValid()
 
@@ -178,7 +178,7 @@ class AzureDevOpsConfigService(private val project: com.intellij.openapi.project
     }
 
     /**
-     * Ottiene l'URL base per le API di Azure DevOps
+     * Gets the base URL for Azure DevOps APIs
      */
     fun getApiBaseUrl(): String {
         val config = getConfig()
@@ -186,13 +186,13 @@ class AzureDevOpsConfigService(private val project: com.intellij.openapi.project
     }
     
     /**
-     * Verifica se il repository è di Azure DevOps O se c'è una configurazione manuale valida
+     * Checks if the repository is Azure DevOps OR if there is a valid manual configuration
      */
     fun isAzureDevOpsRepository(): Boolean {
         val detector = AzureDevOpsRepositoryDetector.getInstance(project)
         val autoDetected = detector.isAzureDevOpsRepository()
         
-        // Se non auto-rilevato, controlla se c'è una config manuale valida
+        // If not auto-detected, check if there is a valid manual config
         if (!autoDetected) {
             return myState.manualOrganization.isNotBlank() &&
                    myState.manualProject.isNotBlank() &&
@@ -203,7 +203,7 @@ class AzureDevOpsConfigService(private val project: com.intellij.openapi.project
     }
     
     /**
-     * Ottiene la descrizione del repository rilevato
+     * Gets the description of the detected repository
      */
     fun getDetectedRepositoryInfo(): String? {
         val detector = AzureDevOpsRepositoryDetector.getInstance(project)

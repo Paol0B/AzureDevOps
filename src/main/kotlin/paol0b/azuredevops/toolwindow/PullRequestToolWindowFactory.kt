@@ -7,7 +7,7 @@ import com.intellij.openapi.wm.ToolWindowFactory
 import paol0b.azuredevops.services.AzureDevOpsConfigService
 
 /**
- * Factory per creare il ToolWindow delle Pull Request
+ * Factory to create the Pull Request ToolWindow
  */
 class PullRequestToolWindowFactory : ToolWindowFactory, DumbAware {
 

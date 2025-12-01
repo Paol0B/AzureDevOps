@@ -1,18 +1,16 @@
 package paol0b.azuredevops.services
 
-import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.editor.markup.GutterIconRenderer
-import com.intellij.openapi.ui.Messages
 import paol0b.azuredevops.model.CommentThread
 import paol0b.azuredevops.model.PullRequest
 import paol0b.azuredevops.ui.CommentThreadDialog
 import javax.swing.Icon
 
 /**
- * Renderer per l'icona dei commenti nella gutter dell'editor
- * Stile Visual Studio: icone visibili nel margine sinistro con tooltip informativi
+ * Renderer for the comment icon in the editor gutter
+ * Visual Studio style: icons visible in the left margin with informative tooltips
  */
 class CommentGutterIconRenderer(
     private val thread: CommentThread,
@@ -61,7 +59,7 @@ class CommentGutterIconRenderer(
             override fun actionPerformed(e: AnActionEvent) {
                 val project = e.project ?: return
                 
-                // Apri dialog per visualizzare e gestire il thread
+                // Open dialog to view and manage the thread
                 val dialog = CommentThreadDialog(project, thread, pullRequest, commentsService)
                 dialog.show()
             }
@@ -69,7 +67,7 @@ class CommentGutterIconRenderer(
     }
     
     override fun getAlignment(): Alignment {
-        // Allinea l'icona a destra nella gutter per maggiore visibilità
+        // Align the icon to the right in the gutter for better visibility
         return Alignment.RIGHT
     }
 

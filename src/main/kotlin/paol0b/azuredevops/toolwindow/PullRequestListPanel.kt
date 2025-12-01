@@ -23,7 +23,7 @@ import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.DefaultTreeModel
 
 /**
- * Pannello che mostra la lista delle Pull Request con UI migliorata
+ * Panel that shows the list of Pull Requests with improved UI
  */
 class PullRequestListPanel(
     private val project: Project,
@@ -47,17 +47,17 @@ class PullRequestListPanel(
             border = JBUI.Borders.empty(5)
         }
 
-        // Setup UI helper per il tree
+        // Setup UI helper for the tree
         TreeUIHelper.getInstance().installTreeSpeedSearch(tree)
 
-        // Listener per la selezione
+        // Listener for selection
         tree.addTreeSelectionListener(TreeSelectionListener {
             val selectedNode = tree.lastSelectedPathComponent as? DefaultMutableTreeNode
             val pr = selectedNode?.userObject as? PullRequest
             onSelectionChanged(pr)
         })
         
-        // Status label in fondo
+        // Status label at the bottom
         statusLabel = JLabel("Ready").apply {
             border = JBUI.Borders.empty(5, 10)
             font = font.deriveFont(Font.PLAIN, 11f)
@@ -75,7 +75,7 @@ class PullRequestListPanel(
         statusLabel.text = "Loading Pull Requests..."
         statusLabel.icon = AllIcons.Process.Step_1
         
-        // Salva la PR attualmente selezionata
+        // Save the currently selected PR
         val selectedPrId = getSelectedPullRequest()?.pullRequestId
         
         ProgressManager.getInstance().run(object : Task.Backgroundable(
@@ -122,7 +122,7 @@ class PullRequestListPanel(
             val emptyNode = DefaultMutableTreeNode("No Pull Requests found")
             rootNode.add(emptyNode)
         } else {
-            // Raggruppa per stato
+            // Group by status
             val active = pullRequests.filter { it.status == PullRequestStatus.Active }
             val completed = pullRequests.filter { it.status == PullRequestStatus.Completed }
             val abandoned = pullRequests.filter { it.status == PullRequestStatus.Abandoned }
@@ -154,29 +154,29 @@ class PullRequestListPanel(
 
         treeModel.reload()
         
-        // Espandi tutti i nodi
+        // Expand all nodes
         for (i in 0 until tree.rowCount) {
             tree.expandRow(i)
         }
         
-        // Ripristina la selezione se c'era una PR selezionata
+        // Restore selection if there was a selected PR
         if (previouslySelectedPrId != null) {
             restoreSelection(previouslySelectedPrId)
         }
     }
     
     /**
-     * Ripristina la selezione di una PR dopo il refresh
+     * Restores the selection of a PR after refresh
      */
     private fun restoreSelection(prId: Int) {
-        // Cerca il nodo corrispondente alla PR
+        // Search for the node corresponding to the PR
         for (i in 0 until rootNode.childCount) {
             val folderNode = rootNode.getChildAt(i) as? DefaultMutableTreeNode ?: continue
             for (j in 0 until folderNode.childCount) {
                 val prNode = folderNode.getChildAt(j) as? DefaultMutableTreeNode ?: continue
                 val pr = prNode.userObject as? PullRequest ?: continue
                 if (pr.pullRequestId == prId) {
-                    // Seleziona questo nodo
+                    // Select this node
                     val path = javax.swing.tree.TreePath(prNode.path)
                     tree.selectionPath = path
                     tree.scrollPathToVisible(path)
@@ -194,7 +194,7 @@ class PullRequestListPanel(
     }
 
     /**
-     * Renderer custom per le PR nel tree con design migliorato
+     * Custom renderer for PRs in the tree with improved design
      */
     private class PullRequestCellRenderer : ColoredTreeCellRenderer() {
         override fun customizeCellRenderer(
@@ -211,7 +211,7 @@ class PullRequestListPanel(
 
             when (userObject) {
                 is PullRequest -> {
-                    // Icona e colore in base allo stato
+                    // Icon and color based on status
                     icon = when (userObject.status) {
                         PullRequestStatus.Active -> {
                             if (userObject.isDraft == true) AllIcons.Vcs.Patch_applied 
@@ -222,7 +222,7 @@ class PullRequestListPanel(
                         else -> AllIcons.Vcs.Branch
                     }
 
-                    // ID PR con colore
+                    // PR ID with color
                     val idColor = when (userObject.status) {
                         PullRequestStatus.Active -> SimpleTextAttributes.LINK_BOLD_ATTRIBUTES
                         PullRequestStatus.Completed -> SimpleTextAttributes.GRAYED_BOLD_ATTRIBUTES
@@ -238,7 +238,7 @@ class PullRequestListPanel(
                         ))
                     }
 
-                    // Titolo PR
+                    // PR title
                     val titleAttrs = if (userObject.status == PullRequestStatus.Active) {
                         SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES
                     } else {
@@ -246,7 +246,7 @@ class PullRequestListPanel(
                     }
                     append(userObject.title, titleAttrs)
 
-                    // Branch info su nuova linea visuale
+                    // Branch info on new visual line
                     append("  ")
                     append("${userObject.getSourceBranchName()}", SimpleTextAttributes.GRAYED_SMALL_ATTRIBUTES)
                     append(" → ", SimpleTextAttributes(
@@ -255,7 +255,7 @@ class PullRequestListPanel(
                     ))
                     append("${userObject.getTargetBranchName()}", SimpleTextAttributes.GRAYED_SMALL_ATTRIBUTES)
                     
-                    // Info autore
+                    // Author info
                     userObject.createdBy?.displayName?.let { author ->
                         append("  •  ", SimpleTextAttributes.GRAYED_SMALL_ATTRIBUTES)
                         append("by $author", SimpleTextAttributes(
@@ -265,7 +265,7 @@ class PullRequestListPanel(
                     }
                 }
                 is String -> {
-                    // Nodi folder con icone e stili migliorati
+                    // Folder nodes with improved icons and styles
                     when {
                         userObject.startsWith("Active") -> {
                             icon = AllIcons.Nodes.Folder

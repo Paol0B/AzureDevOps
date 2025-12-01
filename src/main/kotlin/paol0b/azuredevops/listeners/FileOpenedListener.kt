@@ -19,9 +19,9 @@ import paol0b.azuredevops.services.GitRepositoryService
 import paol0b.azuredevops.services.PullRequestCommentsService
 
 /**
- * Listener per rilevare quando viene aperto un file
- * Carica automaticamente i commenti PR se il branch ha una PR attiva
- * Stile Visual Studio: commenti sempre visibili durante la review
+ * Listener to detect when a file is opened
+ * Automatically loads PR comments if the branch has an active PR
+ * Visual Studio style: comments always visible during review
  */
 class FileOpenedListener(private val project: Project) : FileEditorManagerListener {
 
@@ -32,14 +32,14 @@ class FileOpenedListener(private val project: Project) : FileEditorManagerListen
     override fun fileOpened(source: FileEditorManager, file: VirtualFile) {
         logger.info("File opened: ${file.path}")
         
-        // Verifica solo se Azure DevOps è configurato
+        // Check only if Azure DevOps is configured
         val configService = AzureDevOpsConfigService.getInstance(project)
         if (!configService.isAzureDevOpsRepository()) {
             logger.info("Not an Azure DevOps repository, skipping")
             return
         }
 
-        // Verifica se c'è un branch corrente
+        // Check if there is a current branch
         val gitService = GitRepositoryService.getInstance(project)
         val currentBranch = gitService.getCurrentBranch()
         if (currentBranch == null) {
@@ -48,7 +48,7 @@ class FileOpenedListener(private val project: Project) : FileEditorManagerListen
         }
         logger.info("Current branch: ${currentBranch.displayName}")
         
-        // Se abbiamo già una PR corrente per questo branch, carica i commenti direttamente
+        // If we already have a current PR for this branch, load comments directly
         val pr = currentPullRequest
         if (pr != null && pr.sourceRefName?.endsWith(currentBranch.displayName) == true) {
             logger.info("Using cached PR #${pr.pullRequestId}")
@@ -58,7 +58,7 @@ class FileOpenedListener(private val project: Project) : FileEditorManagerListen
 
         logger.info("Searching for PR for branch ${currentBranch.displayName}")
         
-        // Cerca PR in background
+        // Search for PR in the background
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
                 val apiClient = AzureDevOpsApiClient.getInstance(project)
@@ -68,17 +68,17 @@ class FileOpenedListener(private val project: Project) : FileEditorManagerListen
                     logger.info("Found PR #${pullRequest.pullRequestId} for branch ${currentBranch.displayName}")
                     currentPullRequest = pullRequest
                     
-                    // Avvia polling automatico per i commenti
+                    // Start automatic polling for comments
                     val pollingService = CommentsPollingService.getInstance(project)
                     if (!pollingService.isPolling()) {
                         pollingService.startPolling(pullRequest)
                     }
                     
                     ApplicationManager.getApplication().invokeLater {
-                        // Carica i commenti per il file appena aperto
+                        // Load comments for the newly opened file
                         loadCommentsForFile(source, file, pullRequest)
                         
-                        // Notifica solo la prima volta
+                        // Notify only the first time
                         if (!notifiedBranches.contains(currentBranch.displayName)) {
                             notifiedBranches.add(currentBranch.displayName)
                             showPullRequestNotification(pullRequest, currentBranch.displayName, source, file)
@@ -94,7 +94,7 @@ class FileOpenedListener(private val project: Project) : FileEditorManagerListen
     }
     
     /**
-     * Carica i commenti per il file nell'editor
+     * Loads comments for the file in the editor
      */
     private fun loadCommentsForFile(source: FileEditorManager, file: VirtualFile, pullRequest: PullRequest) {
         logger.info("Loading comments for file: ${file.path}, PR #${pullRequest.pullRequestId}")
@@ -115,7 +115,7 @@ class FileOpenedListener(private val project: Project) : FileEditorManagerListen
     }
     
     /**
-     * Mostra la notifica di PR attiva
+     * Shows notification for active PR
      */
     private fun showPullRequestNotification(
         pullRequest: PullRequest, 
@@ -132,7 +132,7 @@ class FileOpenedListener(private val project: Project) : FileEditorManagerListen
                 NotificationType.INFORMATION
             )
         
-        // Azione per ricaricare i commenti manualmente
+        // Action to manually refresh comments
         notification.addAction(object : AnAction("Refresh Comments") {
             override fun actionPerformed(e: AnActionEvent) {
                 val editor = source.selectedTextEditor
@@ -148,7 +148,7 @@ class FileOpenedListener(private val project: Project) : FileEditorManagerListen
     }
 
     override fun fileClosed(source: FileEditorManager, file: VirtualFile) {
-        // Rimuovi i marker dei commenti quando il file viene chiuso
+        // Remove comment markers when the file is closed
         val commentsService = PullRequestCommentsService.getInstance(project)
         commentsService.clearCommentsFromFile(file)
         

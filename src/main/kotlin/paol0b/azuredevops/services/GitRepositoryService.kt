@@ -12,7 +12,7 @@ import git4idea.repo.GitRepositoryManager
 import paol0b.azuredevops.model.GitBranch
 
 /**
- * Servizio per interagire con il repository Git locale
+ * Service to interact with the local Git repository
  */
 @Service(Service.Level.PROJECT)
 class GitRepositoryService(private val project: Project) {
@@ -26,7 +26,7 @@ class GitRepositoryService(private val project: Project) {
     }
 
     /**
-     * Ottiene il repository Git corrente del progetto
+     * Gets the current Git repository of the project
      */
     fun getCurrentRepository(): GitRepository? {
         val manager = GitRepositoryManager.getInstance(project)
@@ -37,12 +37,12 @@ class GitRepositoryService(private val project: Project) {
             return null
         }
         
-        // Restituisce il primo repository (in progetti multi-repo, potrebbe essere esteso)
+        // Returns the first repository (in multi-repo projects, this could be extended)
         return repositories.firstOrNull()
     }
 
     /**
-     * Ottiene il branch corrente
+     * Gets the current branch
      */
     fun getCurrentBranch(): GitBranch? {
         val repository = getCurrentRepository() ?: return null
@@ -55,7 +55,7 @@ class GitRepositoryService(private val project: Project) {
     }
 
     /**
-     * Ottiene tutti i branch locali
+     * Gets all local branches
      */
     fun getLocalBranches(): List<GitBranch> {
         val repository = getCurrentRepository() ?: return emptyList()
@@ -69,7 +69,7 @@ class GitRepositoryService(private val project: Project) {
     }
 
     /**
-     * Ottiene tutti i branch remoti
+     * Gets all remote branches
      */
     fun getRemoteBranches(): List<GitBranch> {
         val repository = getCurrentRepository() ?: return emptyList()
@@ -83,13 +83,13 @@ class GitRepositoryService(private val project: Project) {
     }
 
     /**
-     * Determina il branch target (main o master) per la Pull Request
-     * Priorità: main > master > null
+     * Determines the target branch (main or master) for the Pull Request
+     * Priority: main > master > null
      */
     fun getDefaultTargetBranch(): GitBranch? {
         val repository = getCurrentRepository() ?: return null
         
-        // Cerca prima nei branch remoti
+        // First, look in remote branches
         val remoteBranches = repository.branches.remoteBranches
         val mainBranch = remoteBranches.firstOrNull { it.nameForRemoteOperations == "main" }
         if (mainBranch != null) {
@@ -101,7 +101,7 @@ class GitRepositoryService(private val project: Project) {
             return GitBranch("refs/heads/master", "master")
         }
         
-        // Cerca nei branch locali come fallback
+        // Fallback: look in local branches
         val localBranches = repository.branches.localBranches
         val localMain = localBranches.firstOrNull { it.name == "main" }
         if (localMain != null) {
@@ -118,25 +118,25 @@ class GitRepositoryService(private val project: Project) {
     }
 
     /**
-     * Verifica se il progetto ha un repository Git
+     * Checks if the project has a Git repository
      */
     fun hasGitRepository(): Boolean {
         return getCurrentRepository() != null
     }
 
     /**
-     * Ottiene il nome del repository Git (dall'URL remoto se disponibile)
+     * Gets the name of the Git repository (from the remote URL if available)
      */
     fun getRepositoryName(): String? {
         val repository = getCurrentRepository() ?: return null
         
-        // Prova a ottenere il nome dal remote
+        // Try to get the name from the remote
         val remotes = repository.remotes
         if (remotes.isNotEmpty()) {
             val firstRemoteUrl = remotes.first().firstUrl ?: return null
-            // Estrai il nome del repository dall'URL
-            // Es: https://dev.azure.com/org/project/_git/repo -> repo
-            // Es: git@ssh.dev.azure.com:v3/org/project/repo -> repo
+            // Extract the repository name from the URL
+            // E.g., https://dev.azure.com/org/project/_git/repo -> repo
+            // E.g., git@ssh.dev.azure.com:v3/org/project/repo -> repo
             return extractRepositoryNameFromUrl(firstRemoteUrl)
         }
         
@@ -144,19 +144,19 @@ class GitRepositoryService(private val project: Project) {
     }
 
     /**
-     * Estrae il nome del repository da un URL Git
+     * Extracts the repository name from a Git URL
      */
     private fun extractRepositoryNameFromUrl(url: String): String {
-        // Rimuovi .git alla fine se presente
+        // Remove .git at the end if present
         val cleanUrl = url.removeSuffix(".git")
         
-        // Prendi l'ultimo segmento del path
+        // Take the last segment of the path
         val segments = cleanUrl.split('/', '\\')
         return segments.lastOrNull()?.takeIf { it.isNotBlank() } ?: cleanUrl
     }
 
     /**
-     * Verifica se il branch corrente è main o master
+     * Checks if the current branch is main or master
      */
     fun isOnMainBranch(): Boolean {
         val currentBranch = getCurrentBranch() ?: return false
@@ -164,7 +164,7 @@ class GitRepositoryService(private val project: Project) {
     }
 
     /**
-     * Ottiene tutti i branch disponibili (locali e remoti combinati, senza duplicati)
+     * Gets all available branches (local and remote combined, without duplicates)
      */
     fun getAllBranches(): List<GitBranch> {
         val repository = getCurrentRepository() ?: return emptyList()
@@ -172,14 +172,14 @@ class GitRepositoryService(private val project: Project) {
         val branchNames = mutableSetOf<String>()
         val branches = mutableListOf<GitBranch>()
         
-        // Aggiungi branch locali
+        // Add local branches
         repository.branches.localBranches.forEach { branch ->
             if (branchNames.add(branch.name)) {
                 branches.add(GitBranch("refs/heads/${branch.name}", branch.name))
             }
         }
         
-        // Aggiungi branch remoti non già presenti
+        // Add remote branches not already present
         repository.branches.remoteBranches.forEach { branch ->
             val name = branch.nameForRemoteOperations
             if (branchNames.add(name)) {
@@ -191,42 +191,42 @@ class GitRepositoryService(private val project: Project) {
     }
     
     /**
-     * Ottiene l'URL del remote Git (origin)
+     * Gets the remote Git URL (origin)
      */
     fun getRemoteUrl(): String? {
         val repository = getCurrentRepository() ?: return null
         
-        // Cerca il remote "origin"
+        // Look for the "origin" remote
         val originRemote = repository.remotes.firstOrNull { it.name == "origin" }
         if (originRemote != null) {
             return originRemote.firstUrl
         }
         
-        // Se non c'è origin, restituisci il primo remote disponibile
+        // If no origin, return the first available remote
         val firstRemote = repository.remotes.firstOrNull()
         return firstRemote?.firstUrl
     }
 
     /**
-     * Ottiene il repository Git per uso interno
+     * Gets the Git repository for internal use
      */
     fun getRepository(): GitRepository? = getCurrentRepository()
 
     /**
-     * Ottiene le modifiche tra due branch
+     * Gets the changes between two branches
      */
     fun getChangesBetweenBranches(sourceBranch: String, targetBranch: String): List<Change> {
         val repository = getCurrentRepository() ?: return emptyList()
         
         try {
-            // Rimuovi il prefisso refs/heads/ se presente
+            // Remove the refs/heads/ prefix if present
             val sourceRef = sourceBranch.removePrefix("refs/heads/")
             val targetRef = targetBranch.removePrefix("refs/heads/")
             
-            // Ottieni i commit tra i due branch
+            // Get the commits between the two branches
             val commits = GitHistoryUtils.history(project, repository.root, "$targetRef..$sourceRef")
             
-            // Raccogli tutte le modifiche dai commit
+            // Collect all changes from the commits
             val changes = mutableListOf<Change>()
             commits.forEach { commit ->
                 changes.addAll(commit.changes)
@@ -240,17 +240,17 @@ class GitRepositoryService(private val project: Project) {
     }
 
     /**
-     * Ottiene i commit tra due branch
+     * Gets the commits between two branches
      */
     fun getCommitsBetweenBranches(sourceBranch: String, targetBranch: String): List<git4idea.GitCommit> {
         val repository = getCurrentRepository() ?: return emptyList()
         
         try {
-            // Rimuovi il prefisso refs/heads/ se presente
+            // Remove the refs/heads/ prefix if present
             val sourceRef = sourceBranch.removePrefix("refs/heads/")
             val targetRef = targetBranch.removePrefix("refs/heads/")
             
-            // Ottieni i commit tra i due branch (da target a source)
+            // Get the commits between the two branches (from target to source)
             return GitHistoryUtils.history(project, repository.root, "$targetRef..$sourceRef")
         } catch (e: Exception) {
             logger.error("Error getting commits between branches", e)

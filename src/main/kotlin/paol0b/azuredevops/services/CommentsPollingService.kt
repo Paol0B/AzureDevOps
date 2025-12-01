@@ -13,8 +13,8 @@ import java.util.concurrent.ScheduledThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 
 /**
- * Servizio che effettua polling automatico per aggiornare i commenti PR
- * Refresh automatico ogni 30 secondi
+ * Service that performs automatic polling to update PR comments
+ * Automatic refresh every 30 seconds
  */
 @Service(Service.Level.PROJECT)
 class CommentsPollingService(private val project: Project) {
@@ -25,7 +25,7 @@ class CommentsPollingService(private val project: Project) {
     private var isPollingActive = false
 
     companion object {
-    private const val POLLING_INTERVAL_SECONDS = 5L
+        private const val POLLING_INTERVAL_SECONDS = 5L
 
         fun getInstance(project: Project): CommentsPollingService {
             return project.getService(CommentsPollingService::class.java)
@@ -33,20 +33,20 @@ class CommentsPollingService(private val project: Project) {
     }
 
     /**
-     * Avvia il polling per una PR specifica
+     * Starts polling for a specific PR
      */
     fun startPolling(pullRequest: PullRequest) {
         logger.info("Starting polling for PR #${pullRequest.pullRequestId}")
-        
+
         currentPullRequest = pullRequest
-        
+
         if (isPollingActive) {
             logger.info("Polling already active, stopping previous...")
             stopPolling()
         }
 
         isPollingActive = true
-        
+
         scheduler = ScheduledThreadPoolExecutor(1).apply {
             scheduleAtFixedRate(
                 { refreshComments() },
@@ -55,25 +55,25 @@ class CommentsPollingService(private val project: Project) {
                 TimeUnit.SECONDS
             )
         }
-        
+
         logger.info("Polling started with ${POLLING_INTERVAL_SECONDS}s interval")
     }
 
     /**
-     * Ferma il polling
+     * Stops polling
      */
     fun stopPolling() {
         logger.info("Stopping comments polling")
-        
+
         isPollingActive = false
         currentPullRequest = null
-        
+
         scheduler?.shutdown()
         scheduler = null
     }
 
     /**
-     * Refresh manuale dei commenti
+     * Manual refresh of comments
      */
     fun refreshNow() {
         if (currentPullRequest != null) {
@@ -83,35 +83,35 @@ class CommentsPollingService(private val project: Project) {
     }
 
     /**
-     * Esegue il refresh dei commenti
+     * Performs the refresh of comments
      */
     private fun refreshComments() {
         val pr = currentPullRequest ?: return
-        
+
         logger.info("Refreshing comments for PR #${pr.pullRequestId}")
-        
+
         try {
             val apiClient = AzureDevOpsApiClient.getInstance(project)
             val threads = apiClient.getCommentThreads(pr.pullRequestId)
-            
+
             logger.info("Fetched ${threads.size} threads")
-            
-            // Aggiorna i commenti nei file aperti
+
+            // Update comments in open files
             ApplicationManager.getApplication().invokeLater {
                 val fileEditorManager = FileEditorManager.getInstance(project)
                 val openFiles = fileEditorManager.openFiles
-                
+
                 val commentsService = PullRequestCommentsService.getInstance(project)
-                
+
                 openFiles.forEach { file ->
                     val editor = fileEditorManager.selectedTextEditor
                     if (editor != null && file == fileEditorManager.selectedFiles.firstOrNull()) {
-                        // Ricarica commenti nel file corrente
+                        // Reload comments in the current file
                         commentsService.loadCommentsInEditor(editor, file, pr)
                     }
                 }
-                
-                // Aggiorna il tracker globale per i decoratori
+
+                // Update the global tracker for decorators
                 val tracker = PullRequestCommentsTracker.getInstance(project)
                 threads.forEach { thread ->
                     val filePath = thread.getFilePath()
@@ -120,20 +120,20 @@ class CommentsPollingService(private val project: Project) {
                         val fullPath = "$projectBasePath/${filePath.trimStart('/')}"
                         val virtualFile = com.intellij.openapi.vfs.LocalFileSystem.getInstance()
                             .findFileByPath(fullPath)
-                        
+
                         if (virtualFile != null) {
                             val fileThreads = threads.filter { it.getFilePath() == filePath }
                             tracker.setCommentsForFile(virtualFile, fileThreads)
                         }
                     }
                 }
-                
-                // Refresh della vista progetto per aggiornare i badge
+
+                // Refresh the project view to update badges
                 ProjectView.getInstance(project)?.refresh()
-                
+
                 logger.info("Comments refreshed successfully")
             }
-            
+
         } catch (e: Exception) {
             logger.warn("Failed to refresh comments", e)
         }

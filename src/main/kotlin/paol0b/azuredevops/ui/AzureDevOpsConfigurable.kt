@@ -18,8 +18,8 @@ import java.awt.FlowLayout
 import javax.swing.*
 
 /**
- * Pannello di configurazione per Azure DevOps nelle impostazioni del progetto
- * Supporta modalità automatica e manuale con selezione esplicita
+ * Configuration panel for Azure DevOps in project settings
+ * Supports automatic and manual mode with explicit selection
  */
 class AzureDevOpsConfigurable(private val project: Project) : Configurable {
 
@@ -31,7 +31,7 @@ class AzureDevOpsConfigurable(private val project: Project) : Configurable {
     private val testConnectionButton = JButton("Test Connection")
     private val loadFromGitButton = JButton("Load from Git Credentials")
     
-    // Radio buttons per selezione modalità
+    // Radio buttons for mode selection
     private val autoModeRadio = JRadioButton("Auto-detect from Git", true)
     private val manualModeRadio = JRadioButton("Manual Configuration", false)
     private val modeGroup = ButtonGroup()
@@ -48,12 +48,12 @@ class AzureDevOpsConfigurable(private val project: Project) : Configurable {
         val configService = AzureDevOpsConfigService.getInstance(project)
         val config = configService.getConfig()
         
-        // Rileva le informazioni del repository
+        // Detect repository info
         val detector = AzureDevOpsRepositoryDetector.getInstance(project)
         val detectedInfo = detector.detectAzureDevOpsInfo()
         val isAutoDetected = detector.isAzureDevOpsRepository()
 
-        // Determina modalità iniziale
+        // Determine initial mode
         currentMode = if (isAutoDetected && detectedInfo != null) {
             ConfigMode.AUTO
         } else {
@@ -67,8 +67,8 @@ class AzureDevOpsConfigurable(private val project: Project) : Configurable {
         autoModeRadio.isSelected = (currentMode == ConfigMode.AUTO)
         manualModeRadio.isSelected = (currentMode == ConfigMode.MANUAL)
         
-        // Aggiungi listener per cambio modalità
-        autoModeRadio.addActionListener { 
+        // Add listeners for mode change
+        autoModeRadio.addActionListener {
             currentMode = ConfigMode.AUTO
             updateFieldsEditability()
         }
@@ -77,13 +77,13 @@ class AzureDevOpsConfigurable(private val project: Project) : Configurable {
             updateFieldsEditability()
         }
 
-        // Carica i valori correnti
+        // Load current values
         organizationField.text = config.organization
         projectField.text = config.project
         repositoryField.text = config.repository
         patField.text = config.personalAccessToken
 
-        // Setup bottoni
+        // Setup buttons
         testConnectionButton.addActionListener {
             testConnection()
         }
@@ -92,17 +92,17 @@ class AzureDevOpsConfigurable(private val project: Project) : Configurable {
             loadCredentialsFromGit()
         }
 
-        // Crea il pannello principale
+        // Create the main panel
         val formBuilder = FormBuilder.createFormBuilder()
         
-        // Sezione: Modalità di configurazione
+        // Section: Configuration mode
         formBuilder.addLabeledComponent(
             JBLabel("<html><b>Configuration Mode:</b></html>"),
             createModeSelectionPanel()
         )
         formBuilder.addSeparator()
         
-        // Mostra info in base alla modalità
+        // Show info based on mode
         if (currentMode == ConfigMode.AUTO) {
             if (detectedInfo != null) {
                 val infoLabel = JBLabel("<html><b style='color: green;'>✓ Repository Auto-detected</b><br>" +
@@ -123,7 +123,7 @@ class AzureDevOpsConfigurable(private val project: Project) : Configurable {
         
         formBuilder.addSeparator()
         
-        // Campi repository
+        // Repository fields
         formBuilder.addLabeledComponent(JBLabel("Organization:"), organizationField, 1, false)
         formBuilder.addLabeledComponent(JBLabel("Project:"), projectField, 1, false)
         formBuilder.addLabeledComponent(JBLabel("Repository:"), repositoryField, 1, false)
@@ -134,7 +134,7 @@ class AzureDevOpsConfigurable(private val project: Project) : Configurable {
             .addLabeledComponent(JBLabel("Personal Access Token (PAT):"), patField, 1, false)
             .addTooltip("Token with 'Code (Read & Write)' and 'Pull Request (Read & Write)' permissions")
         
-        // Pannello pulsanti
+        // Button panel
         val buttonPanel = JPanel(FlowLayout(FlowLayout.LEFT, 5, 0))
         buttonPanel.add(loadFromGitButton)
         buttonPanel.add(testConnectionButton)
@@ -149,14 +149,14 @@ class AzureDevOpsConfigurable(private val project: Project) : Configurable {
             add(formPanel, BorderLayout.NORTH)
         }
         
-        // Imposta editabilità iniziale
+        // Set initial editability
         updateFieldsEditability()
 
         return mainPanel!!
     }
     
     /**
-     * Crea il pannello per la selezione della modalità
+     * Creates the panel for mode selection
      */
     private fun createModeSelectionPanel(): JPanel {
         val panel = JPanel(FlowLayout(FlowLayout.LEFT, 15, 0))
@@ -166,7 +166,7 @@ class AzureDevOpsConfigurable(private val project: Project) : Configurable {
     }
     
     /**
-     * Aggiorna l'editabilità dei campi in base alla modalità selezionata
+     * Updates the editability of fields based on the selected mode
      */
     private fun updateFieldsEditability() {
         val isManual = (currentMode == ConfigMode.MANUAL)
@@ -174,7 +174,7 @@ class AzureDevOpsConfigurable(private val project: Project) : Configurable {
         projectField.isEditable = isManual
         repositoryField.isEditable = isManual
         
-        // Se si passa a modalità AUTO, ricarica i valori rilevati
+        // If switching to AUTO mode, reload detected values
         if (!isManual) {
             val configService = AzureDevOpsConfigService.getInstance(project)
             val config = configService.getConfig()
@@ -204,7 +204,7 @@ class AzureDevOpsConfigurable(private val project: Project) : Configurable {
         val configService = AzureDevOpsConfigService.getInstance(project)
         
         if (currentMode == ConfigMode.MANUAL) {
-            // Salva configurazione manuale completa
+            // Save complete manual configuration
             val newConfig = AzureDevOpsConfig.create(
                 organization = organizationField.text.trim(),
                 project = projectField.text.trim(),
@@ -213,7 +213,7 @@ class AzureDevOpsConfigurable(private val project: Project) : Configurable {
             )
             configService.saveConfig(newConfig)
         } else {
-            // Salva solo PAT (auto-detection attivo)
+            // Save only PAT (auto-detection active)
             configService.savePersonalAccessTokenOnly(String(patField.password).trim())
         }
     }
@@ -227,7 +227,7 @@ class AzureDevOpsConfigurable(private val project: Project) : Configurable {
         repositoryField.text = config.repository
         patField.text = config.personalAccessToken
         
-        // Ripristina la modalità in base alla rilevazione
+        // Restore mode based on detection
         val detector = AzureDevOpsRepositoryDetector.getInstance(project)
         val isAutoDetected = detector.isAzureDevOpsRepository()
         
@@ -239,47 +239,47 @@ class AzureDevOpsConfigurable(private val project: Project) : Configurable {
     }
 
     /**
-     * Tenta di caricare le credenziali dal Git Credential Helper
+     * Attempts to load credentials from Git Credential Helper
      */
     private fun loadCredentialsFromGit() {
         val gitCredHelper = GitCredentialHelperService.getInstance(project)
         
-        // Verifica se il credential helper è disponibile
+        // Check if credential helper is available
         if (!gitCredHelper.isCredentialHelperAvailable()) {
             Messages.showWarningDialog(
                 project,
-                "Git Credential Helper non disponibile.\n\n" +
-                        "Assicurati di aver configurato Git correttamente e di avere salvato le credenziali.\n" +
-                        "Esempio: git config --global credential.helper manager",
-                "Credential Helper Non Disponibile"
+                "Git Credential Helper not available.\n\n" +
+                        "Make sure you have configured Git correctly and have saved credentials.\n" +
+                        "Example: git config --global credential.helper manager",
+                "Credential Helper Not Available"
             )
             return
         }
         
-        // Tenta di recuperare le credenziali
+        // Try to retrieve credentials
         val token = gitCredHelper.getCredentialsForCurrentRepository()
         
         if (token != null && token.isNotBlank()) {
             patField.text = token
             Messages.showMessageDialog(
                 project,
-                "Personal Access Token caricato con successo dal Git Credential Helper!\n\n" +
-                        "Token trovato e inserito nel campo PAT.\n" +
-                        "Clicca 'Test Connection' per verificare che funzioni.",
-                "Credenziali Caricate",
+                "Personal Access Token successfully loaded from Git Credential Helper!\n\n" +
+                        "Token found and inserted in the PAT field.\n" +
+                        "Click 'Test Connection' to verify it works.",
+                "Credentials Loaded",
                 Messages.getInformationIcon()
             )
         } else {
             Messages.showMessageDialog(
                 project,
-                "Nessuna credenziale trovata nel Git Credential Helper.\n\n" +
-                        "Possibili cause:\n" +
-                        "• Non hai mai salvato credenziali per questo repository\n" +
-                        "• Il credential helper non è configurato\n" +
-                        "• Le credenziali sono salvate con un URL diverso\n\n" +
-                        "Suggerimento: esegui un 'git fetch' o 'git pull' e inserisci il PAT quando richiesto,\n" +
-                        "poi ritorna qui e riprova.",
-                "Credenziali Non Trovate",
+                "No credentials found in Git Credential Helper.\n\n" +
+                        "Possible causes:\n" +
+                        "• You have never saved credentials for this repository\n" +
+                        "• The credential helper is not configured\n" +
+                        "• Credentials are saved with a different URL\n\n" +
+                        "Tip: run 'git fetch' or 'git pull' and enter the PAT when prompted,\n" +
+                        "then come back here and try again.",
+                "Credentials Not Found",
                 Messages.getInformationIcon()
             )
         }
@@ -293,12 +293,12 @@ class AzureDevOpsConfigurable(private val project: Project) : Configurable {
         val proj = projectField.text.trim()
         val repo = repositoryField.text.trim()
 
-        // Validazione campi
+        // Field validation
         if (pat.isBlank()) {
             Messages.showErrorDialog(
                 project,
-                "Inserisci il Personal Access Token prima di testare la connessione.",
-                "PAT Mancante"
+                "Enter the Personal Access Token before testing the connection.",
+                "PAT Missing"
             )
             return
         }
@@ -306,13 +306,13 @@ class AzureDevOpsConfigurable(private val project: Project) : Configurable {
         if (currentMode == ConfigMode.MANUAL && (org.isBlank() || proj.isBlank() || repo.isBlank())) {
             Messages.showErrorDialog(
                 project,
-                "Compila Organization, Project e Repository prima di testare la connessione.",
-                "Configurazione Incompleta"
+                "Fill in Organization, Project, and Repository before testing the connection.",
+                "Incomplete Configuration"
             )
             return
         }
 
-        // Crea il config per il test (senza salvare ancora)
+        // Create config for test (without saving yet)
         val testConfig = if (currentMode == ConfigMode.MANUAL) {
             AzureDevOpsConfig.create(
                 organization = org,
@@ -321,16 +321,16 @@ class AzureDevOpsConfigurable(private val project: Project) : Configurable {
                 personalAccessToken = pat
             )
         } else {
-            // In modalità auto, usa i valori rilevati
+            // In auto mode, use detected values
             val detector = AzureDevOpsRepositoryDetector.getInstance(project)
             val repoInfo = detector.detectAzureDevOpsInfo()
             
             if (repoInfo == null) {
                 Messages.showErrorDialog(
                     project,
-                    "Impossibile rilevare automaticamente il repository Azure DevOps.\n" +
-                            "Assicurati che il progetto sia clonato da Azure DevOps.",
-                    "Repository Non Rilevato"
+                    "Unable to automatically detect the Azure DevOps repository.\n" +
+                            "Make sure the project is cloned from Azure DevOps.",
+                    "Repository Not Detected"
                 )
                 return
             }
@@ -343,37 +343,37 @@ class AzureDevOpsConfigurable(private val project: Project) : Configurable {
             )
         }
 
-        // Verifica che il config sia valido
+        // Check that the config is valid
         if (!testConfig.isValid()) {
             Messages.showErrorDialog(
                 project,
-                "Configurazione non valida. Assicurati che tutti i campi siano compilati.",
-                "Configurazione Incompleta"
+                "Invalid configuration. Make sure all fields are filled.",
+                "Incomplete Configuration"
             )
             return
         }
 
         try {
-            // Testa la connessione direttamente con il config di test
+            // Test the connection directly with the test config
             val apiClient = AzureDevOpsApiClient.getInstance(project)
             val url = "https://dev.azure.com/${testConfig.organization}/${testConfig.project}/_apis/git/repositories/${testConfig.repository}?api-version=7.0"
             
-            // Usa executeGet direttamente con i parametri di test
+            // Use executeGet directly with test parameters
             testConnectionDirectly(url, testConfig.personalAccessToken)
             
             Messages.showInfoMessage(
                 project,
-                "Connessione ad Azure DevOps riuscita!\n\n" +
+                "Successfully connected to Azure DevOps!\n\n" +
                         "Organization: ${testConfig.organization}\n" +
                         "Project: ${testConfig.project}\n" +
                         "Repository: ${testConfig.repository}",
-                "Test Connessione Riuscito"
+                "Connection Test Successful"
             )
         } catch (e: Exception) {
             Messages.showErrorDialog(
                 project,
-                "Test connessione fallito:\n\n${e.message}",
-                "Errore Connessione"
+                "Connection test failed:\n\n${e.message}",
+                "Connection Error"
             )
         }
     }
@@ -395,10 +395,10 @@ class AzureDevOpsConfigurable(private val project: Project) : Configurable {
             if (responseCode != java.net.HttpURLConnection.HTTP_OK) {
                 val errorBody = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
                 throw Exception(when (responseCode) {
-                    401 -> "Autenticazione fallita. Verifica il Personal Access Token (401)"
-                    403 -> "Permessi insufficienti. Verifica i permessi del PAT (403)"
-                    404 -> "Repository non trovato. Verifica Organization, Project e Repository (404)"
-                    else -> "Errore HTTP $responseCode: $errorBody"
+                    401 -> "Authentication failed. Check the Personal Access Token (401)"
+                    403 -> "Insufficient permissions. Check PAT permissions (403)"
+                    404 -> "Repository not found. Check Organization, Project, and Repository (404)"
+                    else -> "HTTP Error $responseCode: $errorBody"
                 })
             }
         } finally {
