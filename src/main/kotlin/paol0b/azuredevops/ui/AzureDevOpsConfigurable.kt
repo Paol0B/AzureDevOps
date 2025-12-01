@@ -205,7 +205,7 @@ class AzureDevOpsConfigurable(private val project: Project) : Configurable {
         
         if (currentMode == ConfigMode.MANUAL) {
             // Salva configurazione manuale completa
-            val newConfig = AzureDevOpsConfig(
+            val newConfig = AzureDevOpsConfig.create(
                 organization = organizationField.text.trim(),
                 project = projectField.text.trim(),
                 repository = repositoryField.text.trim(),
@@ -314,7 +314,7 @@ class AzureDevOpsConfigurable(private val project: Project) : Configurable {
 
         // Crea il config per il test (senza salvare ancora)
         val testConfig = if (currentMode == ConfigMode.MANUAL) {
-            AzureDevOpsConfig(
+            AzureDevOpsConfig.create(
                 organization = org,
                 project = proj,
                 repository = repo,
@@ -335,7 +335,7 @@ class AzureDevOpsConfigurable(private val project: Project) : Configurable {
                 return
             }
             
-            AzureDevOpsConfig(
+            AzureDevOpsConfig.create(
                 organization = repoInfo.organization,
                 project = repoInfo.project,
                 repository = repoInfo.repository,

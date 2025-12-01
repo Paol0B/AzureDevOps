@@ -8,7 +8,6 @@ import com.intellij.openapi.project.Project
 import paol0b.azuredevops.model.*
 import java.io.IOException
 import java.net.HttpURLConnection
-import java.net.URL
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.util.Base64
@@ -37,9 +36,7 @@ class AzureDevOpsApiClient(private val project: Project) {
      */
     private fun buildApiUrl(project: String, repository: String, endpoint: String): String {
         val configService = AzureDevOpsConfigService.getInstance(this.project)
-        val encodedProject = URLEncoder.encode(project, StandardCharsets.UTF_8.toString())
-        val encodedRepository = URLEncoder.encode(repository, StandardCharsets.UTF_8.toString())
-        return "${configService.getApiBaseUrl()}/$encodedProject/_apis/git/repositories/$encodedRepository$endpoint"
+        return "${configService.getApiBaseUrl()}/$project/_apis/git/repositories/$repository$endpoint"
     }
 
     /**
