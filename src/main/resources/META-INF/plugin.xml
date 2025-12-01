@@ -34,6 +34,7 @@
             <li><b>👁️ Smart Visibility:</b> Tool window and actions appear only for Azure DevOps repositories</li>
             <li><b>☑️ File Selection for Diff:</b> Select which files to include in PR review diffs using checkboxes</li>
             <li><b>💬 Enhanced Comments:</b> View, add, and manage PR comments with auto-refresh and feedback</li>
+            <li><b>📊 Changes & Commits Tabs:</b> View file changes grouped by directory with [A]dded, [M]odified, [D]eleted indicators and all commits included in the PR</li>
         </ul>
 
         <h3>📋 Requirements:</h3>
@@ -74,99 +75,99 @@
         <checkoutProvider implementation="paol0b.azuredevops.checkout.AzureDevOpsCheckoutProvider"/>
         <!-- Application-level service for account management -->
         <applicationService serviceImplementation="paol0b.azuredevops.checkout.AzureDevOpsAccountManager"/>
-        
+
         <!-- Project Settings -->
-        <projectConfigurable 
-            parentId="tools" 
-            instance="paol0b.azuredevops.ui.AzureDevOpsConfigurable"
-            id="paol0b.azuredevops.settings"
-            displayName="Azure DevOps"
-            nonDefaultProject="true"/>
-        
+        <projectConfigurable
+                parentId="tools"
+                instance="paol0b.azuredevops.ui.AzureDevOpsConfigurable"
+                id="paol0b.azuredevops.settings"
+                displayName="Azure DevOps"
+                nonDefaultProject="true"/>
+
         <!-- Notification Group -->
-        <notificationGroup 
-            id="AzureDevOps.Notifications" 
-            displayType="BALLOON"
-            key="notification.group.azure.devops"/>
-        
+        <notificationGroup
+                id="AzureDevOps.Notifications"
+                displayType="BALLOON"
+                key="notification.group.azure.devops"/>
+
         <!-- Tool Window -->
         <toolWindow
-            id="Azure DevOps PRs"
-            anchor="right"
-            icon="paol0b.azuredevops.AzureDevOpsIcons.ToolWindow"
-            factoryClass="paol0b.azuredevops.toolwindow.PullRequestToolWindowFactory"
-            canCloseContents="false"
-            doNotActivateOnStart="false"/>
-        
+                id="Azure DevOps PRs"
+                anchor="right"
+                icon="paol0b.azuredevops.AzureDevOpsIcons.ToolWindow"
+                factoryClass="paol0b.azuredevops.toolwindow.PullRequestToolWindowFactory"
+                canCloseContents="false"
+                doNotActivateOnStart="false"/>
+
         <!-- Comments Navigator Tool Window -->
         <toolWindow
-            id="PR Comments"
-            anchor="right"
-            icon="AllIcons.Toolwindows.ToolWindowMessages"
-            factoryClass="paol0b.azuredevops.toolwindow.CommentsNavigatorToolWindow"/>
-        
+                id="PR Comments"
+                anchor="right"
+                icon="AllIcons.Toolwindows.ToolWindowMessages"
+                factoryClass="paol0b.azuredevops.toolwindow.CommentsNavigatorToolWindow"/>
+
         <!-- File Decorator for PR Comments -->
         <projectViewNodeDecorator implementation="paol0b.azuredevops.decorators.FileWithCommentsDecorator"/>
-        
+
         <!-- File Editor Listener for PR detection -->
         <projectService serviceImplementation="paol0b.azuredevops.listeners.FileOpenedListener"/>
     </extensions>
-    
+
     <projectListeners>
-        <listener 
-            class="paol0b.azuredevops.listeners.FileOpenedListener"
-            topic="com.intellij.openapi.fileEditor.FileEditorManagerListener"/>
         <listener
-            class="paol0b.azuredevops.listeners.GitRepositoryChangeListener"
-            topic="com.intellij.openapi.vcs.BranchChangeListener"/>
+                class="paol0b.azuredevops.listeners.FileOpenedListener"
+                topic="com.intellij.openapi.fileEditor.FileEditorManagerListener"/>
+        <listener
+                class="paol0b.azuredevops.listeners.GitRepositoryChangeListener"
+                topic="com.intellij.openapi.vcs.BranchChangeListener"/>
     </projectListeners>
 
     <actions>
         <!-- Azure DevOps Group in Git Menu -->
-          <group id="AzureDevOps.Group" 
-                    text="Azure DevOps" 
-                    icon="paol0b.azuredevops.AzureDevOpsIcons.ToolWindow"
-                    popup="true">
-                <!-- Place this group immediately after the GitHub menu entry -->
-                <add-to-group group-id="VcsGroups" anchor="after" relative-to-action="GitHub"/>
-            
-            <action 
-                id="AzureDevOps.CreatePullRequest"
-                class="paol0b.azuredevops.actions.CreatePullRequestAction"
-                text="Create Pull Request..."
-                description="Create a Pull Request on Azure DevOps"
-                icon="paol0b.azuredevops.AzureDevOpsIcons.ToolWindow"/>
+        <group id="AzureDevOps.Group"
+               text="Azure DevOps"
+               icon="paol0b.azuredevops.AzureDevOpsIcons.ToolWindow"
+               popup="true">
+            <!-- Place this group immediately after the GitHub menu entry -->
+            <add-to-group group-id="VcsGroups" anchor="after" relative-to-action="GitHub"/>
+
+            <action
+                    id="AzureDevOps.CreatePullRequest"
+                    class="paol0b.azuredevops.actions.CreatePullRequestAction"
+                    text="Create Pull Request..."
+                    description="Create a Pull Request on Azure DevOps"
+                    icon="paol0b.azuredevops.AzureDevOpsIcons.ToolWindow"/>
         </group>
-        
+
         <!-- Add to VCS menu (legacy) -->
-        <action 
-            id="AzureDevOps.CreatePullRequest.Legacy"
-            class="paol0b.azuredevops.actions.CreatePullRequestAction"
-            text="Create Azure DevOps PR"
-            description="Create a Pull Request on Azure DevOps"
-            icon="paol0b.azuredevops.AzureDevOpsIcons.ToolWindow">
+        <action
+                id="AzureDevOps.CreatePullRequest.Legacy"
+                class="paol0b.azuredevops.actions.CreatePullRequestAction"
+                text="Create Azure DevOps PR"
+                description="Create a Pull Request on Azure DevOps"
+                icon="paol0b.azuredevops.AzureDevOpsIcons.ToolWindow">
             <add-to-group group-id="Vcs.MainMenu" anchor="last"/>
         </action>
-        
+
         <!-- Toggle PR Comments - Quick Access -->
         <action
-            id="AzureDevOps.TogglePRComments"
-            class="paol0b.azuredevops.actions.TogglePRCommentsAction"
-            text="Show/Hide PR Comments"
-            description="Toggle Pull Request comments visibility in the editor"
-            icon="AllIcons.Toolwindows.ToolWindowMessages">
+                id="AzureDevOps.TogglePRComments"
+                class="paol0b.azuredevops.actions.TogglePRCommentsAction"
+                text="Show/Hide PR Comments"
+                description="Toggle Pull Request comments visibility in the editor"
+                icon="AllIcons.Toolwindows.ToolWindowMessages">
             <add-to-group group-id="EditorPopupMenu" anchor="first"/>
             <add-to-group group-id="Vcs.MainMenu" anchor="last"/>
             <add-to-group group-id="MainToolBar" anchor="last"/>
         </action>
-        
+
         <!-- Show PR Comments in Editor (legacy action) -->
         <action
-            id="AzureDevOps.ShowPRComments"
-            class="paol0b.azuredevops.actions.ShowPullRequestCommentsAction"
-            text="Show PR Comments"
-            description="Show Pull Request comments in the current file"
-            icon="AllIcons.Vcs.CommitNode">
+                id="AzureDevOps.ShowPRComments"
+                class="paol0b.azuredevops.actions.ShowPullRequestCommentsAction"
+                text="Show PR Comments"
+                description="Show Pull Request comments in the current file"
+                icon="AllIcons.Vcs.CommitNode">
             <add-to-group group-id="EditorPopupMenu" anchor="last"/>
             <add-to-group group-id="Vcs.MainMenu" anchor="last"/>
         </action>
