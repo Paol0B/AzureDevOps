@@ -15,6 +15,8 @@ import paol0b.azuredevops.services.AzureDevOpsRepositoryDetector
 import paol0b.azuredevops.services.GitCredentialHelperService
 import java.awt.BorderLayout
 import java.awt.FlowLayout
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 import javax.swing.*
 
 /**
@@ -356,7 +358,11 @@ class AzureDevOpsConfigurable(private val project: Project) : Configurable {
         try {
             // Test the connection directly with the test config
             val apiClient = AzureDevOpsApiClient.getInstance(project)
-            val url = "https://dev.azure.com/${testConfig.organization}/${testConfig.project}/_apis/git/repositories/${testConfig.repository}?api-version=7.0"
+            // URL encode components to handle special characters (spaces, accents, etc.)
+            val encodedOrg = URLEncoder.encode(testConfig.organization, StandardCharsets.UTF_8.toString())
+            val encodedProject = URLEncoder.encode(testConfig.project, StandardCharsets.UTF_8.toString())
+            val encodedRepo = URLEncoder.encode(testConfig.repository, StandardCharsets.UTF_8.toString())
+            val url = "https://dev.azure.com/$encodedOrg/$encodedProject/_apis/git/repositories/$encodedRepo?api-version=7.0"
             
             // Use executeGet directly with test parameters
             testConnectionDirectly(url, testConfig.personalAccessToken)
