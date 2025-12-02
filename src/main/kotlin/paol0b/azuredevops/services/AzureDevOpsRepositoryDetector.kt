@@ -8,7 +8,7 @@ import java.nio.charset.StandardCharsets
 import java.util.regex.Pattern
 
 /**
- * Informazioni rilevate da un repository Azure DevOps
+ * Information detected from an Azure DevOps repository
  */
 data class AzureDevOpsRepoInfo(
     val organization: String,
@@ -22,39 +22,39 @@ data class AzureDevOpsRepoInfo(
 }
 
 /**
- * Servizio per rilevare automaticamente se il repository Git è di Azure DevOps
- * e estrarre organization, project e repository dall'URL remoto
+ * Service to automatically detect if the Git repository is Azure DevOps
+ * and extract organization, project, and repository from the remote URL
  */
 @Service(Service.Level.PROJECT)
 class AzureDevOpsRepositoryDetector(private val project: Project) {
 
     private val logger = Logger.getInstance(AzureDevOpsRepositoryDetector::class.java)
     
-    // Cache per evitare rilevamenti ripetuti
+    // Cache to avoid repeated detections
     @Volatile
     private var cachedInfo: AzureDevOpsRepoInfo? = null
     @Volatile
     private var cacheTimestamp: Long = 0
-    private val CACHE_VALIDITY_MS = 30000L // 30 secondi
+    private val CACHE_VALIDITY_MS = 30000L // 30 seconds
 
     companion object {
-        // Pattern per URL HTTPS: https://[username@]dev.azure.com/{organization}/{project}/_git/{repository}
-        // Supporta anche URL-encoded characters (es: Connettivit%C3%A0)
+        // Pattern for HTTPS URL: https://[username@]dev.azure.com/{organization}/{project}/_git/{repository}
+        // Also supports URL-encoded characters (e.g., Connettivit%C3%A0)
         private val HTTPS_PATTERN = Pattern.compile(
             "https://(?:[^@]+@)?dev\\.azure\\.com/([^/]+)/([^/]+)/_git/([^/]+?)(?:\\.git)?/?$"
         )
         
-        // Pattern per URL HTTPS alternativo: https://[username@]{organization}.visualstudio.com/{project}/_git/{repository}
+        // Pattern for alternative HTTPS URL: https://[username@]{organization}.visualstudio.com/{project}/_git/{repository}
         private val VISUALSTUDIO_PATTERN = Pattern.compile(
             "https://(?:[^@]+@)?([^.]+)\\.visualstudio\\.com/([^/]+)/_git/([^/]+?)(?:\\.git)?/?$"
         )
         
-        // Pattern per SSH v3: git@ssh.dev.azure.com:v3/{organization}/{project}/{repository}
+        // Pattern for SSH v3: git@ssh.dev.azure.com:v3/{organization}/{project}/{repository}
         private val SSH_V3_PATTERN = Pattern.compile(
             "git@ssh\\.dev\\.azure\\.com:v3/([^/]+)/([^/]+)/([^/]+?)(?:\\.git)?/?$"
         )
         
-        // Pattern per SSH legacy: {organization}@vs-ssh.visualstudio.com:v3/{organization}/{project}/{repository}
+        // Pattern for legacy SSH: {organization}@vs-ssh.visualstudio.com:v3/{organization}/{project}/{repository}
         private val SSH_LEGACY_PATTERN = Pattern.compile(
             "[^@]+@vs-ssh\\.visualstudio\\.com:v3/([^/]+)/([^/]+)/([^/]+?)(?:\\.git)?/?$"
         )
@@ -65,17 +65,17 @@ class AzureDevOpsRepositoryDetector(private val project: Project) {
     }
 
     /**
-     * Rileva se il repository corrente è un repository Azure DevOps
+     * Detects if the current repository is an Azure DevOps repository
      */
     fun isAzureDevOpsRepository(): Boolean {
         return detectAzureDevOpsInfo() != null
     }
 
     /**
-     * Rileva automaticamente le informazioni di Azure DevOps dall'URL remoto del repository
+     * Automatically detects Azure DevOps info from the remote URL of the repository
      */
     fun detectAzureDevOpsInfo(): AzureDevOpsRepoInfo? {
-        // Controlla la cache
+        // Check cache
         val now = System.currentTimeMillis()
         if (cachedInfo != null && (now - cacheTimestamp) < CACHE_VALIDITY_MS) {
             return cachedInfo
@@ -84,17 +84,17 @@ class AzureDevOpsRepositoryDetector(private val project: Project) {
         val gitService = GitRepositoryService.getInstance(project)
         val repository = gitService.getCurrentRepository() ?: run {
             logger.debug("No Git repository found")
-            // Non aggiorniamo la cache se non c'è repository, potrebbe essere temporaneo
-            return cachedInfo // Ritorna cache precedente se esiste
+            // Do not update cache if no repository, might be temporary
+            return cachedInfo // Return previous cache if exists
         }
 
         val remotes = repository.remotes
         if (remotes.isEmpty()) {
             logger.debug("No Git remotes found")
-            return cachedInfo // Ritorna cache precedente se esiste
+            return cachedInfo // Return previous cache if exists
         }
 
-        // Prova tutti i remote (origin, upstream, ecc.)
+        // Try all remotes (origin, upstream, etc.)
         for (remote in remotes) {
             val urls = remote.urls
             for (url in urls) {
@@ -103,7 +103,7 @@ class AzureDevOpsRepositoryDetector(private val project: Project) {
                 val info = parseAzureDevOpsUrl(url)
                 if (info != null) {
                     logger.info("Detected Azure DevOps repository: ${info.organization}/${info.project}/${info.repository}")
-                    // Aggiorna la cache
+                    // Update cache
                     cachedInfo = info
                     cacheTimestamp = now
                     return info
@@ -112,7 +112,7 @@ class AzureDevOpsRepositoryDetector(private val project: Project) {
         }
 
         logger.debug("Not an Azure DevOps repository")
-        // Aggiorna cache con null solo se non avevamo cache precedente
+        // Update cache with null only if there was no previous cache
         if (cachedInfo == null) {
             cacheTimestamp = now
         }
@@ -120,7 +120,7 @@ class AzureDevOpsRepositoryDetector(private val project: Project) {
     }
     
     /**
-     * Invalida la cache per forzare un nuovo rilevamento
+     * Invalidates the cache to force a new detection
      */
     fun invalidateCache() {
         cachedInfo = null
@@ -128,10 +128,10 @@ class AzureDevOpsRepositoryDetector(private val project: Project) {
     }
 
     /**
-     * Parsing dell'URL per estrarre organization, project e repository
+     * Parses the URL to extract organization, project, and repository
      */
     private fun parseAzureDevOpsUrl(url: String): AzureDevOpsRepoInfo? {
-        // Prova pattern HTTPS standard
+        // Try standard HTTPS pattern
         var matcher = HTTPS_PATTERN.matcher(url)
         if (matcher.matches()) {
             return AzureDevOpsRepoInfo(
@@ -142,7 +142,7 @@ class AzureDevOpsRepositoryDetector(private val project: Project) {
             )
         }
 
-        // Prova pattern VisualStudio.com
+        // Try VisualStudio.com pattern
         matcher = VISUALSTUDIO_PATTERN.matcher(url)
         if (matcher.matches()) {
             return AzureDevOpsRepoInfo(
@@ -153,7 +153,7 @@ class AzureDevOpsRepositoryDetector(private val project: Project) {
             )
         }
 
-        // Prova pattern SSH v3
+        // Try SSH v3 pattern
         matcher = SSH_V3_PATTERN.matcher(url)
         if (matcher.matches()) {
             return AzureDevOpsRepoInfo(
@@ -164,7 +164,7 @@ class AzureDevOpsRepositoryDetector(private val project: Project) {
             )
         }
 
-        // Prova pattern SSH legacy
+        // Try legacy SSH pattern
         matcher = SSH_LEGACY_PATTERN.matcher(url)
         if (matcher.matches()) {
             return AzureDevOpsRepoInfo(
@@ -179,7 +179,7 @@ class AzureDevOpsRepositoryDetector(private val project: Project) {
     }
     
     /**
-     * Decodifica una stringa URL-encoded (es: "Connettivit%C3%A0" -> "Connettività")
+     * Decodes a URL-encoded string (e.g., "Connettivit%C3%A0" -> "Connettività")
      */
     private fun urlDecode(value: String): String {
         return try {
@@ -191,22 +191,22 @@ class AzureDevOpsRepositoryDetector(private val project: Project) {
     }
 
     /**
-     * Ottiene l'organization rilevata automaticamente
+     * Gets the automatically detected organization
      */
     fun getOrganization(): String? = detectAzureDevOpsInfo()?.organization
 
     /**
-     * Ottiene il project rilevato automaticamente
+     * Gets the automatically detected project
      */
     fun getProject(): String? = detectAzureDevOpsInfo()?.project
 
     /**
-     * Ottiene il repository rilevato automaticamente
+     * Gets the automatically detected repository
      */
     fun getRepository(): String? = detectAzureDevOpsInfo()?.repository
 
     /**
-     * Ottiene una descrizione user-friendly del repository rilevato
+     * Gets a user-friendly description of the detected repository
      */
     fun getRepositoryDescription(): String? {
         val info = detectAzureDevOpsInfo() ?: return null

@@ -21,7 +21,7 @@ import java.awt.Desktop
 import java.net.URI
 
 /**
- * Action per creare una Pull Request su Azure DevOps
+ * Action to create a Pull Request on Azure DevOps
  */
 class CreatePullRequestAction : AnAction() {
 
@@ -30,59 +30,59 @@ class CreatePullRequestAction : AnAction() {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
 
-        // Verifica che il progetto abbia un repository Git
+        // Check that the project has a Git repository
         val gitService = GitRepositoryService.getInstance(project)
         if (!gitService.hasGitRepository()) {
             Messages.showErrorDialog(
                 project,
-                "Nessun repository Git trovato in questo progetto.",
-                "Repository Git Mancante"
+                "No Git repository found in this project.",
+                "Missing Git Repository"
             )
             return
         }
 
-        // Verifica che sia un repository Azure DevOps o configurato manualmente
+        // Check that it's an Azure DevOps repository or manually configured
         val configService = AzureDevOpsConfigService.getInstance(project)
         if (!configService.isAzureDevOpsRepository()) {
             val result = Messages.showYesNoDialog(
                 project,
-                "Azure DevOps non è configurato per questo progetto.\n\n" +
-                        "Il plugin può:\n" +
-                        "1. Rilevare automaticamente repository clonati da Azure DevOps\n" +
-                        "2. Essere configurato manualmente se il repository non è Azure DevOps\n\n" +
-                        "Vuoi configurarlo ora?",
-                "Configurazione Azure DevOps Richiesta",
+                "Azure DevOps is not configured for this project.\n\n" +
+                        "The plugin can:\n" +
+                        "1. Automatically detect repositories cloned from Azure DevOps\n" +
+                        "2. Be manually configured if the repository is not Azure DevOps\n\n" +
+                        "Do you want to configure it now?",
+                "Azure DevOps Configuration Required",
                 Messages.getQuestionIcon()
             )
             
             if (result == Messages.YES) {
-                // Apri le impostazioni
+                // Open settings
                 com.intellij.openapi.options.ShowSettingsUtil.getInstance()
                     .showSettingsDialog(project, "Azure DevOps")
             }
             return
         }
 
-        // Verifica che il PAT sia configurato
+        // Check that the PAT is configured
         if (!configService.isConfigured()) {
             val result = Messages.showYesNoDialog(
                 project,
-                "Il Personal Access Token (PAT) non è configurato.\n\n" +
-                        "Repository rilevato: ${configService.getDetectedRepositoryInfo()}\n\n" +
-                        "Vuoi configurare il PAT ora?",
-                "Configurazione PAT Richiesta",
+                "The Personal Access Token (PAT) is not configured.\n\n" +
+                        "Detected repository: ${configService.getDetectedRepositoryInfo()}\n\n" +
+                        "Do you want to configure the PAT now?",
+                "PAT Configuration Required",
                 Messages.getQuestionIcon()
             )
             
             if (result == Messages.YES) {
-                // Apri le impostazioni
+                // Open settings
                 com.intellij.openapi.options.ShowSettingsUtil.getInstance()
                     .showSettingsDialog(project, "Azure DevOps")
             }
             return
         }
 
-        // Mostra il dialog per creare la PR
+        // Show the dialog to create the PR
         val dialog = CreatePullRequestDialog.create(project, gitService)
         if (dialog != null && dialog.showAndGet()) {
             val sourceBranch = dialog.getSourceBranch()
@@ -113,13 +113,13 @@ class CreatePullRequestAction : AnAction() {
             return
         }
 
-        // Mostra l'action solo se è un repository Azure DevOps
+        // Show the action only if it is an Azure DevOps repository
         val configService = AzureDevOpsConfigService.getInstance(project)
         e.presentation.isEnabledAndVisible = configService.isAzureDevOpsRepository()
     }
 
     /**
-     * Crea la Pull Request in modo asincrono
+     * Creates the Pull Request asynchronously
      */
     private fun createPullRequest(
         project: Project,
@@ -132,26 +132,26 @@ class CreatePullRequestAction : AnAction() {
     ) {
         ProgressManager.getInstance().run(object : Task.Backgroundable(
             project,
-            "Creating Pull Request on Azure DevOps...",
+            "Creating pull request on Azure DevOps...",
             false
         ) {
             override fun run(indicator: ProgressIndicator) {
                 indicator.isIndeterminate = true
-                
+
                 try {
                     val apiClient = AzureDevOpsApiClient.getInstance(project)
-                    
-                    // Verifica se esiste già una PR attiva tra questi branch
+
+                    // Check if there is already an active PR between these branches
                     indicator.text = "Checking for existing Pull Requests..."
                     val existingPr = apiClient.findActivePullRequest(sourceBranch, targetBranch)
-                    
+
                     if (existingPr != null) {
-                        // Esiste già una PR attiva!
+                        // There is already an active PR!
                         val sourceDisplayName = sourceBranch.removePrefix("refs/heads/")
                         val targetDisplayName = targetBranch.removePrefix("refs/heads/")
-                        
+
                         showExistingPrError(
-                            project, 
+                            project,
                             existingPr.pullRequestId,
                             existingPr.title,
                             sourceDisplayName,
@@ -159,8 +159,8 @@ class CreatePullRequestAction : AnAction() {
                         )
                         return
                     }
-                    
-                    // Nessuna PR esistente, procedi con la creazione
+
+                    // No existing PR, proceed with creation
                     indicator.text = "Sending request to Azure DevOps..."
                     val response = apiClient.createPullRequest(
                         sourceBranch = sourceBranch,
@@ -171,37 +171,37 @@ class CreatePullRequestAction : AnAction() {
                         optionalReviewers = optionalReviewers
                     )
 
-                    // Mostra notifica di successo
+                    // Show success notification
                     showSuccessNotification(project, response)
-                    
+
                 } catch (e: AzureDevOpsApiException) {
                     logger.error("Failed to create pull request", e)
-                    showErrorNotification(project, e.message ?: "Errore sconosciuto")
+                    showErrorNotification(project, e.message ?: "Unknown error")
                 } catch (e: Exception) {
                     logger.error("Unexpected error creating pull request", e)
-                    showErrorNotification(project, "Errore inaspettato: ${e.message}")
+                    showErrorNotification(project, "Unexpected error: ${e.message}")
                 }
             }
         })
     }
 
     /**
-     * Mostra una notifica di successo
+     * Shows a success notification
      */
     private fun showSuccessNotification(project: Project, response: PullRequestResponse) {
         val prUrl = getPullRequestUrl(project, response.pullRequestId)
-        
+
         val notification = NotificationGroupManager.getInstance()
             .getNotificationGroup("AzureDevOps.Notifications")
             .createNotification(
-                "Pull Request Created Successfully",
+                "Pull Request created successfully",
                 "PR #${response.pullRequestId}: ${response.title}<br>" +
                         "Source: ${response.sourceRefName.removePrefix("refs/heads/")}<br>" +
                         "Target: ${response.targetRefName.removePrefix("refs/heads/")}",
                 NotificationType.INFORMATION
             )
 
-        // Aggiungi azione per aprire la PR nel browser
+        // Add action to open the PR in the browser
         if (prUrl != null) {
             notification.addAction(object : com.intellij.openapi.actionSystem.AnAction("Open in Browser") {
                 override fun actionPerformed(e: AnActionEvent) {
@@ -215,41 +215,41 @@ class CreatePullRequestAction : AnAction() {
     }
 
     /**
-     * Mostra una notifica di errore
+     * Shows an error notification
      */
     private fun showErrorNotification(project: Project, message: String) {
         NotificationGroupManager.getInstance()
             .getNotificationGroup("AzureDevOps.Notifications")
             .createNotification(
-                "Failed to Create Pull Request",
+                "Failed to create Pull Request",
                 message,
                 NotificationType.ERROR
             )
             .notify(project)
     }
-    
+
     /**
-     * Mostra un errore quando esiste già una PR tra i branch
+     * Shows an error when there is already a PR between the branches
      */
     private fun showExistingPrError(
-        project: Project, 
-        prId: Int, 
+        project: Project,
+        prId: Int,
         prTitle: String,
-        sourceBranch: String, 
+        sourceBranch: String,
         targetBranch: String
     ) {
         val prUrl = getPullRequestUrl(project, prId)
-        
+
         val notification = NotificationGroupManager.getInstance()
             .getNotificationGroup("AzureDevOps.Notifications")
             .createNotification(
-                "Pull Request Already Exists",
-                "Esiste già una Pull Request attiva da <b>$sourceBranch</b> verso <b>$targetBranch</b>:<br><br>" +
+                "Pull Request already exists",
+                "There is already an active Pull Request from <b>$sourceBranch</b> to <b>$targetBranch</b>:<br><br>" +
                         "PR #$prId: $prTitle",
                 NotificationType.WARNING
             )
-        
-        // Aggiungi azione per aprire la PR esistente
+
+        // Add action to open the existing PR
         if (prUrl != null) {
             notification.addAction(object : com.intellij.openapi.actionSystem.AnAction("Open Existing PR") {
                 override fun actionPerformed(e: AnActionEvent) {
@@ -258,25 +258,25 @@ class CreatePullRequestAction : AnAction() {
                 }
             })
         }
-        
+
         notification.notify(project)
     }
 
     /**
-     * Costruisce l'URL della Pull Request
+     * Builds the Pull Request URL
      */
     private fun getPullRequestUrl(project: Project, prId: Int): String? {
         val configService = AzureDevOpsConfigService.getInstance(project)
         val config = configService.getConfig()
-        
+
         if (!config.isValid()) return null
-        
-        // URL formato: https://dev.azure.com/{org}/{project}/_git/{repo}/pullrequest/{prId}
+
+        // URL format: https://dev.azure.com/{org}/{project}/_git/{repo}/pullrequest/{prId}
         return "https://dev.azure.com/${config.organization}/${config.project}/_git/${config.repository}/pullrequest/$prId"
     }
 
     /**
-     * Apre un URL nel browser predefinito
+     * Opens a URL in the default browser
      */
     private fun openInBrowser(url: String) {
         try {

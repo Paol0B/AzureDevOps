@@ -21,7 +21,7 @@ import java.awt.Dimension
 import javax.swing.*
 
 /**
- * Dialog per la review completa di una PR con lista file e diff viewer
+ * Dialog for a complete PR review with file list and diff viewer
  */
 class PullRequestReviewDialog(
     private val project: Project,
@@ -31,22 +31,22 @@ class PullRequestReviewDialog(
 
     private val logger = Logger.getInstance(PullRequestReviewDialog::class.java)
     private val fileListPanel: JPanel
-    private val selectedFiles = mutableSetOf<Int>() // Indici dei file selezionati
+    private val selectedFiles = mutableSetOf<Int>() // Indices of selected files
     private var currentFileIndex = 0
 
     init {
         title = "Review PR #${pullRequest.pullRequestId}: ${pullRequest.title}"
-        
-        // Crea il panel con checkbox per ogni file
+
+        // Create the panel with a checkbox for each file
         fileListPanel = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             border = JBUI.Borders.empty(5)
         }
         
-        // Aggiungi checkbox per ogni file
+        // Add checkbox for each file
         fileChanges.forEachIndexed { index, change ->
             val checkbox = JCheckBox().apply {
-                isSelected = true // Tutti selezionati di default
+                isSelected = true // All selected by default
                 addActionListener {
                     if (isSelected) {
                         selectedFiles.add(index)
@@ -101,18 +101,18 @@ class PullRequestReviewDialog(
             }
             
             fileListPanel.add(itemPanel)
-            selectedFiles.add(index) // Tutti selezionati di default
+            selectedFiles.add(index) // All selected by default
         }
         
         init()
         
-        // Nessuna selezione iniziale automatica - l'utente clicca sul file
+        // No initial automatic selection - user clicks the file
     }
 
     override fun createCenterPanel(): JComponent {
         val panel = JPanel(BorderLayout())
         
-        // Lista file a sinistra con checkbox
+        // File list on the left with checkboxes
         val leftPanel = JPanel(BorderLayout()).apply {
             preferredSize = Dimension(350, 500)
             border = JBUI.Borders.customLine(JBColor.border(), 0, 0, 0, 1)
@@ -127,7 +127,7 @@ class PullRequestReviewDialog(
         }
         headerPanel.add(titleLabel, BorderLayout.WEST)
         
-        // Pulsanti Select All / Deselect All
+        // Buttons Select All / Deselect All
         val buttonsPanel = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.X_AXIS)
             
@@ -166,18 +166,18 @@ class PullRequestReviewDialog(
         
         panel.add(leftPanel, BorderLayout.WEST)
         
-        // Pannello centrale con info
+        // Central panel with info
         val centerPanel = JPanel(BorderLayout()).apply {
             border = JBUI.Borders.empty(10)
         }
         
         val infoLabel = JBLabel(
             "<html><b>Review Mode</b><br><br>" +
-                    "1. <b>Seleziona i file</b> con le checkbox (selezionati per default)<br>" +
-                    "2. <b>Clicca sul nome del file</b> per aprire il diff<br>" +
-                    "3. Usa il pulsante <b>'Show Combined Diff'</b> per vedere tutti i file selezionati<br>" +
-                    "4. Usa 'All'/'None' per selezionare/deselezionare tutti<br><br>" +
-                    "<i>Solo i file con checkbox selezionata saranno inclusi nel diff combinato</i></html>"
+                    "1. <b>Select files</b> with the checkboxes (selected by default)<br>" +
+                    "2. <b>Click the file name</b> to open the diff<br>" +
+                    "3. Use the <b>'Show Combined Diff'</b> button to see all selected files<br>" +
+                    "4. Use 'All'/'None' to select/deselect all<br><br>" +
+                    "<i>Only files with a selected checkbox will be included in the combined diff</i></html>"
         )
         centerPanel.add(infoLabel, BorderLayout.NORTH)
         
@@ -196,7 +196,7 @@ class PullRequestReviewDialog(
     }
     
     /**
-     * Action per mostrare il diff combinato dei file selezionati
+     * Action to show the combined diff of selected files
      */
     private inner class ShowCombinedDiffAction : AbstractAction("Show Combined Diff") {
         init {
@@ -207,14 +207,13 @@ class PullRequestReviewDialog(
             if (selectedFiles.isEmpty()) {
                 JOptionPane.showMessageDialog(
                     contentPane,
-                    "Seleziona almeno un file con la checkbox",
-                    "Nessun File Selezionato",
+                    "Select at least one file with the checkbox",
+                    "No File Selected",
                     JOptionPane.WARNING_MESSAGE
                 )
                 return
             }
-            
-            // Apri i diff dei file selezionati in sequenza
+            // Open the diffs of the selected files in sequence
             val selectedChanges = selectedFiles.sorted().map { fileChanges[it] }
             selectedChanges.forEach { change ->
                 openFileDiff(change)
@@ -223,7 +222,7 @@ class PullRequestReviewDialog(
     }
 
     /**
-     * Apre il diff per un file
+     * Opens the diff for a file
      */
     private fun openFileDiff(change: PullRequestChange) {
         val path = change.item?.path ?: return
@@ -234,13 +233,13 @@ class PullRequestReviewDialog(
             try {
                 val apiClient = AzureDevOpsApiClient.getInstance(project)
                 
-                // Ottieni contenuto nuovo (source commit)
+                // Get new content (source commit)
                 val sourceCommit = pullRequest.lastMergeSourceCommit?.commitId
                 val newContent = if (sourceCommit != null && change.changeType?.lowercase() != "delete") {
                     apiClient.getFileContent(sourceCommit, path)
                 } else ""
                 
-                // Ottieni contenuto vecchio (target commit)
+                // Get old content (target commit)
                 val targetCommit = pullRequest.lastMergeTargetCommit?.commitId
                 val oldContent = if (targetCommit != null && change.changeType?.lowercase() != "add") {
                     try {
@@ -251,7 +250,7 @@ class PullRequestReviewDialog(
                     }
                 } else ""
                 
-                // Apri diff nella UI thread
+                // Open diff in the UI thread
                 ApplicationManager.getApplication().invokeLater {
                     showDiffViewer(path, oldContent, newContent)
                 }
@@ -263,7 +262,7 @@ class PullRequestReviewDialog(
     }
 
     /**
-     * Mostra il diff viewer
+     * Shows the diff viewer
      */
     private fun showDiffViewer(filePath: String, oldContent: String, newContent: String) {
         val contentFactory = DiffContentFactory.getInstance()
@@ -287,7 +286,7 @@ class PullRequestReviewDialog(
     }
 
     /**
-     * Item della lista file
+     * File list item
      */
     data class FileChangeItem(
         val index: Int,

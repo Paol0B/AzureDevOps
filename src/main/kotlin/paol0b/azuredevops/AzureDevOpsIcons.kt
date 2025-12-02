@@ -4,7 +4,7 @@ import com.intellij.openapi.util.IconLoader
 import javax.swing.Icon
 
 /**
- * Icone personalizzate per Azure DevOps
+ * Custom icons for Azure DevOps
  */
 object AzureDevOpsIcons {
     @JvmField

@@ -5,17 +5,17 @@ import com.intellij.openapi.vcs.BranchChangeListener
 import paol0b.azuredevops.services.AzureDevOpsRepositoryDetector
 
 /**
- * Listener per invalidare la cache del rilevamento quando cambia il repository Git
+ * Listener to invalidate the detection cache when the Git repository changes
  */
 class GitRepositoryChangeListener(private val project: Project) : BranchChangeListener {
     
     override fun branchWillChange(branchName: String) {
-        // Non necessario
+        // Not needed
     }
     
     override fun branchHasChanged(branchName: String) {
-        // Invalida la cache quando cambia il branch
-        // (potrebbe essere un clone diverso o un cambio di remote)
+        // Invalidate the cache when the branch changes
+        // (could be a different clone or a remote change)
         val detector = AzureDevOpsRepositoryDetector.getInstance(project)
         detector.invalidateCache()
     }

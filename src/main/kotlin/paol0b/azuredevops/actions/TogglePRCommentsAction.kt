@@ -13,8 +13,8 @@ import paol0b.azuredevops.services.GitRepositoryService
 import paol0b.azuredevops.services.PullRequestCommentsService
 
 /**
- * Action per mostrare/nascondere i commenti PR nell'editor corrente
- * Stile Visual Studio: toggle rapido dei commenti
+ * Action to show/hide PR comments in the current editor
+ * Visual Studio style: quick toggle of comments
  */
 class TogglePRCommentsAction : AnAction(
     "Toggle PR Comments",
@@ -40,7 +40,7 @@ class TogglePRCommentsAction : AnAction(
             return
         }
         
-        // Cerca PR per il branch corrente
+        // Search for PR for the current branch
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
                 val apiClient = AzureDevOpsApiClient.getInstance(project)
@@ -48,7 +48,7 @@ class TogglePRCommentsAction : AnAction(
                 
                 ApplicationManager.getApplication().invokeLater {
                     if (pullRequest != null) {
-                        // Carica i commenti
+                        // Load comments
                         commentsService.loadCommentsInEditor(editor, file, pullRequest)
                         
                         Messages.showInfoMessage(
@@ -80,7 +80,7 @@ class TogglePRCommentsAction : AnAction(
         val project = e.project
         val editor = e.getData(CommonDataKeys.EDITOR)
         
-        // Abilita l'azione solo se c'è un editor aperto e Azure DevOps è configurato
+        // Enable the action only if an editor is open and Azure DevOps is configured
         val isEnabled = project != null && editor != null
         
         if (isEnabled && project != null) {

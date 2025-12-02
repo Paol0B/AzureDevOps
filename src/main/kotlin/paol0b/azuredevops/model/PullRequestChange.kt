@@ -3,7 +3,7 @@ package paol0b.azuredevops.model
 import com.google.gson.annotations.SerializedName
 
 /**
- * Rappresenta una modifica di file in una Pull Request
+ * Represents a file change in a Pull Request
  */
 data class PullRequestChange(
     @SerializedName("changeId")
@@ -16,12 +16,12 @@ data class PullRequestChange(
     val item: GitItem?,
     
     @SerializedName("originalPath")
-    val originalPath: String? // Per rename/move
+    val originalPath: String? // For rename/move
 )
 
 data class GitItem(
     @SerializedName("objectId")
-    val objectId: String?, // SHA del blob
+    val objectId: String?, // SHA object
     
     @SerializedName("path")
     val path: String?,

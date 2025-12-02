@@ -4,7 +4,7 @@ import com.google.gson.annotations.SerializedName
 import java.net.URI
 
 /**
- * Rappresenta la configurazione dell'account Azure DevOps
+ * Represents the Azure DevOps account configuration
  */
 @ConsistentCopyVisibility
 data class AzureDevOpsConfig private constructor(
@@ -38,7 +38,7 @@ data class AzureDevOpsConfig private constructor(
 }
 
 /**
- * Request per creare una Pull Request
+ * Request to create a Pull Request
  */
 data class CreatePullRequestRequest(
     val sourceRefName: String,
@@ -49,7 +49,7 @@ data class CreatePullRequestRequest(
 )
 
 /**
- * Reviewer da aggiungere alla PR durante la creazione
+ * Reviewer to add to the PR during creation
  */
 data class ReviewerRequest(
     val id: String,
@@ -58,7 +58,7 @@ data class ReviewerRequest(
 )
 
 /**
- * Response dalla creazione di una Pull Request
+ * Response from Pull Request creation
  */
 data class PullRequestResponse(
     @SerializedName("pullRequestId")
@@ -77,7 +77,7 @@ data class PullRequestResponse(
 )
 
 /**
- * Pull Request completa con tutti i dettagli
+ * Complete Pull Request with all details
  */
 data class PullRequest(
     @SerializedName("pullRequestId")
@@ -123,7 +123,7 @@ data class PullRequest(
 }
 
 /**
- * Stato della Pull Request
+ * Pull Request status
  */
 enum class PullRequestStatus {
     @SerializedName("notSet")
@@ -144,7 +144,7 @@ enum class PullRequestStatus {
 }
 
 /**
- * Reviewer di una PR
+ * Reviewer of a PR
  */
 data class Reviewer(
     val id: String?,
@@ -183,7 +183,7 @@ enum class ReviewerVote {
 }
 
 /**
- * Label/Tag di una PR
+ * Label/Tag of a PR
  */
 data class Label(
     val id: String?,
@@ -226,7 +226,7 @@ data class CreatedBy(
 )
 
 /**
- * Response lista PR
+ * Response for PR list
  */
 data class PullRequestListResponse(
     val value: List<PullRequest>,
@@ -234,7 +234,7 @@ data class PullRequestListResponse(
 )
 
 /**
- * Rappresenta un branch Git
+ * Represents a Git branch
  */
 data class GitBranch(
     val name: String,
@@ -249,7 +249,7 @@ data class GitBranch(
 }
 
 /**
- * Risposta errore da Azure DevOps API
+ * Error response from Azure DevOps API
  */
 data class AzureDevOpsError(
     val message: String?,
@@ -275,7 +275,7 @@ data class AzureDevOpsErrorResponse(
 )
 
 /**
- * Thread di commenti in una PR
+ * Thread of comments in a PR
  */
 data class CommentThread(
     val id: Int?,
@@ -289,17 +289,17 @@ data class CommentThread(
     val isDeleted: Boolean?
 ) {
     /**
-     * Ottiene il path del file, cercando in pullRequestThreadContext prima e poi in threadContext
+     * Gets the file path, searching in pullRequestThreadContext first, then threadContext
      */
     fun getFilePath(): String? = pullRequestThreadContext?.filePath ?: threadContext?.filePath
     
     /**
-     * Ottiene la riga di inizio, cercando in pullRequestThreadContext prima e poi in threadContext
+     * Gets the start line, searching in pullRequestThreadContext first, then threadContext
      */
     fun getRightFileStart(): Int? = pullRequestThreadContext?.rightFileStart?.line ?: threadContext?.rightFileStart?.line
     
     /**
-     * Ottiene la riga di fine, cercando in pullRequestThreadContext prima e poi in threadContext
+     * Gets the end line, searching in pullRequestThreadContext first, then threadContext
      */
     fun getRightFileEnd(): Int? = pullRequestThreadContext?.rightFileEnd?.line ?: threadContext?.rightFileEnd?.line
     
@@ -308,7 +308,7 @@ data class CommentThread(
 }
 
 /**
- * Contesto del thread (posizione nel file)
+ * Thread context (position in file)
  */
 data class ThreadContext(
     @SerializedName("filePath")
@@ -329,7 +329,7 @@ data class LineInfo(
 )
 
 /**
- * Stato del thread
+ * Thread status
  */
 enum class ThreadStatus {
     @SerializedName("unknown")
@@ -358,7 +358,7 @@ enum class ThreadStatus {
     }
     
     /**
-     * Converte lo status nel formato richiesto dall'API Azure DevOps
+     * Converts the status to the format required by the Azure DevOps API
      */
     fun toApiValue(): String = when(this) {
         Unknown -> "unknown"
@@ -372,7 +372,7 @@ enum class ThreadStatus {
 }
 
 /**
- * Singolo commento
+ * Single comment
  */
 data class Comment(
     val id: Int?,
@@ -391,7 +391,7 @@ data class Comment(
 )
 
 /**
- * Request per creare un commento
+ * Request to create a comment
  */
 data class CreateCommentRequest(
     val content: String,
@@ -402,8 +402,8 @@ data class CreateCommentRequest(
 )
 
 /**
- * Request per aggiornare lo stato di un thread
- * Azure DevOps API 7.2 richiede solo il campo status con il valore in minuscolo
+ * Request to update the status of a thread
+ * Azure DevOps API 7.2 requires only the status field with the value in lowercase
  */
 data class UpdateThreadStatusRequest(
     @SerializedName("status")
@@ -413,7 +413,7 @@ data class UpdateThreadStatusRequest(
 }
 
 /**
- * Response lista thread
+ * Response for thread list
  */
 data class CommentThreadListResponse(
     val value: List<CommentThread>,
@@ -421,7 +421,7 @@ data class CommentThreadListResponse(
 )
 
 /**
- * Riferimento a un commit
+ * Reference to a commit
  */
 data class CommitRef(
     @SerializedName("commitId")
@@ -431,7 +431,7 @@ data class CommitRef(
 )
 
 /**
- * Identity (user/group) da Azure DevOps per la ricerca reviewer
+ * Identity (user/group) from Azure DevOps for reviewer search
  */
 data class Identity(
     val id: String?,
@@ -444,7 +444,7 @@ data class Identity(
 )
 
 /**
- * Response dalla ricerca identities
+ * Response from identity search
  */
 data class IdentitySearchResponse(
     val value: List<Identity>?,

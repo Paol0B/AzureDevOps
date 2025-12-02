@@ -16,8 +16,8 @@ import java.awt.Color
 import javax.swing.Icon
 
 /**
- * Servizio per visualizzare e gestire i commenti delle PR direttamente nel codice
- * Simile a Visual Studio con icone nella gutter e tooltip
+ * Service to display and manage PR comments directly in the code
+ * Similar to Visual Studio with gutter icons and tooltips
  */
 @Service(Service.Level.PROJECT)
 class PullRequestCommentsService(private val project: Project) {
@@ -31,28 +31,28 @@ class PullRequestCommentsService(private val project: Project) {
         }
         
         private val ACTIVE_COMMENT_ATTRIBUTES = TextAttributes().apply {
-            backgroundColor = JBColor(Color(255, 250, 205), Color(80, 75, 50)) // Giallo chiaro/scuro
+            backgroundColor = JBColor(Color(255, 250, 205), Color(80, 75, 50)) // Light/dark yellow
             effectType = EffectType.BOXED
             effectColor = JBColor(Color(255, 200, 0), Color(200, 150, 0))
         }
         
         private val RESOLVED_COMMENT_ATTRIBUTES = TextAttributes().apply {
-            backgroundColor = JBColor(Color(220, 255, 220), Color(50, 80, 50)) // Verde chiaro/scuro
+            backgroundColor = JBColor(Color(220, 255, 220), Color(50, 80, 50)) // Light/dark green
             effectType = EffectType.BOXED
             effectColor = JBColor(Color(100, 200, 100), Color(100, 150, 100))
         }
         
-        // Icone per i commenti (visibili nella gutter)
+        // Icons for comments (visible in the gutter)
         private val ACTIVE_COMMENT_ICON: Icon = AllIcons.Toolwindows.ToolWindowMessages
         private val RESOLVED_COMMENT_ICON: Icon = AllIcons.RunConfigurations.TestPassed
     }
 
     /**
-     * Carica e visualizza i commenti di una PR nel file aperto
-     * 
-     * @param editor Editor in cui visualizzare i commenti
-     * @param file File da analizzare
-     * @param pullRequest PR da cui caricare i commenti
+     * Loads and displays PR comments in the open file
+     *
+     * @param editor Editor in which to display comments
+     * @param file File to analyze
+     * @param pullRequest PR from which to load comments
      */
     fun loadCommentsInEditor(editor: Editor, file: VirtualFile, pullRequest: PullRequest) {
         logger.info("=== LOADING COMMENTS FOR FILE ===")
@@ -67,14 +67,14 @@ class PullRequestCommentsService(private val project: Project) {
                 
                 logger.info("Found ${threads.size} total threads for PR #${pullRequest.pullRequestId}")
                 
-                // Log tutti i thread per debug
+                // Log all threads for debugging
                 threads.forEachIndexed { index, thread ->
                     logger.info("Thread #$index: id=${thread.id}, path=${thread.getFilePath()}, line=${thread.getRightFileStart()}, status=${thread.status}")
                 }
                 
-                // Filtra i thread per questo file
-                // Il path del thread è relativo al repo (es: /src/main.cs)
-                // Il path del file locale contiene il percorso completo
+                // Filter threads for this file
+                // The thread path is relative to the repo (e.g., /src/main.cs)
+                // The local file path contains the full path
                 val fileThreads = threads.filter { thread ->
                     val threadPath = thread.getFilePath()
                     if (threadPath == null) {
@@ -82,11 +82,11 @@ class PullRequestCommentsService(private val project: Project) {
                         return@filter false
                     }
                     
-                    // Normalizza i path per il confronto
+                    // Normalize paths for comparison
                     val normalizedThreadPath = threadPath.replace('/', '\\').trimStart('\\')
                     val normalizedFilePath = file.path.replace('/', '\\')
                     
-                    // Verifica se il file path termina con il thread path
+                    // Check if the file path ends with the thread path
                     val matches = normalizedFilePath.endsWith(normalizedThreadPath, ignoreCase = true)
                     
                     logger.info("Comparing: thread='$normalizedThreadPath' vs file='$normalizedFilePath' -> $matches")
@@ -100,7 +100,7 @@ class PullRequestCommentsService(private val project: Project) {
                     ApplicationManager.getApplication().invokeLater {
                         displayCommentsInEditor(editor, file, fileThreads, pullRequest)
                         
-                        // Aggiorna il tracker per mostrare badge nell'esplora soluzioni
+                        // Update the tracker to show badges in the solution explorer
                         val tracker = PullRequestCommentsTracker.getInstance(project)
                         tracker.setCommentsForFile(file, fileThreads)
                     }
@@ -114,7 +114,7 @@ class PullRequestCommentsService(private val project: Project) {
     }
 
     /**
-     * Visualizza i commenti nell'editor
+     * Displays comments in the editor
      */
     private fun displayCommentsInEditor(
         editor: Editor,
@@ -124,7 +124,7 @@ class PullRequestCommentsService(private val project: Project) {
     ) {
         logger.info("Displaying ${threads.size} comments in editor for file: ${file.path}")
         
-        // Rimuovi i marker precedenti
+        // Remove previous markers
         clearCommentsFromFile(file)
         
         val markupModel = editor.markupModel
@@ -145,7 +145,7 @@ class PullRequestCommentsService(private val project: Project) {
             val startOffset = document.getLineStartOffset(lineIndex)
             val endOffset = document.getLineEndOffset(lineIndex)
             
-            // Attributi per l'evidenziazione della linea
+            // Attributes for line highlighting
             val attributes = if (thread.isResolved()) RESOLVED_COMMENT_ATTRIBUTES else ACTIVE_COMMENT_ATTRIBUTES
             
             val highlighter = markupModel.addRangeHighlighter(
@@ -156,11 +156,11 @@ class PullRequestCommentsService(private val project: Project) {
                 HighlighterTargetArea.LINES_IN_RANGE
             )
             
-            // Aggiungi icona nella gutter (margine sinistro) come Visual Studio
+            // Add icon in the gutter (left margin) like Visual Studio
             val icon = if (thread.isResolved()) RESOLVED_COMMENT_ICON else ACTIVE_COMMENT_ICON
             highlighter.gutterIconRenderer = CommentGutterIconRenderer(thread, pullRequest, icon, this)
             
-            // Tooltip al passaggio del mouse
+            // Tooltip on mouse hover
             val tooltipText = buildTooltipText(thread)
             highlighter.errorStripeTooltip = tooltipText
             
@@ -171,14 +171,14 @@ class PullRequestCommentsService(private val project: Project) {
     }
     
     /**
-     * Costruisce il testo del tooltip per il commento
+     * Builds the tooltip text for the comment
      */
     private fun buildTooltipText(thread: CommentThread): String {
         val firstComment = thread.comments?.firstOrNull()
         val author = firstComment?.author?.displayName ?: "Unknown"
         val content = firstComment?.content?.take(200) ?: "No content"
         val status = if (thread.isResolved()) "✓ Resolved" else "⚠ Active"
-        
+
         return """
             <html>
             <b>PR Comment - $status</b><br>
@@ -191,31 +191,31 @@ class PullRequestCommentsService(private val project: Project) {
     }
 
     /**
-     * Rimuove tutti i commenti visualizzati da un file
+     * Removes all displayed comments from a file
      */
     fun clearCommentsFromFile(file: VirtualFile) {
         commentMarkers[file]?.forEach { it.dispose() }
         commentMarkers.remove(file)
         
-        // Aggiorna anche il tracker
+        // Also update the tracker
         val tracker = PullRequestCommentsTracker.getInstance(project)
         tracker.clearCommentsForFile(file)
     }
 
     /**
-     * Rimuove tutti i commenti da tutti i file
+     * Removes all comments from all files
      */
     fun clearAllComments() {
         commentMarkers.values.flatten().forEach { it.dispose() }
         commentMarkers.clear()
         
-        // Aggiorna anche il tracker
+        // Also update the tracker
         val tracker = PullRequestCommentsTracker.getInstance(project)
         tracker.clearAllComments()
     }
 
     /**
-     * Risponde a un commento
+     * Replies to a comment
      */
     fun replyToComment(pullRequest: PullRequest, threadId: Int, content: String, onSuccess: () -> Unit) {
         ApplicationManager.getApplication().executeOnPooledThread {
@@ -233,7 +233,7 @@ class PullRequestCommentsService(private val project: Project) {
     }
 
     /**
-     * Risolve un thread di commenti
+     * Resolves a comment thread
      */
     fun resolveThread(pullRequest: PullRequest, threadId: Int, onSuccess: () -> Unit) {
         ApplicationManager.getApplication().executeOnPooledThread {
@@ -251,7 +251,7 @@ class PullRequestCommentsService(private val project: Project) {
     }
 
     /**
-     * Riattiva un thread di commenti
+     * Re-activates a comment thread
      */
     fun unresolveThread(pullRequest: PullRequest, threadId: Int, onSuccess: () -> Unit) {
         ApplicationManager.getApplication().executeOnPooledThread {

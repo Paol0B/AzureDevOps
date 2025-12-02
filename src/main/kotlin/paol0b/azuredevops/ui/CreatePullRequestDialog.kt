@@ -50,7 +50,7 @@ data class DialogData(
 )
 
 /**
- * Dialog per creare una Pull Request su Azure DevOps
+ * Dialog to create a Pull Request on Azure DevOps
  */
 class CreatePullRequestDialog private constructor(
     private val project: Project,
@@ -94,7 +94,7 @@ class CreatePullRequestDialog private constructor(
                         val defaultTarget = gitService.getDefaultTargetBranch()
                         
                         if (branches.isEmpty()) {
-                            error = "Nessun branch Git trovato nel repository."
+                            error = "No Git branches found in the repository."
                             return
                         }
                         
@@ -170,7 +170,7 @@ class CreatePullRequestDialog private constructor(
         sourceBranchCombo = ComboBox(dialogData.branches.toTypedArray())
         targetBranchCombo = ComboBox(dialogData.branches.toTypedArray())
 
-        // Imposta i valori di default
+        // Set default values
         dialogData.currentBranch?.let { current ->
             sourceBranchCombo.selectedItem = dialogData.branches.firstOrNull { it.displayName == current.displayName }
         }
@@ -179,11 +179,11 @@ class CreatePullRequestDialog private constructor(
             targetBranchCombo.selectedItem = dialogData.branches.firstOrNull { it.displayName == target.displayName }
         }
 
-        // Imposta il renderer per mostrare solo il displayName
+        // Set renderer to show only displayName
         sourceBranchCombo.renderer = BranchListCellRenderer()
         targetBranchCombo.renderer = BranchListCellRenderer()
 
-        // Descrizione area setup
+        // Description area setup
         descriptionArea.lineWrap = true
         descriptionArea.wrapStyleWord = true
         descriptionArea.rows = 8
@@ -340,10 +340,10 @@ class CreatePullRequestDialog private constructor(
     }
     
     /**
-     * Aggiunge un reviewer alla lista
+     * Adds a reviewer to the list
      */
     private fun addReviewer(identity: Identity, required: Boolean) {
-        // Verifica se già aggiunto
+        // Check if already added
         val alreadyAdded = (requiredReviewers + optionalReviewers).any { it.id == identity.id }
         if (alreadyAdded) {
             Messages.showWarningDialog(
@@ -360,7 +360,7 @@ class CreatePullRequestDialog private constructor(
             optionalReviewers.add(identity)
         }
         
-        // Aggiungi il reviewer alla lista
+        // Add the reviewer to the list
         val reviewerPanel = createReviewerPanel(identity, required)
         reviewerListPanel.add(reviewerPanel)
         
@@ -372,7 +372,7 @@ class CreatePullRequestDialog private constructor(
     }
     
     /**
-     * Crea un panel per un reviewer aggiunto
+     * Creates a panel for an added reviewer
      */
     private fun createReviewerPanel(identity: Identity, required: Boolean): JPanel {
         val panel = JPanel(BorderLayout(5, 0)).apply {
@@ -384,7 +384,7 @@ class CreatePullRequestDialog private constructor(
             maximumSize = Dimension(Int.MAX_VALUE, 45)
         }
         
-        // Avatar + Nome + Badge
+        // Avatar + Name + Badge
         val leftPanel = JPanel(FlowLayout(FlowLayout.LEFT, 5, 0))
         
         val avatarLabel = JLabel()
@@ -407,7 +407,7 @@ class CreatePullRequestDialog private constructor(
         
         panel.add(leftPanel, BorderLayout.CENTER)
         
-        // Pulsante rimuovi
+        // Remove button
         val removeBtn = JButton(AllIcons.Actions.Close).apply {
             toolTipText = "Remove reviewer"
             preferredSize = Dimension(24, 24)
@@ -426,7 +426,7 @@ class CreatePullRequestDialog private constructor(
     }
     
     /**
-     * Rimuove un reviewer dalla lista
+     * Removes a reviewer from the list
      */
     private fun removeReviewer(identity: Identity, required: Boolean) {
         if (required) {
@@ -437,7 +437,7 @@ class CreatePullRequestDialog private constructor(
     }
     
     /**
-     * Carica l'avatar di un utente in modo asincrono
+     * Loads a user's avatar asynchronously
      */
     private fun loadAvatar(imageUrl: String?, targetLabel: JLabel) {
         if (imageUrl.isNullOrBlank()) {
@@ -475,14 +475,14 @@ class CreatePullRequestDialog private constructor(
         // Details Panel
         val detailsPanel = FormBuilder.createFormBuilder()
             .addLabeledComponent(JBLabel("Source Branch:"), sourceBranchCombo, 1, false)
-            .addTooltip("Il branch da cui partire per la Pull Request")
+            .addTooltip("The branch to start the Pull Request from")
             .addLabeledComponent(JBLabel("Target Branch:"), targetBranchCombo, 1, false)
-            .addTooltip("Il branch di destinazione (solitamente main o master)")
+            .addTooltip("The destination branch (usually main or master)")
             .addSeparator()
             .addLabeledComponent(JBLabel("Title:"), titleField, 1, false)
-            .addTooltip("Titolo della Pull Request (obbligatorio)")
+            .addTooltip("Pull Request title (required)")
             .addLabeledComponent(JBLabel("Description:"), descriptionScroll, 1, true)
-            .addTooltip("Descrizione opzionale della Pull Request")
+            .addTooltip("Optional Pull Request description")
             .addComponentFillVertically(JPanel(), 0)
             .panel
 
@@ -542,7 +542,7 @@ class CreatePullRequestDialog private constructor(
         selectionPanel.add(comboPanel, BorderLayout.NORTH)
         selectionPanel.add(buttonsPanel, BorderLayout.CENTER)
         
-        // Sezione reviewer aggiunti
+        // Added reviewers section
         val addedReviewersContainer = JPanel(BorderLayout()).apply {
             border = JBUI.Borders.compound(
                 JBUI.Borders.customLine(JBColor.border(), 1),
@@ -575,59 +575,59 @@ class CreatePullRequestDialog private constructor(
 
     override fun doValidate(): ValidationInfo? {
         if (titleField.text.isBlank()) {
-            return ValidationInfo("Il titolo è obbligatorio", titleField)
+            return ValidationInfo("Title is required", titleField)
         }
 
         val sourceBranch = sourceBranchCombo.selectedItem as? GitBranch
         val targetBranch = targetBranchCombo.selectedItem as? GitBranch
 
         if (sourceBranch == null) {
-            return ValidationInfo("Seleziona un branch di origine", sourceBranchCombo)
+            return ValidationInfo("Select a source branch", sourceBranchCombo)
         }
 
         if (targetBranch == null) {
-            return ValidationInfo("Seleziona un branch di destinazione", targetBranchCombo)
+            return ValidationInfo("Select a target branch", targetBranchCombo)
         }
 
         if (sourceBranch.name == targetBranch.name) {
-            return ValidationInfo("Il branch di origine e destinazione non possono essere uguali", sourceBranchCombo)
+            return ValidationInfo("Source and target branch cannot be the same", sourceBranchCombo)
         }
 
         return null
     }
 
     /**
-     * Ottiene il branch di origine selezionato
+     * Gets the selected source branch
      */
     fun getSourceBranch(): GitBranch? = sourceBranchCombo.selectedItem as? GitBranch
 
     /**
-     * Ottiene il branch di destinazione selezionato
+     * Gets the selected target branch
      */
     fun getTargetBranch(): GitBranch? = targetBranchCombo.selectedItem as? GitBranch
 
     /**
-     * Ottiene il titolo della PR
+     * Gets the PR title
      */
     fun getPrTitle(): String = titleField.text.trim()
 
     /**
-     * Ottiene la descrizione della PR
+     * Gets the PR description
      */
     fun getDescription(): String = descriptionArea.text.trim()
     
     /**
-     * Ottiene la lista di reviewer required
+     * Gets the list of required reviewers
      */
     fun getRequiredReviewers(): List<Identity> = requiredReviewers.toList()
     
     /**
-     * Ottiene la lista di reviewer optional
+     * Gets the list of optional reviewers
      */
     fun getOptionalReviewers(): List<Identity> = optionalReviewers.toList()
 
     /**
-     * Custom renderer per visualizzare solo il displayName dei branch
+     * Custom renderer to show only the displayName of branches
      */
     private class BranchListCellRenderer : com.intellij.ui.SimpleListCellRenderer<GitBranch>() {
         override fun customize(

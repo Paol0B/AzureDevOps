@@ -11,7 +11,7 @@ import paol0b.azuredevops.services.GitRepositoryService
 import paol0b.azuredevops.services.PullRequestCommentsService
 
 /**
- * Action per caricare e visualizzare i commenti della PR nel file corrente
+ * Action to load and display PR comments in the current file
  */
 class ShowPullRequestCommentsAction : AnAction() {
 
@@ -20,18 +20,18 @@ class ShowPullRequestCommentsAction : AnAction() {
         val editor = e.getData(CommonDataKeys.EDITOR) ?: return
         val file = e.getData(CommonDataKeys.VIRTUAL_FILE) ?: return
 
-        // Verifica che ci sia un branch corrente
+        // Check that there is a current branch
         val gitService = GitRepositoryService.getInstance(project)
         val currentBranch = gitService.getCurrentBranch() ?: run {
             Messages.showWarningDialog(
                 project,
-                "Nessun branch Git attivo.",
-                "Impossibile Visualizzare Commenti"
+                "No active Git branch.",
+                "Unable to Display Comments"
             )
             return
         }
 
-        // Cerca la PR associata al branch
+        // Search for the PR associated with the branch
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
                 val apiClient = AzureDevOpsApiClient.getInstance(project)
@@ -41,9 +41,9 @@ class ShowPullRequestCommentsAction : AnAction() {
                     ApplicationManager.getApplication().invokeLater {
                         Messages.showMessageDialog(
                             project,
-                            "Il branch '${currentBranch.displayName}' non ha una Pull Request attiva.\n\n" +
-                                    "Crea una Pull Request per questo branch per visualizzare i commenti.",
-                            "Nessuna Pull Request",
+                            "The branch '${currentBranch.displayName}' does not have an active Pull Request.\n\n" +
+                                    "Create a Pull Request for this branch to view comments.",
+                            "No Pull Request",
                             Messages.getInformationIcon()
                         )
                     }
@@ -57,10 +57,10 @@ class ShowPullRequestCommentsAction : AnAction() {
                     
                     Messages.showMessageDialog(
                         project,
-                        "Commenti caricati per PR #${pullRequest.pullRequestId}:\n${pullRequest.title}\n\n" +
-                                "I commenti sono evidenziati nel codice.\n" +
-                                "Clicca sull'icona nella gutter per visualizzare e rispondere.",
-                        "Commenti Caricati",
+                        "Comments loaded for PR #${pullRequest.pullRequestId}:\n${pullRequest.title}\n\n" +
+                                "Comments are highlighted in the code.\n" +
+                                "Click the icon in the gutter to view and reply.",
+                        "Comments Loaded",
                         Messages.getInformationIcon()
                     )
                 }
@@ -68,8 +68,8 @@ class ShowPullRequestCommentsAction : AnAction() {
                 ApplicationManager.getApplication().invokeLater {
                     Messages.showErrorDialog(
                         project,
-                        "Errore durante il caricamento dei commenti:\n${e.message}",
-                        "Errore"
+                        "Error while loading comments:\n${e.message}",
+                        "Error"
                     )
                 }
             }
