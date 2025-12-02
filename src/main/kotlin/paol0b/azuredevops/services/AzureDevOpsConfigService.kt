@@ -7,6 +7,8 @@ import com.intellij.ide.passwordSafe.PasswordSafe
 import com.intellij.openapi.components.*
 import com.intellij.util.xmlb.XmlSerializerUtil
 import paol0b.azuredevops.model.AzureDevOpsConfig
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 
 /**
  * Service to manage Azure DevOps configuration.
@@ -182,7 +184,8 @@ class AzureDevOpsConfigService(private val project: com.intellij.openapi.project
      */
     fun getApiBaseUrl(): String {
         val config = getConfig()
-        return "https://dev.azure.com/${config.organization}"
+        val encodedOrganization = URLEncoder.encode(config.organization, StandardCharsets.UTF_8.toString())
+        return "https://dev.azure.com/$encodedOrganization"
     }
     
     /**
