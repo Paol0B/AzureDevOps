@@ -32,11 +32,13 @@ class AzureDevOpsApiClient(private val project: Project) {
     
     /**
      * Helper function to build API URLs with proper URL encoding for project and repository names
-     * This handles special characters like accented letters (à, è, ì, etc.)
+     * This handles special characters like accented letters (à, è, ì, etc.) and spaces
      */
     private fun buildApiUrl(project: String, repository: String, endpoint: String): String {
         val configService = AzureDevOpsConfigService.getInstance(this.project)
-        return "${configService.getApiBaseUrl()}/$project/_apis/git/repositories/$repository$endpoint"
+        val encodedProject = URLEncoder.encode(project, StandardCharsets.UTF_8.toString())
+        val encodedRepository = URLEncoder.encode(repository, StandardCharsets.UTF_8.toString())
+        return "${configService.getApiBaseUrl()}/$encodedProject/_apis/git/repositories/$encodedRepository$endpoint"
     }
 
     /**
