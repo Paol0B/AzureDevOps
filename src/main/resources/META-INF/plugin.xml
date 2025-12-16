@@ -78,14 +78,6 @@
         <!-- OAuth authentication service -->
         <applicationService serviceImplementation="paol0b.azuredevops.checkout.AzureDevOpsOAuthService"/>
 
-        <!-- Project Settings -->
-        <projectConfigurable
-                parentId="tools"
-                instance="paol0b.azuredevops.ui.AzureDevOpsConfigurable"
-                id="paol0b.azuredevops.settings"
-                displayName="Azure DevOps"
-                nonDefaultProject="true"/>
-
         <!-- Notification Group -->
         <notificationGroup
                 id="AzureDevOps.Notifications"

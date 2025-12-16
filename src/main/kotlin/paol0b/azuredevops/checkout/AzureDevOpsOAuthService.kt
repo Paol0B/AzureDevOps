@@ -87,8 +87,8 @@ class AzureDevOpsOAuthService {
             logger.info("User code: ${deviceCodeResponse.userCode}")
             logger.info("Verification URI: ${deviceCodeResponse.verificationUri}")
             
-            // Open browser for user authentication
-            BrowserUtil.browse(deviceCodeResponse.verificationUri)
+            // Browser should already be opened by DeviceCodeAuthDialog
+            // BrowserUtil.browse(deviceCodeResponse.verificationUri)
             
             // Poll for token in background
             val executor = Executors.newSingleThreadExecutor()

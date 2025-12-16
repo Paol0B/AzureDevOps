@@ -67,6 +67,7 @@ class AzureDevOpsCloneDialog private constructor(
     private var selectedAccount: AzureDevOpsAccount? = null
     private var isLoadingAccounts = false  // Flag to prevent duplicate loads
     private val defaultCloneDir = System.getProperty("user.home") + File.separator + "source" + File.separator + "repos"
+    private var baseCloneDir = defaultCloneDir  // Track the base directory without repository name
     
     // Preloaded data
     private var preloadedData: Map<String, ProjectsData>? = null
@@ -178,8 +179,8 @@ class AzureDevOpsCloneDialog private constructor(
             if (userObject is AzureDevOpsRepository) {
                 selectedRepository = userObject
                 
-                // Auto-fill directory with repository name
-                val targetDir = File(directoryField.text.trim().ifBlank { defaultCloneDir }, userObject.name).absolutePath
+                // Auto-fill directory with repository name using base directory
+                val targetDir = File(baseCloneDir, userObject.name).absolutePath
                 directoryField.text = targetDir
             } else {
                 selectedRepository = null
@@ -215,6 +216,27 @@ class AzureDevOpsCloneDialog private constructor(
         directoryField.addBrowseFolderListener(
             TextBrowseFolderListener(fileChooserDescriptor, project)
         )
+        
+        // Listen for manual changes to directory field to update base directory
+        directoryField.textField.document.addDocumentListener(object : javax.swing.event.DocumentListener {
+            override fun insertUpdate(e: javax.swing.event.DocumentEvent?) = updateBaseCloneDir()
+            override fun removeUpdate(e: javax.swing.event.DocumentEvent?) = updateBaseCloneDir()
+            override fun changedUpdate(e: javax.swing.event.DocumentEvent?) = updateBaseCloneDir()
+            
+            private fun updateBaseCloneDir() {
+                val currentPath = directoryField.text.trim()
+                if (currentPath.isNotEmpty()) {
+                    val currentFile = File(currentPath)
+                    // If a repository is selected and the path ends with its name, use parent
+                    if (selectedRepository != null && currentFile.name == selectedRepository?.name) {
+                        baseCloneDir = currentFile.parent ?: defaultCloneDir
+                    } else {
+                        // Otherwise, use the current path as base
+                        baseCloneDir = currentPath
+                    }
+                }
+            }
+        })
         
         directoryField.text = defaultCloneDir
 

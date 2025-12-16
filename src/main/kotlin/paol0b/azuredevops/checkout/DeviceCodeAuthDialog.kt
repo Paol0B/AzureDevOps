@@ -76,6 +76,10 @@ class DeviceCodeAuthDialog(
         }
         
         setOKButtonText("Continue")
+        
+        // Open browser immediately when dialog is shown
+        BrowserUtil.browse(deviceCodeResponse.verificationUri)
+        
         init()
     }
 
@@ -94,10 +98,10 @@ class DeviceCodeAuthDialog(
         instructionLabel.text = "<html>" +
                 "<div style='padding: 10px;'>" +
                 "<p><b style='font-size: 12px; color: #0066CC;'>✓ Code copied to clipboard!</b></p>" +
-                "<p style='margin-top: 10px;'><b>1.</b> Click 'Continue' below</p>" +
-                "<p><b>2.</b> The browser will open automatically</p>" +
-                "<p><b>3.</b> Paste the code (Ctrl+V) or enter: <b>${deviceCodeResponse.userCode}</b></p>" +
-                "<p><b>4.</b> Sign in with your Microsoft account</p>" +
+                "<p style='margin-top: 10px;'><b>1.</b> The browser has opened automatically</p>" +
+                "<p><b>2.</b> Paste the code (Ctrl+V) or enter: <b>${deviceCodeResponse.userCode}</b></p>" +
+                "<p><b>3.</b> Sign in with your Microsoft account</p>" +
+                "<p><b>4.</b> Click 'Continue' below after completing authentication</p>" +
                 "</div></html>"
         
         // Code display - larger and more visible
