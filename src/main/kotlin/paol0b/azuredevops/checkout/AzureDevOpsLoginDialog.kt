@@ -148,15 +148,52 @@ class AzureDevOpsLoginDialog(private val project: Project?) : DialogWrapper(proj
             return
         }
 
-        // Show device code dialog
-        val deviceCodeDialog = DeviceCodeAuthDialog(project, serverUrl)
-        if (deviceCodeDialog.showAndGet()) {
-            val authenticatedAccount = deviceCodeDialog.getAuthenticatedAccount()
-            if (authenticatedAccount != null) {
-                this.account = authenticatedAccount
-                close(OK_EXIT_CODE)
+        // Request device code first (blocking)
+        ProgressManager.getInstance().run(object : Task.Modal(
+            project,
+            "Requesting Authentication Code...",
+            true
+        ) {
+            var deviceCodeResponse: AzureDevOpsOAuthService.DeviceCodeResponse? = null
+            
+            override fun run(indicator: ProgressIndicator) {
+                indicator.isIndeterminate = true
+                indicator.text = "Connecting to Microsoft..."
+                
+                val oauthService = AzureDevOpsOAuthService.getInstance()
+                deviceCodeResponse = oauthService.requestDeviceCodeSync()
             }
-        }
+            
+            override fun onSuccess() {
+                val response = deviceCodeResponse
+                if (response != null) {
+                    // Show device code dialog with pre-loaded code
+                    val deviceCodeDialog = DeviceCodeAuthDialog(project, serverUrl, response)
+                    if (deviceCodeDialog.showAndGet()) {
+                        val authenticatedAccount = deviceCodeDialog.getAuthenticatedAccount()
+                        if (authenticatedAccount != null) {
+                            account = authenticatedAccount
+                            close(OK_EXIT_CODE)
+                        }
+                    }
+                } else {
+                    Messages.showErrorDialog(
+                        contentPanel,
+                        "Failed to request authentication code from Microsoft.\n\n" +
+                        "Please check your internet connection and try again.",
+                        "Authentication Error"
+                    )
+                }
+            }
+            
+            override fun onThrowable(error: Throwable) {
+                Messages.showErrorDialog(
+                    contentPanel,
+                    "Error: ${error.message}",
+                    "Authentication Error"
+                )
+            }
+        })
     }
 
     override fun doValidate(): ValidationInfo? {

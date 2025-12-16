@@ -17,6 +17,7 @@ import paol0b.azuredevops.AzureDevOpsIcons
 import java.awt.BorderLayout
 import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
+import java.util.concurrent.CompletableFuture
 import javax.swing.*
 
 /**
@@ -62,7 +63,11 @@ class DeviceCodeAuthDialog(
                 val clip = Toolkit.getDefaultToolkit().systemClipboard
                 clip.setContents(StringSelection(code), null)
                 copyButton.text = "Copied!"
-                Timer(2000) { copyButton.text = "Copy Code" }.apply { isRepeats = false }.start()
+                javax.swing.Timer(2000) { 
+                    copyButton.text = "Copy Code" 
+                }.apply { 
+                    isRepeats = false 
+                }.start()
             }
         }
         
@@ -167,9 +172,11 @@ class DeviceCodeAuthDialog(
                             okAction.isEnabled = true
                             
                             // Auto-close and return to clone dialog
-                            Timer(1000) {
+                            javax.swing.Timer(1000) {
                                 close(OK_EXIT_CODE)
-                            }.apply { isRepeats = false }.start()
+                            }.apply { 
+                                isRepeats = false 
+                            }.start()
                         } else {
                             statusLabel.text = "✗ Authentication failed or was cancelled"
                             statusLabel.foreground = java.awt.Color(200, 0, 0)
