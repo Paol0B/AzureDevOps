@@ -39,22 +39,22 @@ class PullRequestDetailsPanel(private val project: Project) {
 
     init {
         titleLabel = JBLabel().apply {
-            font = font.deriveFont(18f).deriveFont(Font.BOLD)
-            border = JBUI.Borders.empty(5, 0)
+            font = font.deriveFont(Font.BOLD, 16f)
+            border = JBUI.Borders.empty(0, 0, 8, 0)
         }
 
         statusBadge = JBLabel().apply {
             isOpaque = true
-            border = JBUI.Borders.empty(4, 12)
-            font = font.deriveFont(Font.BOLD, 11f)
+            border = JBUI.Borders.empty(5, 14, 5, 14)
+            font = font.deriveFont(Font.BOLD, 10f)
         }
         
         draftBadge = JBLabel("DRAFT").apply {
             isOpaque = true
             background = JBColor(Color(255, 165, 0), Color(255, 140, 0))
             foreground = Color.WHITE
-            border = JBUI.Borders.empty(4, 12)
-            font = font.deriveFont(Font.BOLD, 11f)
+            border = JBUI.Borders.empty(5, 14, 5, 14)
+            font = font.deriveFont(Font.BOLD, 10f)
             isVisible = false
         }
 
@@ -62,27 +62,29 @@ class PullRequestDetailsPanel(private val project: Project) {
         
         authorLabel = JBLabel().apply {
             icon = AllIcons.General.User
-            border = JBUI.Borders.empty(4, 0)
+            border = JBUI.Borders.empty(2, 0)
+            font = font.deriveFont(12f)
         }
         
         createdDateLabel = JBLabel().apply {
-            icon = AllIcons.Vcs.History
-            border = JBUI.Borders.empty(4, 0)
+            icon = AllIcons.Actions.Commit
+            border = JBUI.Borders.empty(2, 0)
+            font = font.deriveFont(12f)
         }
 
         descriptionArea = JTextArea().apply {
             isEditable = false
             lineWrap = true
             wrapStyleWord = true
-            background = UIUtil.getTextFieldBackground()
+            background = UIUtil.getPanelBackground()
             foreground = UIUtil.getLabelForeground()
-            border = JBUI.Borders.empty(10)
+            border = JBUI.Borders.empty(12)
             font = font.deriveFont(13f)
         }
 
         reviewersPanel = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            border = JBUI.Borders.empty(8)
+            border = JBUI.Borders.empty(0)
             background = UIUtil.getPanelBackground()
         }
         
@@ -98,6 +100,32 @@ class PullRequestDetailsPanel(private val project: Project) {
         if (pullRequest == null) {
             showEmptyState()
             return
+        }
+        
+        // Avoid unnecessary updates if PR hasn't changed (prevents visual jitter during polling)
+        if (currentPullRequest?.pullRequestId == pullRequest.pullRequestId) {
+            // Check if any display-relevant property has changed
+            val hasStatusChanged = currentPullRequest?.status != pullRequest.status
+            val hasTitleChanged = currentPullRequest?.title != pullRequest.title
+            val hasDraftChanged = currentPullRequest?.isDraft != pullRequest.isDraft
+            val hasDescriptionChanged = currentPullRequest?.description != pullRequest.description
+            val hasReviewersCountChanged = currentPullRequest?.reviewers?.size != pullRequest.reviewers?.size
+            
+            // Check for reviewer vote changes
+            val hasReviewerVoteChanges = if (currentPullRequest?.reviewers != null && pullRequest.reviewers != null) {
+                val oldVotes = currentPullRequest?.reviewers?.associateBy({ it.id }, { it.vote }) ?: emptyMap()
+                pullRequest.reviewers?.any { reviewer -> 
+                    oldVotes[reviewer.id] != reviewer.vote 
+                } ?: false
+            } else {
+                false
+            }
+            
+            // Skip update if nothing has changed
+            if (!hasStatusChanged && !hasTitleChanged && !hasDraftChanged && 
+                !hasDescriptionChanged && !hasReviewersCountChanged && !hasReviewerVoteChanges) {
+                return // Skip update to prevent visual jitter
+            }
         }
         
         currentPullRequest = pullRequest
@@ -150,6 +178,8 @@ class PullRequestDetailsPanel(private val project: Project) {
     private fun createBranchPanel(): JPanel {
         return JPanel(FlowLayout(FlowLayout.LEFT, 10, 5)).apply {
             border = JBUI.Borders.empty(5, 0)
+            alignmentX = Component.LEFT_ALIGNMENT
+            maximumSize = Dimension(Int.MAX_VALUE, 40)
         }
     }
     
@@ -160,12 +190,12 @@ class PullRequestDetailsPanel(private val project: Project) {
             val sourceLabel = JBLabel(sourceBranch).apply {
                 icon = AllIcons.Vcs.BranchNode
                 foreground = JBColor(Color(34, 139, 34), Color(50, 200, 50))
-                font = font.deriveFont(Font.BOLD)
+                font = font.deriveFont(Font.BOLD, 13f)
             }
             branchPanel.add(sourceLabel)
             
             val arrowLabel = JBLabel("→").apply {
-                font = font.deriveFont(18f)
+                font = font.deriveFont(Font.BOLD, 18f)
                 foreground = JBColor.GRAY
             }
             branchPanel.add(arrowLabel)
@@ -173,13 +203,16 @@ class PullRequestDetailsPanel(private val project: Project) {
             val targetLabel = JBLabel(targetBranch).apply {
                 icon = AllIcons.Vcs.BranchNode
                 foreground = JBColor(Color(70, 130, 180), Color(100, 149, 237))
-                font = font.deriveFont(Font.BOLD)
+                font = font.deriveFont(Font.BOLD, 13f)
             }
             branchPanel.add(targetLabel)
         }
         
-        branchPanel.revalidate()
-        branchPanel.repaint()
+        // Avoid revalidate/repaint during polling if possible
+        if (branchPanel.isVisible) {
+            branchPanel.revalidate()
+            branchPanel.repaint()
+        }
     }
 
     private fun updateStatusBadge(status: PullRequestStatus, isDraft: Boolean) {
@@ -210,41 +243,52 @@ class PullRequestDetailsPanel(private val project: Project) {
     }
 
     private fun updateReviewers(pullRequest: PullRequest) {
+        // Store current scroll position to maintain it
+        val currentReviewersCount = reviewersPanel.componentCount
+        
         reviewersPanel.removeAll()
+        reviewersPanel.layout = BoxLayout(reviewersPanel, BoxLayout.Y_AXIS)
 
         val reviewers = pullRequest.reviewers
         if (reviewers.isNullOrEmpty()) {
             val noReviewersLabel = JBLabel("No reviewers assigned").apply {
                 foreground = JBColor.GRAY
-                font = font.deriveFont(Font.ITALIC)
+                font = font.deriveFont(Font.ITALIC, 12f)
+                border = JBUI.Borders.empty(4, 0)
+                alignmentX = Component.LEFT_ALIGNMENT
             }
             reviewersPanel.add(noReviewersLabel)
+            reviewersPanel.revalidate()
+            reviewersPanel.repaint()
             return
         }
 
         val headerLabel = JBLabel("Reviewers:").apply {
             font = font.deriveFont(Font.BOLD, 13f)
-            border = JBUI.Borders.emptyBottom(5)
+            border = JBUI.Borders.emptyBottom(10)
+            alignmentX = Component.LEFT_ALIGNMENT
         }
         reviewersPanel.add(headerLabel)
 
         reviewers.forEach { reviewer ->
             val reviewerName = reviewer.displayName ?: "Unknown"
             val voteStatus = reviewer.getVoteStatus()
-            val isRequired = if (reviewer.isRequired == true) " (Required)" else ""
+            val isRequired = if (reviewer.isRequired == true) " • Required" else ""
             
-            val reviewerPanel = JPanel(FlowLayout(FlowLayout.LEFT, 5, 2)).apply {
+            val reviewerPanel = JPanel(FlowLayout(FlowLayout.LEFT, 8, 4)).apply {
                 background = UIUtil.getPanelBackground()
+                alignmentX = Component.LEFT_ALIGNMENT
+                maximumSize = Dimension(Int.MAX_VALUE, 35)
             }
             
             val icon = when {
-                reviewer.vote == 10 -> AllIcons.General.InspectionsOK
-                reviewer.vote == -10 -> AllIcons.General.Error
+                reviewer.vote == 10 -> AllIcons.RunConfigurations.TestPassed
+                reviewer.vote == -10 -> AllIcons.RunConfigurations.TestFailed
                 reviewer.vote == 5 -> AllIcons.General.Information
                 else -> AllIcons.General.User
             }
             
-            val reviewerLabel = JBLabel("${voteStatus.getDisplayName()} - $reviewerName$isRequired").apply {
+            val reviewerLabel = JBLabel("$reviewerName$isRequired").apply {
                 this.icon = icon
                 val color = when {
                     reviewer.vote == 10 -> JBColor(Color(34, 139, 34), Color(50, 200, 50))
@@ -253,10 +297,23 @@ class PullRequestDetailsPanel(private val project: Project) {
                     else -> JBColor.foreground()
                 }
                 foreground = color
+                font = font.deriveFont(12f)
+            }
+            
+            val statusLabel = JBLabel(" (${voteStatus.getDisplayName()})").apply {
+                foreground = JBColor.GRAY
+                font = font.deriveFont(Font.ITALIC, 11f)
             }
             
             reviewerPanel.add(reviewerLabel)
+            reviewerPanel.add(statusLabel)
             reviewersPanel.add(reviewerPanel)
+        }
+        
+        // Only revalidate and repaint if the number of reviewers changed
+        if (currentReviewersCount != reviewersPanel.componentCount) {
+            reviewersPanel.revalidate()
+            reviewersPanel.repaint()
         }
     }
 
@@ -276,107 +333,161 @@ class PullRequestDetailsPanel(private val project: Project) {
     }
 
     private fun createLayout(): JPanel {
+        val mainContainer = JPanel(BorderLayout()).apply {
+            minimumSize = Dimension(300, 0)
+            preferredSize = Dimension(400, 0)
+        }
+        
         val scrollPanel = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            border = JBUI.Borders.empty(10)
+            border = JBUI.Borders.empty(16, 16, 16, 16)
+            background = UIUtil.getPanelBackground()
+            // Fixed alignment to prevent movement
+            alignmentX = Component.LEFT_ALIGNMENT
         }
 
-        // Header with title and badges
-        val headerPanel = JPanel().apply {
+        // HEADER CARD - Modern card design for title and badges
+        val headerCard = createCard().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             alignmentX = Component.LEFT_ALIGNMENT
-            border = JBUI.Borders.emptyBottom(10)
+            maximumSize = Dimension(Int.MAX_VALUE, 100)
+            
+            titleLabel.alignmentX = Component.LEFT_ALIGNMENT
+            add(titleLabel)
+            add(Box.createVerticalStrut(10))
+            
+            val badgePanel = JPanel(FlowLayout(FlowLayout.LEFT, 8, 0)).apply {
+                alignmentX = Component.LEFT_ALIGNMENT
+                background = UIUtil.getPanelBackground()
+            }
+            badgePanel.add(statusBadge)
+            badgePanel.add(draftBadge)
+            add(badgePanel)
         }
-        
-        headerPanel.add(titleLabel)
-        
-        val badgePanel = JPanel(FlowLayout(FlowLayout.LEFT, 5, 5)).apply {
+        scrollPanel.add(headerCard)
+        scrollPanel.add(Box.createVerticalStrut(12))
+
+        // BRANCH CARD - Modern card for branch information
+        val branchCard = createCard().apply {
+            layout = BorderLayout()
             alignmentX = Component.LEFT_ALIGNMENT
+            maximumSize = Dimension(Int.MAX_VALUE, 60)
+            add(branchPanel, BorderLayout.CENTER)
         }
-        badgePanel.add(statusBadge)
-        badgePanel.add(draftBadge)
-        headerPanel.add(badgePanel)
-        
-        scrollPanel.add(headerPanel)
+        scrollPanel.add(branchCard)
+        scrollPanel.add(Box.createVerticalStrut(12))
 
-        // Separator
-        scrollPanel.add(Box.createVerticalStrut(5))
-        scrollPanel.add(JSeparator())
-        scrollPanel.add(Box.createVerticalStrut(10))
-
-        // Branch panel
-        branchPanel.alignmentX = Component.LEFT_ALIGNMENT
-        scrollPanel.add(branchPanel)
-        scrollPanel.add(Box.createVerticalStrut(10))
-
-        // Metadata (author and date)
-        val metaPanel = JPanel().apply {
+        // METADATA CARD - Author and date in a card
+        val metaCard = createCard().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             alignmentX = Component.LEFT_ALIGNMENT
-            border = JBUI.Borders.emptyBottom(10)
+            maximumSize = Dimension(Int.MAX_VALUE, 70)
+            
+            authorLabel.alignmentX = Component.LEFT_ALIGNMENT
+            add(authorLabel)
+            add(Box.createVerticalStrut(8))
+            createdDateLabel.alignmentX = Component.LEFT_ALIGNMENT
+            add(createdDateLabel)
         }
-        authorLabel.alignmentX = Component.LEFT_ALIGNMENT
-        createdDateLabel.alignmentX = Component.LEFT_ALIGNMENT
-        metaPanel.add(authorLabel)
-        metaPanel.add(Box.createVerticalStrut(5))
-        metaPanel.add(createdDateLabel)
-        scrollPanel.add(metaPanel)
+        scrollPanel.add(metaCard)
+        scrollPanel.add(Box.createVerticalStrut(12))
 
-        // Separator
-        scrollPanel.add(Box.createVerticalStrut(5))
-        scrollPanel.add(JSeparator())
-        scrollPanel.add(Box.createVerticalStrut(10))
-
-        // Description section
-        val descLabel = JBLabel("Description:").apply {
-            font = font.deriveFont(Font.BOLD, 13f)
+        // DESCRIPTION CARD - Card with description
+        val descCard = createCard().apply {
+            layout = BorderLayout()
             alignmentX = Component.LEFT_ALIGNMENT
-            border = JBUI.Borders.emptyBottom(5)
+            maximumSize = Dimension(Int.MAX_VALUE, 180)
+            
+            val descLabel = JBLabel("Description:").apply {
+                font = font.deriveFont(Font.BOLD, 13f)
+                border = JBUI.Borders.emptyBottom(10)
+            }
+            add(descLabel, BorderLayout.NORTH)
+            
+            val descScrollPane = JBScrollPane(descriptionArea).apply {
+                preferredSize = Dimension(0, 130)
+                minimumSize = Dimension(0, 130)
+                maximumSize = Dimension(Int.MAX_VALUE, 130)
+                border = JBUI.Borders.customLine(JBColor.border(), 1)
+                verticalScrollBar.unitIncrement = 16
+            }
+            add(descScrollPane, BorderLayout.CENTER)
         }
-        scrollPanel.add(descLabel)
-        
-        val descScrollPane = JBScrollPane(descriptionArea).apply {
-            preferredSize = Dimension(0, 150)
-            minimumSize = Dimension(0, 100)
+        scrollPanel.add(descCard)
+        scrollPanel.add(Box.createVerticalStrut(12))
+
+        // REVIEWERS CARD
+        val reviewersCard = createCard().apply {
+            layout = BorderLayout()
             alignmentX = Component.LEFT_ALIGNMENT
-            border = JBUI.Borders.customLine(JBColor.border(), 1)
+            maximumSize = Dimension(Int.MAX_VALUE, 200)
+            add(reviewersPanel, BorderLayout.CENTER)
         }
-        scrollPanel.add(descScrollPane)
-        scrollPanel.add(Box.createVerticalStrut(15))
-
-        // Reviewers section
-        reviewersPanel.alignmentX = Component.LEFT_ALIGNMENT
-        scrollPanel.add(reviewersPanel)
+        scrollPanel.add(reviewersCard)
+        scrollPanel.add(Box.createVerticalStrut(12))
         
-        // Action buttons
-        actionButtonsPanel.alignmentX = Component.LEFT_ALIGNMENT
-        scrollPanel.add(Box.createVerticalStrut(15))
-        scrollPanel.add(JSeparator())
-        scrollPanel.add(Box.createVerticalStrut(10))
-        scrollPanel.add(actionButtonsPanel)
+        // ACTION BUTTONS CARD
+        val actionsCard = createCard().apply {
+            layout = BorderLayout()
+            alignmentX = Component.LEFT_ALIGNMENT
+            maximumSize = Dimension(Int.MAX_VALUE, 90)
+            add(actionButtonsPanel, BorderLayout.CENTER)
+        }
+        scrollPanel.add(actionsCard)
 
-        // Wrapper panel with scroll
-        val wrapperPanel = JPanel(BorderLayout())
-        wrapperPanel.add(JBScrollPane(scrollPanel).apply {
+        // Vertical glue to push content to top
+        scrollPanel.add(Box.createVerticalGlue())
+
+        // Wrapper with scroll
+        mainContainer.add(JBScrollPane(scrollPanel).apply {
             border = JBUI.Borders.empty()
             verticalScrollBar.unitIncrement = 16
+            horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
         }, BorderLayout.CENTER)
         
-        return wrapperPanel
+        return mainContainer
+    }
+    
+    /**
+     * Creates a modern card panel with rounded border and stable layout
+     */
+    private fun createCard(): JPanel {
+        return JBPanel<JBPanel<*>>().apply {
+            border = BorderFactory.createCompoundBorder(
+                JBUI.Borders.customLine(JBColor.border(), 1),
+                JBUI.Borders.empty(12, 14)
+            )
+            background = UIUtil.getPanelBackground()
+            alignmentX = Component.LEFT_ALIGNMENT
+        }
     }
     
     /**
      * Creates the panel with action buttons (Review, Approve, etc.)
      */
     private fun createActionButtonsPanel(): JPanel {
-        val panel = JPanel(FlowLayout(FlowLayout.LEFT, 10, 5)).apply {
+        val panel = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
             alignmentX = Component.LEFT_ALIGNMENT
-            border = JBUI.Borders.empty(5)
+            background = UIUtil.getPanelBackground()
         }
         
-        // Review PR button
+        val headerLabel = JBLabel("Actions:").apply {
+            font = font.deriveFont(Font.BOLD, 13f)
+            border = JBUI.Borders.emptyBottom(10)
+            alignmentX = Component.LEFT_ALIGNMENT
+        }
+        panel.add(headerLabel)
+        
+        val buttonsPanel = JPanel(FlowLayout(FlowLayout.LEFT, 8, 4)).apply {
+            alignmentX = Component.LEFT_ALIGNMENT
+            background = UIUtil.getPanelBackground()
+        }
+        
+        // Review PR button with modern style
         val reviewButton = JButton("Review Changes", AllIcons.Actions.Diff).apply {
             toolTipText = "Review all changes in this PR with integrated diff viewer"
+            font = font.deriveFont(Font.BOLD, 12f)
             addActionListener {
                 logger.info("Review button clicked")
                 if (currentPullRequest == null) {
@@ -391,22 +502,23 @@ class PullRequestDetailsPanel(private val project: Project) {
                 }
             }
         }
-        panel.add(reviewButton)
+        buttonsPanel.add(reviewButton)
         
         // Approve button (placeholder for future implementation)
-        val approveButton = JButton("Approve", AllIcons.Actions.Checked).apply {
+        val approveButton = JButton("Approve", AllIcons.RunConfigurations.TestPassed).apply {
             toolTipText = "Approve this Pull Request"
             isEnabled = false // TODO: Implement approval
         }
-        panel.add(approveButton)
+        buttonsPanel.add(approveButton)
         
         // Request Changes button (placeholder)
-        val requestChangesButton = JButton("Request Changes", AllIcons.General.Warning).apply {
+        val requestChangesButton = JButton("Request Changes", AllIcons.General.BalloonWarning).apply {
             toolTipText = "Request changes for this Pull Request"
             isEnabled = false // TODO: Implement request changes
         }
-        panel.add(requestChangesButton)
+        buttonsPanel.add(requestChangesButton)
         
+        panel.add(buttonsPanel)
         return panel
     }
 }

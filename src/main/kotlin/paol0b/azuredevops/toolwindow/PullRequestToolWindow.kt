@@ -34,13 +34,17 @@ class PullRequestToolWindow(private val project: Project) {
         
         pullRequestDetailsPanel = PullRequestDetailsPanel(project)
 
-        // Vertical splitter: list above, details below (like Visual Studio)
-        val splitter = JBSplitter(true, 0.5f).apply {
-            firstComponent = JBScrollPane(pullRequestListPanel.getComponent())
-            secondComponent = JBScrollPane(pullRequestDetailsPanel.getComponent())
+        // Vertical splitter with better proportions and resize support
+        val splitter = JBSplitter(true, 0.4f).apply {
+            firstComponent = pullRequestListPanel.getComponent()
+            secondComponent = pullRequestDetailsPanel.getComponent()
+            setResizeEnabled(true)
+            setShowDividerControls(true)
+            setShowDividerIcon(true)
+            setHonorComponentsMinimumSize(true)
         }
 
-        // Panel with toolbar
+        // Panel with toolbar and improved layout
         mainPanel = SimpleToolWindowPanel(true, true).apply {
             toolbar = createToolbar()
             setContent(splitter)
