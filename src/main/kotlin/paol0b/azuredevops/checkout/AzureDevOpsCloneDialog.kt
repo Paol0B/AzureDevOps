@@ -41,6 +41,10 @@ class AzureDevOpsCloneDialog(private val project: Project?) : DialogWrapper(proj
     private val loginButton = JButton("Add Account...").apply {
         icon = AllIcons.General.Add
     }
+    private val removeButton = JButton("Remove").apply {
+        icon = AllIcons.General.Remove
+        toolTipText = "Remove selected account"
+    }
     private val tree: Tree
     private val treeModel: DefaultTreeModel
     private val rootNode: DefaultMutableTreeNode
@@ -82,8 +86,13 @@ class AzureDevOpsCloneDialog(private val project: Project?) : DialogWrapper(proj
             showLoginDialog()
         }
 
+        removeButton.addActionListener {
+            removeSelectedAccount()
+        }
+
         accountComboBox.addActionListener {
             selectedAccount = accountComboBox.selectedItem as? AzureDevOpsAccount
+            removeButton.isEnabled = selectedAccount != null
             loadRepositories()
         }
 
@@ -93,6 +102,9 @@ class AzureDevOpsCloneDialog(private val project: Project?) : DialogWrapper(proj
         )
         
         directoryField.text = defaultCloneDir
+
+        // Initially disable remove button
+        removeButton.isEnabled = false
 
         init()
         loadAccounts()
@@ -121,7 +133,14 @@ class AzureDevOpsCloneDialog(private val project: Project?) : DialogWrapper(proj
             
             val comboPanel = JPanel(BorderLayout(5, 0)).apply {
                 add(accountComboBox, BorderLayout.CENTER)
-                add(loginButton, BorderLayout.EAST)
+                
+                val buttonPanel = JPanel().apply {
+                    layout = BoxLayout(this, BoxLayout.X_AXIS)
+                    add(removeButton)
+                    add(Box.createHorizontalStrut(5))
+                    add(loginButton)
+                }
+                add(buttonPanel, BorderLayout.EAST)
             }
             
             add(labelPanel, BorderLayout.WEST)
@@ -213,6 +232,37 @@ class AzureDevOpsCloneDialog(private val project: Project?) : DialogWrapper(proj
         val loginDialog = AzureDevOpsLoginDialog(project)
         if (loginDialog.showAndGet()) {
             loadAccounts()
+        }
+    }
+
+    private fun removeSelectedAccount() {
+        val account = accountComboBox.selectedItem as? AzureDevOpsAccount ?: return
+        
+        val confirmed = com.intellij.openapi.ui.Messages.showYesNoDialog(
+            project,
+            "Are you sure you want to remove the account for '${account.serverUrl}'?\n\n" +
+            "This will delete the stored credentials for this account.",
+            "Remove Account",
+            "Remove",
+            "Cancel",
+            com.intellij.openapi.ui.Messages.getWarningIcon()
+        )
+        
+        if (confirmed == com.intellij.openapi.ui.Messages.YES) {
+            val accountManager = AzureDevOpsAccountManager.getInstance()
+            accountManager.removeAccount(account.id)
+            
+            // Clear tree and reload accounts
+            rootNode.removeAllChildren()
+            treeModel.reload()
+            
+            loadAccounts()
+            
+            com.intellij.openapi.ui.Messages.showInfoMessage(
+                project,
+                "Account removed successfully.",
+                "Account Removed"
+            )
         }
     }
 
