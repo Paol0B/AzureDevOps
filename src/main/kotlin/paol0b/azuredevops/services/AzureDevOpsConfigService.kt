@@ -6,6 +6,7 @@ import com.intellij.credentialStore.generateServiceName
 import com.intellij.ide.passwordSafe.PasswordSafe
 import com.intellij.openapi.components.*
 import com.intellij.util.xmlb.XmlSerializerUtil
+import paol0b.azuredevops.checkout.AzureDevOpsAccountManager
 import paol0b.azuredevops.model.AzureDevOpsConfig
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
@@ -86,10 +87,19 @@ class AzureDevOpsConfigService(private val project: com.intellij.openapi.project
 
     /**
      * Gets the Personal Access Token from secure storage
-     * If not found, tries to retrieve it from the Git Credential Helper
+     * Priority:
+     * 1. Check if repository matches an OAuth account (global credentials)
+     * 2. IDE's PasswordSafe (per-project PAT)
+     * 3. Git Credential Helper
      */
     private fun getPersonalAccessToken(): String {
-        // First try from IDE's PasswordSafe
+        // First, try to match with global OAuth accounts
+        val oauthToken = tryGetTokenFromOAuthAccount()
+        if (oauthToken != null) {
+            return oauthToken
+        }
+        
+        // Second, try from IDE's PasswordSafe (per-project PAT)
         val credentialAttributes = createCredentialAttributes()
         val credentials = PasswordSafe.instance.get(credentialAttributes)
         val savedToken = credentials?.getPasswordAsString() ?: ""
@@ -98,8 +108,58 @@ class AzureDevOpsConfigService(private val project: com.intellij.openapi.project
             return savedToken
         }
         
-        // If not found, try to retrieve it from Git Credential Helper
+        // Third, try to retrieve it from Git Credential Helper
         return tryGetTokenFromGitCredentialHelper() ?: ""
+    }
+    
+    /**
+     * Tries to match the current repository with a global OAuth account
+     * and retrieve the OAuth token if a match is found
+     */
+    private fun tryGetTokenFromOAuthAccount(): String? {
+        try {
+            val detector = AzureDevOpsRepositoryDetector.getInstance(project)
+            val repoInfo = detector.detectAzureDevOpsInfo() ?: return null
+            
+            // Get the organization from the repository
+            val organization = repoInfo.organization
+            if (organization.isBlank()) return null
+            
+            // Check all OAuth accounts for a matching organization
+            val accountManager = AzureDevOpsAccountManager.getInstance()
+            val accounts = accountManager.getAccounts()
+            
+            for (account in accounts) {
+                // Extract organization from account server URL
+                val accountOrg = extractOrganizationFromUrl(account.serverUrl)
+                if (accountOrg.equals(organization, ignoreCase = true)) {
+                    // Found matching account, return its token
+                    return accountManager.getToken(account.id)
+                }
+            }
+        } catch (e: Exception) {
+            // Log but don't fail
+            return null
+        }
+        
+        return null
+    }
+    
+    /**
+     * Extracts organization name from Azure DevOps URL
+     */
+    private fun extractOrganizationFromUrl(url: String): String? {
+        return try {
+            val uri = java.net.URI(url)
+            val path = uri.path.trim('/')
+            if (path.isNotEmpty()) {
+                path.split("/").firstOrNull()
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            null
+        }
     }
     
     /**
