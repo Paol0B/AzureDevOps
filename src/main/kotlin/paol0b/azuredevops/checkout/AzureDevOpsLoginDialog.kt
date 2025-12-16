@@ -29,10 +29,10 @@ import javax.swing.*
  */
 class AzureDevOpsLoginDialog(private val project: Project?) : DialogWrapper(project, true) {
 
-    private val serverUrlField = JBTextField("https://dev.azure.com/", 40)
+    private val serverUrlField = JBTextField("https://dev.azure.com/", 60)
     private val tokenField = JBPasswordField()
     private val oauthButton = JButton("Sign in with Browser (OAuth)")
-    private val usePATCheckbox = JCheckBox("Use Personal Access Token instead", false)
+    // private val usePATCheckbox = JCheckBox("Use Personal Access Token instead", false)
     
     private var account: AzureDevOpsAccount? = null
     private var useOAuth = true
@@ -46,91 +46,147 @@ class AzureDevOpsLoginDialog(private val project: Project?) : DialogWrapper(proj
         }
         
         // Toggle between OAuth and PAT mode
+        /*
         usePATCheckbox.addActionListener {
             useOAuth = !usePATCheckbox.isSelected
             updateUIMode()
         }
+        */
         
         init()
         updateUIMode()
     }
 
     override fun createCenterPanel(): JComponent {
-        val mainPanel = JPanel(BorderLayout(0, 10))
+        val mainPanel = JPanel(BorderLayout(0, 15))
         
-        // Header with icon and info
-        val headerPanel = JPanel(BorderLayout(10, 0))
-        val iconLabel = JBLabel(AzureDevOpsIcons.Logo)
-        val infoLabel = JBLabel(
-            "<html><b style='font-size: 14px'>Sign In to Azure DevOps</b><br><br>" +
-            "<b>Step 1:</b> Enter your organization URL<br>" +
-            "<b>Step 2:</b> Click 'Sign in with Browser' for OAuth authentication<br><br>" +
-            "<i>Or use a Personal Access Token if you prefer manual authentication.</i></html>"
-        ).apply {
-            foreground = UIUtil.getLabelForeground()
-        }
-        
-        headerPanel.add(iconLabel, BorderLayout.WEST)
-        headerPanel.add(infoLabel, BorderLayout.CENTER)
-
-        // Server URL field (always visible)
-        val urlPanel = FormBuilder.createFormBuilder()
-            .addLabeledComponent(JBLabel("Organization URL:"), serverUrlField, 1, false)
-            .addTooltip("<html>Enter your Azure DevOps organization URL:<br>" +
-                    "• https://dev.azure.com/<b>YourOrganization</b><br>" +
-                    "• https://<b>YourOrganization</b>.visualstudio.com</html>")
-            .panel
-
-        // OAuth button
-        val oauthPanel = JPanel(BorderLayout()).apply {
-            oauthButton.preferredSize = JBUI.size(200, 32)
-            add(oauthButton, BorderLayout.WEST)
-            border = JBUI.Borders.empty(10, 0)
-        }
-
-        // Separator
-        val separatorPanel = JPanel(BorderLayout()).apply {
-            add(JSeparator(), BorderLayout.CENTER)
-            add(usePATCheckbox, BorderLayout.SOUTH)
-            border = JBUI.Borders.empty(10, 0)
+        // Header with centered icon and title
+        val headerPanel = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            
+            // Logo centered and scaled
+            val originalIcon = AzureDevOpsIcons.Logo
+            val scaledIcon = com.intellij.util.IconUtil.scale(originalIcon, null, 2.5f)
+            val logoLabel = JBLabel(scaledIcon).apply {
+                alignmentX = JComponent.CENTER_ALIGNMENT
+            }
+            add(logoLabel)
+            add(Box.createVerticalStrut(20))
+            
+            // Title centered
+            val titleLabel = JBLabel("<html><div style='text-align: center;'><b style='font-size: 16px;'>Sign In to Azure DevOps</b></div></html>").apply {
+                alignmentX = JComponent.CENTER_ALIGNMENT
+                foreground = UIUtil.getLabelForeground()
+            }
+            add(titleLabel)
+            add(Box.createVerticalStrut(8))
+            
+            // Subtitle centered
+            val subtitleLabel = JBLabel("<html><div style='text-align: center; color: gray;'>Connect your Azure DevOps account to get started</div></html>").apply {
+                alignmentX = JComponent.CENTER_ALIGNMENT
+                foreground = UIUtil.getLabelInfoForeground()
+            }
+            add(subtitleLabel)
+            
+            border = JBUI.Borders.empty(10, 20, 10, 20)
         }
 
-        // PAT form (shown only when checkbox is selected)
-        val patPanel = FormBuilder.createFormBuilder()
-            .addLabeledComponent(JBLabel("Personal Access Token:"), tokenField, 1, false)
-            .addTooltip("<html>Create a PAT at:<br>" +
-                    "<b>Azure DevOps</b> → <b>User Settings</b> → <b>Personal Access Tokens</b><br>" +
-                    "Required scopes: <b>Code (Read)</b></html>")
-            .panel
-
-        patPanel.border = JBUI.Borders.empty(5, 0)
+        // Content panel with form
+        val contentPanel = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            
+            // Organization URL section with card-like appearance
+            val urlCard = JPanel(BorderLayout(10, 10)).apply {
+                border = JBUI.Borders.compound(
+                    JBUI.Borders.empty(0, 20, 0, 20),
+                    JBUI.Borders.empty(10)
+                )
+                
+                val urlLabelPanel = JPanel(BorderLayout()).apply {
+                    val label = JBLabel("Organization URL").apply {
+                        font = font.deriveFont(java.awt.Font.BOLD)
+                    }
+                    add(label, BorderLayout.WEST)
+                }
+                
+                val urlFieldPanel = JPanel(BorderLayout()).apply {
+                    add(serverUrlField, BorderLayout.CENTER)
+                    serverUrlField.apply {
+                        putClientProperty("JTextField.placeholderText", "https://dev.azure.com/YourOrganization")
+                    }
+                }
+                
+                val examplesLabel = JBLabel("<html><div style='font-size: 11px; color: gray; margin-top: 5px;'>" +
+                        "Examples: dev.azure.com/contoso or contoso.visualstudio.com</div></html>").apply {
+                    foreground = UIUtil.getLabelInfoForeground()
+                }
+                
+                val innerPanel = JPanel().apply {
+                    layout = BoxLayout(this, BoxLayout.Y_AXIS)
+                    add(urlLabelPanel)
+                    add(Box.createVerticalStrut(8))
+                    add(urlFieldPanel)
+                    add(Box.createVerticalStrut(5))
+                    add(examplesLabel)
+                }
+                
+                add(innerPanel, BorderLayout.CENTER)
+            }
+            
+            add(urlCard)
+            add(Box.createVerticalStrut(20))
+            
+            // OAuth button - prominent and centered
+            val buttonPanel = JPanel().apply {
+                layout = BoxLayout(this, BoxLayout.Y_AXIS)
+                
+                oauthButton.apply {
+                    preferredSize = JBUI.size(280, 40)
+                    maximumSize = JBUI.size(280, 40)
+                    font = font.deriveFont(java.awt.Font.BOLD, 14f)
+                    alignmentX = JComponent.CENTER_ALIGNMENT
+                }
+                
+                add(oauthButton)
+                border = JBUI.Borders.empty(0, 20, 10, 20)
+            }
+            
+            add(buttonPanel)
+            
+            // Info footer
+            val infoPanel = JPanel().apply {
+                layout = BoxLayout(this, BoxLayout.Y_AXIS)
+                
+                val infoLabel = JBLabel("<html><div style='text-align: center; font-size: 11px; color: gray;'>" +
+                        "You'll be redirected to your browser to complete the sign-in process.<br>" +
+                        "Your credentials are stored securely in the IDE.</div></html>").apply {
+                    alignmentX = JComponent.CENTER_ALIGNMENT
+                    foreground = UIUtil.getLabelInfoForeground()
+                }
+                
+                add(infoLabel)
+                border = JBUI.Borders.empty(15, 30, 10, 30)
+            }
+            
+            add(infoPanel)
+        }
 
         mainPanel.add(headerPanel, BorderLayout.NORTH)
-        
-        val centerPanel = JPanel()
-        centerPanel.layout = BoxLayout(centerPanel, BoxLayout.Y_AXIS)
-        centerPanel.add(urlPanel)
-        centerPanel.add(oauthPanel)
-        centerPanel.add(separatorPanel)
-        centerPanel.add(patPanel)
-        
-        mainPanel.add(centerPanel, BorderLayout.CENTER)
-        mainPanel.border = JBUI.Borders.empty(10)
-        mainPanel.preferredSize = JBUI.size(550, 350)
+        mainPanel.add(contentPanel, BorderLayout.CENTER)
+        mainPanel.border = JBUI.Borders.empty(15)
+        mainPanel.preferredSize = JBUI.size(500, 420)
 
         return mainPanel
     }
 
     private fun updateUIMode() {
-        val usePAT = !useOAuth
-        tokenField.isEnabled = usePAT
-        oauthButton.isEnabled = !usePAT
-        
-        // Server URL is always enabled
+        // OAuth mode only - always enabled
         serverUrlField.isEnabled = true
+        oauthButton.isEnabled = true
+        // tokenField.isEnabled = false
         
-        // Update OK button
-        setOKButtonText(if (usePAT) "Sign In" else "Cancel")
+        // Update OK button (Cancel for OAuth mode)
+        setOKButtonText("Cancel")
     }
 
     private fun performOAuthLogin() {
