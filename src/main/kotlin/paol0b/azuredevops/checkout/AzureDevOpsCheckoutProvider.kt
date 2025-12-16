@@ -34,7 +34,7 @@ class AzureDevOpsCheckoutProvider : CheckoutProvider {
     fun getIcon(): Icon = AzureDevOpsIcons.Logo
 
     override fun doCheckout(project: Project, listener: CheckoutProvider.Listener?) {
-        val dialog = AzureDevOpsCloneDialog(project)
+        val dialog = AzureDevOpsCloneDialog.create(project) ?: return
         
         if (dialog.showAndGet()) {
             val selectedRepo = dialog.getSelectedRepository() ?: return

@@ -31,11 +31,22 @@ import javax.swing.tree.TreePath
 import javax.swing.tree.TreeSelectionModel
 
 /**
+ * Data class for preloaded projects and repositories
+ */
+data class ProjectsData(
+    val projects: List<AzureDevOpsCloneApiClient.Project>,
+    val repositories: Map<String, List<AzureDevOpsCloneApiClient.Repository>>
+)
+
+/**
  * Enhanced clone dialog for Azure DevOps.
  * Shows account selection, projects/repos tree with icons, and target directory.
  * Supports OAuth and PAT authentication with global credential storage.
  */
-class AzureDevOpsCloneDialog(private val project: Project?) : DialogWrapper(project, true) {
+class AzureDevOpsCloneDialog private constructor(
+    private val project: Project?,
+    preloadedData: Map<String, ProjectsData>?
+) : DialogWrapper(project, true) {
 
     private val accountComboBox = JComboBox<AzureDevOpsAccount>()
     private val loginButton = JButton("Add Account...").apply {
@@ -54,8 +65,98 @@ class AzureDevOpsCloneDialog(private val project: Project?) : DialogWrapper(proj
     private var selectedAccount: AzureDevOpsAccount? = null
     private var isLoadingAccounts = false  // Flag to prevent duplicate loads
     private val defaultCloneDir = System.getProperty("user.home") + File.separator + "AzureDevOpsProjects"
+    
+    // Preloaded data
+    private var preloadedData: Map<String, ProjectsData>? = null
+
+    companion object {
+        /**
+         * Factory method to create dialog with preloaded data.
+         * Preloads all projects and repositories for each account before showing the dialog.
+         */
+        fun create(project: Project?): AzureDevOpsCloneDialog? {
+            val accountManager = AzureDevOpsAccountManager.getInstance()
+            val accounts = accountManager.getAccounts()
+            
+            // If no accounts, show login first
+            if (accounts.isEmpty()) {
+                val loginDialog = AzureDevOpsLoginDialog(project)
+                if (!loginDialog.showAndGet()) {
+                    return null
+                }
+                // Reload accounts after login
+                val updatedAccounts = accountManager.getAccounts()
+                if (updatedAccounts.isEmpty()) {
+                    return null
+                }
+            }
+            
+            // Preload data for all accounts
+            var preloadedData: Map<String, ProjectsData>? = null
+            var error: String? = null
+            
+            ProgressManager.getInstance().run(object : Task.Modal(project, "Loading Azure DevOps Repositories...", true) {
+                override fun run(indicator: ProgressIndicator) {
+                    val dataMap = mutableMapOf<String, ProjectsData>()
+                    val currentAccounts = accountManager.getAccounts()
+                    
+                    if (currentAccounts.isEmpty()) {
+                        return
+                    }
+                    
+                    indicator.isIndeterminate = false
+                    val accountCount = currentAccounts.size
+                    
+                    currentAccounts.forEachIndexed { index, account ->
+                        try {
+                            indicator.text = "Loading repositories for ${account.displayName}..."
+                            indicator.fraction = index.toDouble() / accountCount
+                            
+                            val token = accountManager.getToken(account.id)
+                            if (token != null) {
+                                val apiClient = AzureDevOpsCloneApiClient(account.serverUrl, token)
+                                val projects = apiClient.getProjects()
+                                
+                                val repoMap = mutableMapOf<String, List<AzureDevOpsCloneApiClient.Repository>>()
+                                projects.forEachIndexed { projIndex, proj ->
+                                    indicator.text2 = "Loading ${proj.name}..."
+                                    indicator.fraction = (index.toDouble() + (projIndex.toDouble() / projects.size)) / accountCount
+                                    
+                                    try {
+                                        val repos = apiClient.getRepositories(proj.id)
+                                        repoMap[proj.id] = repos
+                                    } catch (e: Exception) {
+                                        // Log and continue
+                                        repoMap[proj.id] = emptyList()
+                                    }
+                                }
+                                
+                                dataMap[account.id] = ProjectsData(projects, repoMap)
+                            }
+                        } catch (e: Exception) {
+                            error = "Error loading repositories for ${account.displayName}: ${e.message}"
+                        }
+                    }
+                    
+                    indicator.fraction = 1.0
+                    preloadedData = dataMap
+                }
+            })
+            
+            if (error != null) {
+                com.intellij.openapi.ui.Messages.showErrorDialog(
+                    project,
+                    error,
+                    "Error Loading Repositories"
+                )
+            }
+            
+            return AzureDevOpsCloneDialog(project, preloadedData)
+        }
+    }
 
     init {
+        this.preloadedData = preloadedData
         title = "Clone from Azure DevOps"
         
         rootNode = DefaultMutableTreeNode("Azure DevOps")
@@ -96,7 +197,7 @@ class AzureDevOpsCloneDialog(private val project: Project?) : DialogWrapper(proj
             if (!isLoadingAccounts) {
                 selectedAccount = accountComboBox.selectedItem as? AzureDevOpsAccount
                 removeButton.isEnabled = selectedAccount != null
-                loadRepositories()
+                loadRepositoriesFromPreloadedData()
             }
         }
 
@@ -111,7 +212,7 @@ class AzureDevOpsCloneDialog(private val project: Project?) : DialogWrapper(proj
         removeButton.isEnabled = false
 
         init()
-        loadAccounts()
+        loadAccountsWithPreloadedData()
     }
 
     override fun createCenterPanel(): JComponent {
@@ -217,6 +318,24 @@ class AzureDevOpsCloneDialog(private val project: Project?) : DialogWrapper(proj
 
     fun getTargetDirectory(): String = directoryField.text.trim()
 
+    private fun loadAccountsWithPreloadedData() {
+        val accountManager = AzureDevOpsAccountManager.getInstance()
+        val accounts = accountManager.getAccounts()
+        
+        // Prevent ActionListener from triggering during programmatic update
+        isLoadingAccounts = true
+        accountComboBox.removeAllItems()
+        accounts.forEach { accountComboBox.addItem(it) }
+        isLoadingAccounts = false
+
+        if (accounts.isNotEmpty()) {
+            accountComboBox.selectedIndex = 0
+            selectedAccount = accounts.firstOrNull()
+            removeButton.isEnabled = true
+            loadRepositoriesFromPreloadedData()
+        }
+    }
+
     private fun loadAccounts() {
         val accountManager = AzureDevOpsAccountManager.getInstance()
         val accounts = accountManager.getAccounts()
@@ -231,15 +350,80 @@ class AzureDevOpsCloneDialog(private val project: Project?) : DialogWrapper(proj
         } else {
             selectedAccount = accounts.firstOrNull()
             removeButton.isEnabled = selectedAccount != null
-            loadRepositories()
+            loadRepositoriesFromPreloadedData()
         }
     }
 
     private fun showLoginDialog() {
         val loginDialog = AzureDevOpsLoginDialog(project)
         if (loginDialog.showAndGet()) {
-            loadAccounts()
+            // Reload with new account - need to fetch data
+            val accountManager = AzureDevOpsAccountManager.getInstance()
+            val newAccount = accountManager.getAccounts().lastOrNull()
+            if (newAccount != null) {
+                loadNewAccountData(newAccount)
+            }
         }
+    }
+    
+    private fun loadNewAccountData(account: AzureDevOpsAccount) {
+        ProgressManager.getInstance().run(object : Task.Modal(
+            project,
+            "Loading Repositories for ${account.displayName}...",
+            true
+        ) {
+            override fun run(indicator: ProgressIndicator) {
+                try {
+                    val accountManager = AzureDevOpsAccountManager.getInstance()
+                    val token = accountManager.getToken(account.id)
+                    
+                    if (token != null) {
+                        indicator.text = "Fetching projects..."
+                        indicator.isIndeterminate = false
+                        
+                        val apiClient = AzureDevOpsCloneApiClient(account.serverUrl, token)
+                        val projects = apiClient.getProjects()
+                        
+                        val repoMap = mutableMapOf<String, List<AzureDevOpsCloneApiClient.Repository>>()
+                        projects.forEachIndexed { index, proj ->
+                            indicator.text = "Loading ${proj.name}..."
+                            indicator.fraction = index.toDouble() / projects.size
+                            
+                            try {
+                                val repos = apiClient.getRepositories(proj.id)
+                                repoMap[proj.id] = repos
+                            } catch (e: Exception) {
+                                repoMap[proj.id] = emptyList()
+                            }
+                        }
+                        
+                        indicator.fraction = 1.0
+                        
+                        // Update preloaded data
+                        val mutableData = preloadedData?.toMutableMap() ?: mutableMapOf()
+                        mutableData[account.id] = ProjectsData(projects, repoMap)
+                        preloadedData = mutableData
+                        
+                        ApplicationManager.getApplication().invokeLater {
+                            isLoadingAccounts = true
+                            accountComboBox.removeAllItems()
+                            accountManager.getAccounts().forEach { accountComboBox.addItem(it) }
+                            accountComboBox.selectedItem = account
+                            isLoadingAccounts = false
+                            loadRepositoriesFromPreloadedData()
+                        }
+                    }
+                } catch (e: Exception) {
+                    ApplicationManager.getApplication().invokeLater {
+                        com.intellij.openapi.ui.Messages.showErrorDialog(
+                            project,
+                            "Error loading repositories: ${e.message}",
+                            "Error"
+                        )
+                    }
+                }
+            }
+        })
     }
 
     private fun removeSelectedAccount() {
@@ -259,11 +443,16 @@ class AzureDevOpsCloneDialog(private val project: Project?) : DialogWrapper(proj
             val accountManager = AzureDevOpsAccountManager.getInstance()
             accountManager.removeAccount(account.id)
             
+            // Remove from preloaded data
+            val mutableData = preloadedData?.toMutableMap() ?: mutableMapOf()
+            mutableData.remove(account.id)
+            preloadedData = mutableData
+            
             // Clear tree and reload accounts
             rootNode.removeAllChildren()
             treeModel.reload()
             
-            loadAccounts()
+            loadAccountsWithPreloadedData()
             
             com.intellij.openapi.ui.Messages.showInfoMessage(
                 project,
@@ -273,153 +462,51 @@ class AzureDevOpsCloneDialog(private val project: Project?) : DialogWrapper(proj
         }
     }
 
-    private fun loadRepositories() {
+    private fun loadRepositoriesFromPreloadedData() {
         val account = accountComboBox.selectedItem as? AzureDevOpsAccount ?: return
         selectedAccount = account
-        val accountManager = AzureDevOpsAccountManager.getInstance()
-        val token = accountManager.getToken(account.id)
         
-        if (token == null) {
-            rootNode.removeAllChildren()
-            val errorNode = DefaultMutableTreeNode("No credentials found. Please log in again.")
+        rootNode.removeAllChildren()
+        
+        val data = preloadedData?.get(account.id)
+        if (data == null) {
+            val errorNode = DefaultMutableTreeNode("No data available for this account.")
             rootNode.add(errorNode)
             treeModel.reload()
             return
         }
-
-        rootNode.removeAllChildren()
         
-        // Show loading indicator
-        val loadingNode = DefaultMutableTreeNode("Loading projects and repositories...")
-        rootNode.add(loadingNode)
+        if (data.projects.isEmpty()) {
+            val emptyNode = DefaultMutableTreeNode("No projects found for this account")
+            rootNode.add(emptyNode)
+            treeModel.reload()
+            return
+        }
+        
+        // Build tree from preloaded data
+        data.projects.forEach { proj ->
+            val projectNode = DefaultMutableTreeNode(proj)
+            rootNode.add(projectNode)
+            
+            val repos = data.repositories[proj.id] ?: emptyList()
+            repos.forEach { repo ->
+                val repoObj = AzureDevOpsRepository(
+                    id = repo.id,
+                    name = repo.name,
+                    projectName = proj.name,
+                    remoteUrl = repo.remoteUrl,
+                    webUrl = repo.webUrl
+                )
+                projectNode.add(DefaultMutableTreeNode(repoObj))
+            }
+        }
+        
         treeModel.reload()
-        tree.expandRow(0)
-
-        ProgressManager.getInstance().run(object : Task.Backgroundable(
-            project,
-            "Loading Azure DevOps Repositories...",
-            false
-        ) {
-            override fun run(indicator: ProgressIndicator) {
-                try {
-                    indicator.text = "Fetching projects from ${account.displayName}..."
-                    indicator.isIndeterminate = true
-                    
-                    val apiClient = AzureDevOpsCloneApiClient(account.serverUrl, token)
-                    val projects = apiClient.getProjects()
-
-                    ApplicationManager.getApplication().invokeLater {
-                        rootNode.removeAllChildren()
-                        
-                        if (projects.isEmpty()) {
-                            val emptyNode = DefaultMutableTreeNode("No projects found for this account")
-                            rootNode.add(emptyNode)
-                            treeModel.reload()
-                        } else {
-                            projects.forEach { proj ->
-                                val projectNode = DefaultMutableTreeNode(proj)
-                                rootNode.add(projectNode)
-                                
-                                // Add loading placeholder
-                                val loadingNode = DefaultMutableTreeNode("Loading repositories...")
-                                projectNode.add(loadingNode)
-                            }
-                            treeModel.reload()
-                            tree.expandRow(0)
-                            
-                            // Load repositories for each project
-                            projects.forEach { proj ->
-                                loadProjectRepositories(account, token, proj)
-                            }
-                        }
-                    }
-                } catch (e: Exception) {
-                    val errorMessage = when {
-                        e.message?.contains("401") == true -> "Authentication failed. Please log in again."
-                        e.message?.contains("403") == true -> "Access denied. Check your permissions."
-                        e.message?.contains("404") == true -> "Organization not found. Check your URL."
-                        e.message?.contains("timeout") == true -> "Connection timeout. Check your network."
-                        else -> "Error: ${e.message ?: "Unknown error"}"
-                    }
-                    
-                    ApplicationManager.getApplication().invokeLater {
-                        rootNode.removeAllChildren()
-                        val errorNode = DefaultMutableTreeNode(errorMessage)
-                        rootNode.add(errorNode)
-                        treeModel.reload()
-                    }
-                }
-            }
-        })
-    }
-
-    private fun loadProjectRepositories(
-        account: AzureDevOpsAccount,
-        token: String,
-        project: AzureDevOpsCloneApiClient.Project
-    ) {
-        ProgressManager.getInstance().run(object : Task.Backgroundable(
-            this.project,
-            "Loading repositories for ${project.name}...",
-            false
-        ) {
-            override fun run(indicator: ProgressIndicator) {
-                try {
-                    indicator.text = "Fetching repositories from ${project.name}..."
-                    
-                    val apiClient = AzureDevOpsCloneApiClient(account.serverUrl, token)
-                    val repositories = apiClient.getRepositories(project.id)
-
-                    ApplicationManager.getApplication().invokeLater {
-                        // Find project node
-                        for (i in 0 until rootNode.childCount) {
-                            val node = rootNode.getChildAt(i) as DefaultMutableTreeNode
-                            val nodeProject = node.userObject as? AzureDevOpsCloneApiClient.Project
-                            
-                            if (nodeProject?.id == project.id) {
-                                node.removeAllChildren()
-                                
-                                if (repositories.isEmpty()) {
-                                    val emptyNode = DefaultMutableTreeNode("No repositories found")
-                                    node.add(emptyNode)
-                                } else {
-                                    repositories.forEach { repo ->
-                                        val repoObj = AzureDevOpsRepository(
-                                            id = repo.id,
-                                            name = repo.name,
-                                            projectName = project.name,
-                                            remoteUrl = repo.remoteUrl,
-                                            webUrl = repo.webUrl
-                                        )
-                                        node.add(DefaultMutableTreeNode(repoObj))
-                                    }
-                                }
-                                
-                                treeModel.reload(node)
-                                tree.expandPath(TreePath(node.path))
-                                break
-                            }
-                        }
-                    }
-                } catch (e: Exception) {
-                    // Show error in project node
-                    ApplicationManager.getApplication().invokeLater {
-                        for (i in 0 until rootNode.childCount) {
-                            val node = rootNode.getChildAt(i) as DefaultMutableTreeNode
-                            val nodeProject = node.userObject as? AzureDevOpsCloneApiClient.Project
-                            
-                            if (nodeProject?.id == project.id) {
-                                node.removeAllChildren()
-                                val errorNode = DefaultMutableTreeNode("Error loading repositories: ${e.message}")
-                                node.add(errorNode)
-                                treeModel.reload(node)
-                                break
-                            }
-                        }
-                    }
-                }
-            }
-        })
+        
+        // Expand first project
+        if (rootNode.childCount > 0) {
+            tree.expandPath(TreePath(arrayOf(rootNode, rootNode.getChildAt(0))))
+        }
     }
 
     /**
