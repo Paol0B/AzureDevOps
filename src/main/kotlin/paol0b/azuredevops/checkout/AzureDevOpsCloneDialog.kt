@@ -61,10 +61,12 @@ class AzureDevOpsCloneDialog private constructor(
     private val rootNode: DefaultMutableTreeNode
     private val directoryField = TextFieldWithBrowseButton()
     
+    private val searchField = com.intellij.ui.components.JBTextField()
+    private var allNodes: List<DefaultMutableTreeNode> = emptyList()  // Store all nodes for filtering
     private var selectedRepository: AzureDevOpsRepository? = null
     private var selectedAccount: AzureDevOpsAccount? = null
     private var isLoadingAccounts = false  // Flag to prevent duplicate loads
-    private val defaultCloneDir = System.getProperty("user.home") + File.separator + "AzureDevOpsProjects"
+    private val defaultCloneDir = System.getProperty("user.home") + File.separator + "source" + File.separator + "repos"
     
     // Preloaded data
     private var preloadedData: Map<String, ProjectsData>? = null
@@ -183,6 +185,14 @@ class AzureDevOpsCloneDialog private constructor(
                 selectedRepository = null
             }
         }
+        
+        // Search field listener
+        searchField.getDocument().addDocumentListener(object : javax.swing.event.DocumentListener {
+            override fun insertUpdate(e: javax.swing.event.DocumentEvent?) = filterTree()
+            override fun removeUpdate(e: javax.swing.event.DocumentEvent?) = filterTree()
+            override fun changedUpdate(e: javax.swing.event.DocumentEvent?) = filterTree()
+        })
+        searchField.emptyText.text = "Search repositories..."
 
         loginButton.addActionListener {
             showLoginDialog()
@@ -253,18 +263,34 @@ class AzureDevOpsCloneDialog private constructor(
             border = JBUI.Borders.empty(5, 0, 10, 0)
         }
 
-        // Tree panel with enhanced styling
+        // Tree panel with enhanced styling and search
         val treePanel = JPanel(BorderLayout()).apply {
-            val treeLabel = JBLabel("Select a Repository:").apply {
-                font = font.deriveFont(Font.BOLD)
-                border = JBUI.Borders.empty(0, 0, 5, 0)
+            val topPanel = JPanel(BorderLayout()).apply {
+                val treeLabel = JBLabel("Select a Repository:").apply {
+                    font = font.deriveFont(Font.BOLD)
+                    border = JBUI.Borders.empty(0, 0, 5, 0)
+                }
+                add(treeLabel, BorderLayout.NORTH)
+                
+                // Search field
+                val searchPanel = JPanel(BorderLayout()).apply {
+                    searchField.apply {
+                        putClientProperty("JTextField.Search.Icon", AllIcons.Actions.Search)
+                        putClientProperty("JTextField.Search.CancelAction", Runnable {
+                            searchField.text = ""
+                        })
+                    }
+                    add(searchField, BorderLayout.CENTER)
+                    border = JBUI.Borders.empty(5, 0)
+                }
+                add(searchPanel, BorderLayout.SOUTH)
             }
             
             val scrollPane = JBScrollPane(tree).apply {
                 border = JBUI.Borders.customLine(UIUtil.getBoundsColor(), 1)
             }
             
-            add(treeLabel, BorderLayout.NORTH)
+            add(topPanel, BorderLayout.NORTH)
             add(scrollPane, BorderLayout.CENTER)
             preferredSize = Dimension(650, 400)
         }
@@ -467,6 +493,7 @@ class AzureDevOpsCloneDialog private constructor(
         selectedAccount = account
         
         rootNode.removeAllChildren()
+        allNodes = mutableListOf()  // Reset stored nodes
         
         val data = preloadedData?.get(account.id)
         if (data == null) {
@@ -483,10 +510,12 @@ class AzureDevOpsCloneDialog private constructor(
             return
         }
         
-        // Build tree from preloaded data
+        // Build tree from preloaded data and store all nodes
+        val nodesList = mutableListOf<DefaultMutableTreeNode>()
         data.projects.forEach { proj ->
             val projectNode = DefaultMutableTreeNode(proj)
             rootNode.add(projectNode)
+            nodesList.add(projectNode)
             
             val repos = data.repositories[proj.id] ?: emptyList()
             repos.forEach { repo ->
@@ -497,15 +526,65 @@ class AzureDevOpsCloneDialog private constructor(
                     remoteUrl = repo.remoteUrl,
                     webUrl = repo.webUrl
                 )
-                projectNode.add(DefaultMutableTreeNode(repoObj))
+                val repoNode = DefaultMutableTreeNode(repoObj)
+                projectNode.add(repoNode)
+                nodesList.add(repoNode)
             }
         }
         
+        allNodes = nodesList
         treeModel.reload()
         
         // Expand first project
         if (rootNode.childCount > 0) {
             tree.expandPath(TreePath(arrayOf(rootNode, rootNode.getChildAt(0))))
+        }
+    }
+    
+    private fun filterTree() {
+        val searchText = searchField.text.trim().lowercase()
+        
+        if (searchText.isEmpty()) {
+            // Reset to original tree
+            loadRepositoriesFromPreloadedData()
+            return
+        }
+        
+        val account = accountComboBox.selectedItem as? AzureDevOpsAccount ?: return
+        val data = preloadedData?.get(account.id) ?: return
+        
+        rootNode.removeAllChildren()
+        
+        // Filter and rebuild tree
+        data.projects.forEach { proj ->
+            val repos = data.repositories[proj.id] ?: emptyList()
+            val matchingRepos = repos.filter { repo ->
+                repo.name.lowercase().contains(searchText) ||
+                proj.name.lowercase().contains(searchText)
+            }
+            
+            if (matchingRepos.isNotEmpty()) {
+                val projectNode = DefaultMutableTreeNode(proj)
+                rootNode.add(projectNode)
+                
+                matchingRepos.forEach { repo ->
+                    val repoObj = AzureDevOpsRepository(
+                        id = repo.id,
+                        name = repo.name,
+                        projectName = proj.name,
+                        remoteUrl = repo.remoteUrl,
+                        webUrl = repo.webUrl
+                    )
+                    projectNode.add(DefaultMutableTreeNode(repoObj))
+                }
+            }
+        }
+        
+        treeModel.reload()
+        
+        // Expand all matching projects
+        for (i in 0 until rootNode.childCount) {
+            tree.expandPath(TreePath(arrayOf(rootNode, rootNode.getChildAt(i))))
         }
     }
 
