@@ -75,6 +75,8 @@
         <checkoutProvider implementation="paol0b.azuredevops.checkout.AzureDevOpsCheckoutProvider"/>
         <!-- Application-level service for account management -->
         <applicationService serviceImplementation="paol0b.azuredevops.checkout.AzureDevOpsAccountManager"/>
+        <!-- OAuth authentication service -->
+        <applicationService serviceImplementation="paol0b.azuredevops.checkout.AzureDevOpsOAuthService"/>
 
         <!-- Project Settings -->
         <projectConfigurable

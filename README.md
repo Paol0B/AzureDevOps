@@ -52,11 +52,11 @@
 </td>
 <td width="50%">
 
-### ⚡ **Easy Setup**
-- One-click configuration
-- Only requires PAT token
-- Auto-detection of org/project/repo
-- Works with all JetBrains IDEs
+### 🔐 **Authentication**
+- **OAuth 2.0 with Browser** (like Visual Studio 2022)
+- Personal Access Token (PAT) fallback
+- No app registration required
+- Credentials saved globally in IDE
 
 </td>
 </tr>
@@ -67,12 +67,14 @@
 ## 🎬 Quick Demo
 
 ```bash
-# 1. Clone your Azure DevOps repository
+# 1. Clone from Azure DevOps with OAuth
+File → New → Project from Version Control → Azure DevOps
+  → Sign in with Browser → Clone repository
+
+# 2. Or clone manually and open
 git clone https://dev.azure.com/mycompany/MyProject/_git/my-repo
 
-# 2. Open in any JetBrains IDE
-# 3. Configure PAT in Settings → Tools → Azure DevOps
-# 4. Start creating PRs! 🎉
+# 3. Start creating PRs! 🎉
 ```
 
 ---

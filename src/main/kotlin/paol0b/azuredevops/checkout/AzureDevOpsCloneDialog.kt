@@ -18,39 +18,47 @@ import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.ui.FormBuilder
 import com.intellij.util.ui.JBUI
+import com.intellij.util.ui.UIUtil
 import paol0b.azuredevops.AzureDevOpsIcons
 import java.awt.BorderLayout
 import java.awt.Dimension
+import java.awt.Font
 import java.io.File
 import javax.swing.*
 import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.DefaultTreeModel
 import javax.swing.tree.TreePath
+import javax.swing.tree.TreeSelectionModel
 
 /**
- * Main clone dialog for Azure DevOps.
- * Shows account selection, projects/repos tree, and target directory.
+ * Enhanced clone dialog for Azure DevOps.
+ * Shows account selection, projects/repos tree with icons, and target directory.
+ * Supports OAuth and PAT authentication with global credential storage.
  */
 class AzureDevOpsCloneDialog(private val project: Project?) : DialogWrapper(project, true) {
 
     private val accountComboBox = JComboBox<AzureDevOpsAccount>()
-    private val loginButton = JButton("Add Account...")
+    private val loginButton = JButton("Add Account...").apply {
+        icon = AllIcons.General.Add
+    }
     private val tree: Tree
     private val treeModel: DefaultTreeModel
     private val rootNode: DefaultMutableTreeNode
     private val directoryField = TextFieldWithBrowseButton()
     
     private var selectedRepository: AzureDevOpsRepository? = null
+    private var selectedAccount: AzureDevOpsAccount? = null
     private val defaultCloneDir = System.getProperty("user.home") + File.separator + "AzureDevOpsProjects"
 
     init {
-        title = "Clone Azure DevOps Repository"
+        title = "Clone from Azure DevOps"
         
         rootNode = DefaultMutableTreeNode("Azure DevOps")
         treeModel = DefaultTreeModel(rootNode)
         tree = Tree(treeModel).apply {
             isRootVisible = false
             showsRootHandles = true
+            selectionModel.selectionMode = TreeSelectionModel.SINGLE_TREE_SELECTION
             cellRenderer = RepositoryTreeCellRenderer()
             border = JBUI.Borders.empty(5)
         }
@@ -62,8 +70,8 @@ class AzureDevOpsCloneDialog(private val project: Project?) : DialogWrapper(proj
             if (userObject is AzureDevOpsRepository) {
                 selectedRepository = userObject
                 
-                // Auto-fill directory
-                val targetDir = File(defaultCloneDir, userObject.name).absolutePath
+                // Auto-fill directory with repository name
+                val targetDir = File(directoryField.text.trim().ifBlank { defaultCloneDir }, userObject.name).absolutePath
                 directoryField.text = targetDir
             } else {
                 selectedRepository = null
@@ -75,6 +83,7 @@ class AzureDevOpsCloneDialog(private val project: Project?) : DialogWrapper(proj
         }
 
         accountComboBox.addActionListener {
+            selectedAccount = accountComboBox.selectedItem as? AzureDevOpsAccount
             loadRepositories()
         }
 
@@ -90,40 +99,78 @@ class AzureDevOpsCloneDialog(private val project: Project?) : DialogWrapper(proj
     }
 
     override fun createCenterPanel(): JComponent {
-        val panel = JPanel(BorderLayout())
+        val panel = JPanel(BorderLayout(0, 10))
         
-        // Account selection panel
-        val accountPanel = JPanel(BorderLayout(5, 0)).apply {
-            add(JBLabel("Account:"), BorderLayout.WEST)
-            add(accountComboBox, BorderLayout.CENTER)
-            add(loginButton, BorderLayout.EAST)
+        // Header with Azure DevOps branding
+        val headerPanel = JPanel(BorderLayout()).apply {
+            val titleLabel = JBLabel("Clone Repository from Azure DevOps").apply {
+                font = font.deriveFont(Font.BOLD, 14f)
+                icon = AzureDevOpsIcons.Logo
+            }
+            add(titleLabel, BorderLayout.WEST)
             border = JBUI.Borders.empty(0, 0, 10, 0)
         }
-
-        // Tree panel
-        val treePanel = JPanel(BorderLayout()).apply {
-            add(JBLabel("Select Repository:"), BorderLayout.NORTH)
-            add(JBScrollPane(tree), BorderLayout.CENTER)
-            border = JBUI.Borders.empty(5, 0)
-            preferredSize = Dimension(600, 400)
+        
+        // Account selection panel with improved layout
+        val accountPanel = JPanel(BorderLayout(10, 0)).apply {
+            val labelPanel = JPanel(BorderLayout()).apply {
+                add(JBLabel("Account:").apply {
+                    font = font.deriveFont(Font.BOLD)
+                }, BorderLayout.WEST)
+            }
+            
+            val comboPanel = JPanel(BorderLayout(5, 0)).apply {
+                add(accountComboBox, BorderLayout.CENTER)
+                add(loginButton, BorderLayout.EAST)
+            }
+            
+            add(labelPanel, BorderLayout.WEST)
+            add(comboPanel, BorderLayout.CENTER)
+            border = JBUI.Borders.empty(5, 0, 10, 0)
         }
 
-        // Directory panel
-        val directoryPanel = FormBuilder.createFormBuilder()
-            .addLabeledComponent(JBLabel("Directory:"), directoryField, 1, false)
-            .panel
+        // Tree panel with enhanced styling
+        val treePanel = JPanel(BorderLayout()).apply {
+            val treeLabel = JBLabel("Select a Repository:").apply {
+                font = font.deriveFont(Font.BOLD)
+                border = JBUI.Borders.empty(0, 0, 5, 0)
+            }
+            
+            val scrollPane = JBScrollPane(tree).apply {
+                border = JBUI.Borders.customLine(UIUtil.getBoundsColor(), 1)
+            }
+            
+            add(treeLabel, BorderLayout.NORTH)
+            add(scrollPane, BorderLayout.CENTER)
+            preferredSize = Dimension(650, 400)
+        }
 
-        panel.add(accountPanel, BorderLayout.NORTH)
-        panel.add(treePanel, BorderLayout.CENTER)
-        panel.add(directoryPanel, BorderLayout.SOUTH)
+        // Directory panel with improved layout
+        val directoryPanel = FormBuilder.createFormBuilder()
+            .addLabeledComponent(
+                JBLabel("Directory:").apply { font = font.deriveFont(Font.BOLD) }, 
+                directoryField, 
+                1, 
+                false
+            )
+            .panel.apply {
+                border = JBUI.Borders.empty(10, 0, 0, 0)
+            }
+
+        panel.add(headerPanel, BorderLayout.NORTH)
         
+        val centerPanel = JPanel(BorderLayout()).apply {
+            add(accountPanel, BorderLayout.NORTH)
+            add(treePanel, BorderLayout.CENTER)
+        }
+        panel.add(centerPanel, BorderLayout.CENTER)
+        panel.add(directoryPanel, BorderLayout.SOUTH)
+
         panel.border = JBUI.Borders.empty(10)
-        panel.preferredSize = Dimension(700, 550)
+        panel.preferredSize = Dimension(750, 600)
 
         return panel
-    }
-
-    override fun doValidate(): ValidationInfo? {
+    }    override fun doValidate(): ValidationInfo? {
         if (selectedRepository == null) {
             return ValidationInfo("Please select a repository to clone", tree)
         }
@@ -133,10 +180,17 @@ class AzureDevOpsCloneDialog(private val project: Project?) : DialogWrapper(proj
             return ValidationInfo("Please specify a target directory", directoryField)
         }
 
+        val targetDir = File(directory)
+        if (targetDir.exists()) {
+            return ValidationInfo("Directory already exists: $directory", directoryField)
+        }
+
         return null
     }
 
     fun getSelectedRepository(): AzureDevOpsRepository? = selectedRepository
+    
+    fun getSelectedAccount(): AzureDevOpsAccount? = selectedAccount
 
     fun getTargetDirectory(): String = directoryField.text.trim()
 
@@ -150,6 +204,7 @@ class AzureDevOpsCloneDialog(private val project: Project?) : DialogWrapper(proj
         if (accounts.isEmpty()) {
             showLoginDialog()
         } else {
+            selectedAccount = accounts.firstOrNull()
             loadRepositories()
         }
     }
@@ -163,6 +218,7 @@ class AzureDevOpsCloneDialog(private val project: Project?) : DialogWrapper(proj
 
     private fun loadRepositories() {
         val account = accountComboBox.selectedItem as? AzureDevOpsAccount ?: return
+        selectedAccount = account
         val accountManager = AzureDevOpsAccountManager.getInstance()
         val token = accountManager.getToken(account.id) ?: return
 
@@ -176,21 +232,29 @@ class AzureDevOpsCloneDialog(private val project: Project?) : DialogWrapper(proj
         ) {
             override fun run(indicator: ProgressIndicator) {
                 try {
-                    indicator.text = "Fetching projects..."
+                    indicator.text = "Fetching projects from ${account.displayName}..."
+                    indicator.isIndeterminate = true
+                    
                     val apiClient = AzureDevOpsCloneApiClient(account.serverUrl, token)
                     val projects = apiClient.getProjects()
 
                     ApplicationManager.getApplication().invokeLater {
-                        projects.forEach { proj ->
-                            val projectNode = DefaultMutableTreeNode(proj)
-                            rootNode.add(projectNode)
-                            
-                            // Add loading placeholder
-                            projectNode.add(DefaultMutableTreeNode("Loading..."))
+                        if (projects.isEmpty()) {
+                            val emptyNode = DefaultMutableTreeNode("No projects found")
+                            rootNode.add(emptyNode)
+                        } else {
+                            projects.forEach { proj ->
+                                val projectNode = DefaultMutableTreeNode(proj)
+                                rootNode.add(projectNode)
+                                
+                                // Add loading placeholder
+                                val loadingNode = DefaultMutableTreeNode("Loading repositories...")
+                                projectNode.add(loadingNode)
+                            }
                         }
                         treeModel.reload()
                         
-                        // Expand and load repositories for each project
+                        // Load repositories for each project
                         projects.forEach { proj ->
                             loadProjectRepositories(account, token, proj)
                         }
@@ -218,6 +282,8 @@ class AzureDevOpsCloneDialog(private val project: Project?) : DialogWrapper(proj
         ) {
             override fun run(indicator: ProgressIndicator) {
                 try {
+                    indicator.text = "Fetching repositories from ${project.name}..."
+                    
                     val apiClient = AzureDevOpsCloneApiClient(account.serverUrl, token)
                     val repositories = apiClient.getRepositories(project.id)
 
@@ -230,15 +296,20 @@ class AzureDevOpsCloneDialog(private val project: Project?) : DialogWrapper(proj
                             if (nodeProject?.id == project.id) {
                                 node.removeAllChildren()
                                 
-                                repositories.forEach { repo ->
-                                    val repoObj = AzureDevOpsRepository(
-                                        id = repo.id,
-                                        name = repo.name,
-                                        projectName = project.name,
-                                        remoteUrl = repo.remoteUrl,
-                                        webUrl = repo.webUrl
-                                    )
-                                    node.add(DefaultMutableTreeNode(repoObj))
+                                if (repositories.isEmpty()) {
+                                    val emptyNode = DefaultMutableTreeNode("No repositories found")
+                                    node.add(emptyNode)
+                                } else {
+                                    repositories.forEach { repo ->
+                                        val repoObj = AzureDevOpsRepository(
+                                            id = repo.id,
+                                            name = repo.name,
+                                            projectName = project.name,
+                                            remoteUrl = repo.remoteUrl,
+                                            webUrl = repo.webUrl
+                                        )
+                                        node.add(DefaultMutableTreeNode(repoObj))
+                                    }
                                 }
                                 
                                 treeModel.reload(node)
@@ -248,14 +319,14 @@ class AzureDevOpsCloneDialog(private val project: Project?) : DialogWrapper(proj
                         }
                     }
                 } catch (e: Exception) {
-                    // Log error
+                    // Log error but don't show to user - project node will show loading state
                 }
             }
         })
     }
 
     /**
-     * Custom tree cell renderer with Azure DevOps icons
+     * Enhanced tree cell renderer with proper Azure DevOps icons
      */
     private class RepositoryTreeCellRenderer : ColoredTreeCellRenderer() {
         override fun customizeCellRenderer(
@@ -272,19 +343,27 @@ class AzureDevOpsCloneDialog(private val project: Project?) : DialogWrapper(proj
 
             when (userObject) {
                 is AzureDevOpsCloneApiClient.Project -> {
-                    icon = AllIcons.Nodes.Folder
+                    icon = AzureDevOpsIcons.Project
                     append(userObject.name, SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES)
                     userObject.description?.let {
-                        append(" - $it", SimpleTextAttributes.GRAYED_SMALL_ATTRIBUTES)
+                        if (it.isNotBlank()) {
+                            append(" - $it", SimpleTextAttributes.GRAYED_SMALL_ATTRIBUTES)
+                        }
                     }
                 }
                 is AzureDevOpsRepository -> {
-                    icon = AllIcons.Vcs.Vendors.Github  // Using git icon
+                    icon = AzureDevOpsIcons.Repository
                     append(userObject.name, SimpleTextAttributes.REGULAR_ATTRIBUTES)
+                    append("  ", SimpleTextAttributes.REGULAR_ATTRIBUTES)
+                    append(userObject.projectName, SimpleTextAttributes.GRAYED_SMALL_ATTRIBUTES)
                 }
                 is String -> {
                     icon = if (userObject.startsWith("Error")) {
                         AllIcons.General.Error
+                    } else if (userObject.contains("Loading")) {
+                        AllIcons.Process.Step_1
+                    } else if (userObject.contains("No ")) {
+                        AllIcons.General.Information
                     } else {
                         AllIcons.Process.Step_1
                     }

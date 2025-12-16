@@ -7,19 +7,28 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.vcs.CheckoutProvider
 import com.intellij.openapi.vcs.VcsNotifier
 import git4idea.GitVcs
-import git4idea.checkout.GitCheckoutProvider
 import git4idea.commands.Git
 import git4idea.commands.GitCommand
 import git4idea.commands.GitLineHandler
+import paol0b.azuredevops.AzureDevOpsIcons
 import java.io.File
+import javax.swing.Icon
 
 /**
  * Checkout provider for Azure DevOps repositories.
  * Appears in the "Clone Repository" dialog alongside GitHub, GitLab, etc.
+ * 
+ * This provider integrates Azure DevOps into the standard IDE checkout workflow,
+ * allowing users to browse and clone repositories directly from Azure DevOps organizations.
  */
 class AzureDevOpsCheckoutProvider : CheckoutProvider {
 
     override fun getVcsName(): String = "Azure DevOps"
+    
+    /**
+     * Provide Azure DevOps icon for the checkout provider card
+     */
+    fun getIcon(): Icon = AzureDevOpsIcons.Logo
 
     override fun doCheckout(project: Project, listener: CheckoutProvider.Listener?) {
         val dialog = AzureDevOpsCloneDialog(project)
@@ -28,51 +37,117 @@ class AzureDevOpsCheckoutProvider : CheckoutProvider {
             val selectedRepo = dialog.getSelectedRepository() ?: return
             val targetDirectory = dialog.getTargetDirectory()
             val cloneUrl = selectedRepo.remoteUrl
+            val account = dialog.getSelectedAccount()
+            val token = account?.let { 
+                AzureDevOpsAccountManager.getInstance().getToken(it.id) 
+            }
             
             // Perform the clone operation using Git
-            ProgressManager.getInstance().run(object : Task.Backgroundable(project, "Cloning ${selectedRepo.name}...", true) {
+            ProgressManager.getInstance().run(object : Task.Backgroundable(
+                project, 
+                "Cloning ${selectedRepo.name} from Azure DevOps...", 
+                true
+            ) {
                 override fun run(indicator: ProgressIndicator) {
                     try {
                         indicator.text = "Cloning repository from Azure DevOps..."
                         indicator.text2 = cloneUrl
+                        indicator.isIndeterminate = false
+                        indicator.fraction = 0.0
                         
-                        val checkoutDir = File(targetDirectory, selectedRepo.name)
+                        val checkoutDir = File(targetDirectory)
                         checkoutDir.mkdirs()
+                        
+                        // Prepare clone URL with authentication if token is available
+                        val authenticatedUrl = if (token != null && cloneUrl.startsWith("https://")) {
+                            // Inject token into URL for authentication
+                            cloneUrl.replace("https://", "https://:$token@")
+                        } else {
+                            cloneUrl
+                        }
                         
                         // Execute git clone
                         val handler = GitLineHandler(project, checkoutDir.parentFile, GitCommand.CLONE)
-                        handler.setUrl(cloneUrl)
+                        handler.setUrl(authenticatedUrl)
                         handler.addParameters("--progress")
-                        handler.addParameters(cloneUrl)
-                        handler.addParameters(selectedRepo.name)
+                        handler.addParameters(authenticatedUrl)
+                        handler.addParameters(checkoutDir.name)
                         
+                        // Add progress listener
+                        handler.addLineListener { line, _ ->
+                            indicator.text2 = line
+                            // Try to extract progress percentage
+                            val progressMatch = Regex("""(\d+)%""").find(line)
+                            if (progressMatch != null) {
+                                val progress = progressMatch.groupValues[1].toIntOrNull()
+                                if (progress != null) {
+                                    indicator.fraction = progress / 100.0
+                                }
+                            }
+                        }
+                        
+                        indicator.fraction = 0.1
                         val result = Git.getInstance().runCommand(handler)
+                        indicator.fraction = 1.0
                         
                         if (result.success()) {
+                            // Save credentials to git credential helper for future use
+                            if (token != null) {
+                                saveCredentialsToGit(checkoutDir, cloneUrl, token)
+                            }
+                            
                             listener?.directoryCheckedOut(checkoutDir, GitVcs.getKey())
                             listener?.checkoutCompleted()
                             
                             VcsNotifier.getInstance(project).notifySuccess(
-                                null,
                                 "Azure DevOps Clone",
                                 "Repository '${selectedRepo.name}' cloned successfully to ${checkoutDir.absolutePath}"
                             )
                         } else {
+                            val errorMessage = result.errorOutputAsJoinedString
                             VcsNotifier.getInstance(project).notifyError(
-                                null,
                                 "Azure DevOps Clone Error",
-                                "Failed to clone repository: ${result.errorOutputAsJoinedString}"
+                                "Failed to clone repository: $errorMessage"
                             )
                         }
                     } catch (e: Exception) {
                         VcsNotifier.getInstance(project).notifyError(
-                            null,
                             "Azure DevOps Clone Error",
                             "Failed to clone repository: ${e.message}"
                         )
                     }
                 }
             })
+        }
+    }
+    
+    /**
+     * Save credentials to git credential helper for seamless future operations
+     */
+    private fun saveCredentialsToGit(repoDir: File, url: String, token: String) {
+        try {
+            val processBuilder = ProcessBuilder(
+                "git", "credential", "approve"
+            )
+            processBuilder.directory(repoDir)
+            processBuilder.redirectErrorStream(true)
+            
+            val process = processBuilder.start()
+            
+            // Send credentials in git credential format
+            process.outputStream.bufferedWriter().use { writer ->
+                val uri = java.net.URI(url)
+                writer.write("protocol=${uri.scheme}\n")
+                writer.write("host=${uri.host}\n")
+                writer.write("username=\n")
+                writer.write("password=$token\n")
+                writer.write("\n")
+                writer.flush()
+            }
+            
+            process.waitFor()
+        } catch (e: Exception) {
+            // Ignore errors - credential saving is not critical
         }
     }
 }
