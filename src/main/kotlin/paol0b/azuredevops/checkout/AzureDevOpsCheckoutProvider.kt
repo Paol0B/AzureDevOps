@@ -12,6 +12,9 @@ import git4idea.commands.GitCommand
 import git4idea.commands.GitLineHandler
 import paol0b.azuredevops.AzureDevOpsIcons
 import java.io.File
+import java.net.URI
+import java.net.URLDecoder
+import java.nio.charset.StandardCharsets
 import javax.swing.Icon
 
 /**
@@ -36,7 +39,10 @@ class AzureDevOpsCheckoutProvider : CheckoutProvider {
         if (dialog.showAndGet()) {
             val selectedRepo = dialog.getSelectedRepository() ?: return
             val targetDirectory = dialog.getTargetDirectory()
-            val cloneUrl = selectedRepo.remoteUrl
+            
+            // Normalize URL: decode if already encoded, then properly construct
+            val cloneUrl = normalizeAzureDevOpsUrl(selectedRepo.remoteUrl)
+            
             val account = dialog.getSelectedAccount()
             val token = account?.let { 
                 AzureDevOpsAccountManager.getInstance().getToken(it.id) 
@@ -150,4 +156,44 @@ class AzureDevOpsCheckoutProvider : CheckoutProvider {
             // Ignore errors - credential saving is not critical
         }
     }
+
+    /**
+     * Normalize Azure DevOps URL to handle all special characters, spaces, etc.
+     * Properly decodes and reconstructs the URL to ensure Git can handle it.
+     */
+    private fun normalizeAzureDevOpsUrl(url: String): String {
+        return try {
+            // First, decode the URL completely (handle multiple encodings)
+            var decodedUrl = url
+            var previousUrl: String
+            
+            // Decode multiple times until no more changes (handle double-encoding)
+            do {
+                previousUrl = decodedUrl
+                decodedUrl = URLDecoder.decode(previousUrl, StandardCharsets.UTF_8)
+            } while (decodedUrl != previousUrl)
+            
+            // Parse the URL
+            val uri = URI(decodedUrl)
+            val scheme = uri.scheme ?: "https"
+            val host = uri.host ?: return url // Fallback if can't parse
+            
+            // Get path and properly encode it
+            val path = uri.path ?: return url
+            
+            // Split path and encode each segment properly
+            val segments = path.split("/").filter { it.isNotEmpty() }
+            val encodedPath = segments.joinToString("/") { segment ->
+                java.net.URLEncoder.encode(segment, StandardCharsets.UTF_8)
+                    .replace("+", "%20") // Space should be %20, not +
+            }
+            
+            // Reconstruct the URL
+            "$scheme://$host/$encodedPath"
+        } catch (e: Exception) {
+            // If anything fails, return original URL
+            url
+        }
+    }
 }
+
