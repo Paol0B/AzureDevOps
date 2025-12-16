@@ -131,6 +131,13 @@
                     text="Create Pull Request..."
                     description="Create a Pull Request on Azure DevOps"
                     icon="paol0b.azuredevops.AzureDevOpsIcons.ToolWindow"/>
+
+            <action
+                    id="AzureDevOps.OpenInBrowser"
+                    class="paol0b.azuredevops.actions.OpenRepositoryInBrowserAction"
+                    text="Open in Browser"
+                    description="Open the repository in Azure DevOps web portal"
+                    icon="AllIcons.Ide.External_link_arrow"/>
         </group>
 
         <!-- Add to VCS menu (legacy) -->
