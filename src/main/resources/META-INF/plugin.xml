@@ -87,11 +87,13 @@
             displayName="Azure DevOps Accounts"/>
             
         <!-- Project-level configuration -->
+        <!--
         <projectConfigurable
             parentId="tools"
             instance="paol0b.azuredevops.ui.AzureDevOpsProjectConfigurable"
             id="paol0b.azuredevops.project"
             displayName="Azure DevOps"/>
+        -->
 
         <!-- Notification Group -->
         <notificationGroup

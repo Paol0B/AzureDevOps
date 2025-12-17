@@ -7,6 +7,8 @@ import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.ui.Messages
+import com.intellij.ui.AnActionButton
+import com.intellij.ui.AnActionButtonRunnable
 import com.intellij.ui.ToolbarDecorator
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.table.JBTable
@@ -34,6 +36,7 @@ class AzureDevOpsAccountsConfigurable : Configurable {
     private lateinit var accountInfoPanel: JPanel
     private val accountManager = AzureDevOpsAccountManager.getInstance()
     private val oauthService = AzureDevOpsOAuthService.getInstance()
+    private var countdownTimer: javax.swing.Timer? = null
 
     override fun getDisplayName(): String = "Azure DevOps Accounts"
 
@@ -50,21 +53,13 @@ class AzureDevOpsAccountsConfigurable : Configurable {
         val decorator = ToolbarDecorator.createDecorator(accountsTable)
             .setAddAction { addAccount() }
             .setRemoveAction { removeAccount() }
-            .addExtraAction(object : com.intellij.ui.ToolbarDecorator.ElementActionButton(
-                "Refresh Token",
-                "Refresh the authentication token for selected account",
-                AllIcons.Actions.Refresh
-            ) {
-                override fun actionPerformed(e: com.intellij.openapi.actionSystem.AnActionEvent) {
+            .addExtraAction(object : AnActionButton("Refresh Token", "Refresh the authentication token for selected account", AllIcons.Actions.Refresh) {
+                override fun actionPerformed(e: AnActionEvent) {
                     refreshToken()
                 }
             })
-            .addExtraAction(object : com.intellij.ui.ToolbarDecorator.ElementActionButton(
-                "Re-login",
-                "Re-authenticate with selected account",
-                AllIcons.Actions.Execute
-            ) {
-                override fun actionPerformed(e: com.intellij.openapi.actionSystem.AnActionEvent) {
+            .addExtraAction(object : AnActionButton("Re-login", "Re-authenticate with selected account", AllIcons.Actions.Execute) {
+                override fun actionPerformed(e: AnActionEvent) {
                     reAuthenticate()
                 }
             })
@@ -99,6 +94,10 @@ class AzureDevOpsAccountsConfigurable : Configurable {
     }
 
     private fun updateAccountInfoPanel() {
+        // Stop any existing timer
+        countdownTimer?.stop()
+        countdownTimer = null
+        
         val selectedRow = accountsTable.selectedRow
         if (selectedRow < 0) {
             accountInfoPanel.removeAll()
@@ -127,7 +126,9 @@ class AzureDevOpsAccountsConfigurable : Configurable {
             if (timeLeft > 0) {
                 val daysLeft = timeLeft / (1000 * 60 * 60 * 24)
                 val hoursLeft = (timeLeft % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)
-                infoText.append("<b>Time Remaining:</b> $daysLeft days, $hoursLeft hours<br>")
+                val minutesLeft = (timeLeft % (1000 * 60 * 60)) / (1000 * 60)
+                val secondsLeft = (timeLeft % (1000 * 60)) / 1000
+                infoText.append("<b>Time Remaining:</b> ${daysLeft}d ${hoursLeft}h ${minutesLeft}m ${secondsLeft}s<br>")
             } else {
                 infoText.append("<b>Time Remaining:</b> <font color='red'>Expired</font><br>")
             }
@@ -146,10 +147,55 @@ class AzureDevOpsAccountsConfigurable : Configurable {
         
         infoText.append("</html>")
         
+        val infoLabel = JBLabel(infoText.toString())
         accountInfoPanel.removeAll()
-        accountInfoPanel.add(JBLabel(infoText.toString()), BorderLayout.CENTER)
+        accountInfoPanel.add(infoLabel, BorderLayout.CENTER)
         accountInfoPanel.revalidate()
         accountInfoPanel.repaint()
+        
+        // Start countdown timer if token is not expired
+        if (accountWithStatus.expiresAt > 0 && accountWithStatus.expiresAt > System.currentTimeMillis()) {
+            countdownTimer = javax.swing.Timer(1000) {
+                SwingUtilities.invokeLater {
+                    val now = System.currentTimeMillis()
+                    val timeLeft = accountWithStatus.expiresAt - now
+                    
+                    if (timeLeft > 0) {
+                        val daysLeft = timeLeft / (1000 * 60 * 60 * 24)
+                        val hoursLeft = (timeLeft % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)
+                        val minutesLeft = (timeLeft % (1000 * 60 * 60)) / (1000 * 60)
+                        val secondsLeft = (timeLeft % (1000 * 60)) / 1000
+                        
+                        val newInfoText = StringBuilder("<html><b>Account Details:</b><br><br>")
+                        newInfoText.append("<b>Display Name:</b> ${account.displayName}<br>")
+                        newInfoText.append("<b>Server URL:</b> ${account.serverUrl}<br>")
+                        newInfoText.append("<b>Account ID:</b> ${account.id}<br>")
+                        newInfoText.append("<b>Status:</b> ${formatAuthState(accountWithStatus.state)}<br>")
+                        
+                        val expiryDate = Date(accountWithStatus.expiresAt)
+                        val dateFormat = SimpleDateFormat("MMM dd, yyyy HH:mm:ss")
+                        newInfoText.append("<b>Token Expires:</b> ${dateFormat.format(expiryDate)}<br>")
+                        newInfoText.append("<b>Time Remaining:</b> ${daysLeft}d ${hoursLeft}h ${minutesLeft}m ${secondsLeft}s<br>")
+                        
+                        if (accountWithStatus.lastRefreshed > 0) {
+                            val refreshDate = Date(accountWithStatus.lastRefreshed)
+                            newInfoText.append("<b>Last Refreshed:</b> ${dateFormat.format(refreshDate)}<br>")
+                        }
+                        
+                        val hasRefreshToken = accountManager.getRefreshToken(account.id) != null
+                        newInfoText.append("<b>Has Refresh Token:</b> ${if (hasRefreshToken) "Yes" else "No"}<br>")
+                        newInfoText.append("</html>")
+                        
+                        infoLabel.text = newInfoText.toString()
+                    } else {
+                        countdownTimer?.stop()
+                        // Reload to show expired state
+                        updateAccountInfoPanel()
+                    }
+                }
+            }
+            countdownTimer?.start()
+        }
     }
 
     private fun formatAuthState(state: AzureDevOpsAccountManager.AccountAuthState): String {
@@ -310,6 +356,8 @@ class AzureDevOpsAccountsConfigurable : Configurable {
     }
 
     override fun disposeUIResources() {
+        countdownTimer?.stop()
+        countdownTimer = null
         mainPanel = null
     }
 
