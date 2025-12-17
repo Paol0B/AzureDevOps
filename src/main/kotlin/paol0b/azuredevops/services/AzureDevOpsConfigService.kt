@@ -5,8 +5,10 @@ import com.intellij.credentialStore.Credentials
 import com.intellij.credentialStore.generateServiceName
 import com.intellij.ide.passwordSafe.PasswordSafe
 import com.intellij.openapi.components.*
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.util.xmlb.XmlSerializerUtil
 import paol0b.azuredevops.checkout.AzureDevOpsAccountManager
+import paol0b.azuredevops.checkout.AzureDevOpsOAuthService
 import paol0b.azuredevops.model.AzureDevOpsConfig
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
@@ -24,6 +26,7 @@ import java.nio.charset.StandardCharsets
 class AzureDevOpsConfigService(private val project: com.intellij.openapi.project.Project) : PersistentStateComponent<AzureDevOpsConfigService.State> {
 
     private var myState = State()
+    private val logger = Logger.getInstance(AzureDevOpsConfigService::class.java)
 
     companion object {
         private const val CREDENTIAL_KEY = "paol0b.azuredevops.pat"
@@ -139,12 +142,14 @@ class AzureDevOpsConfigService(private val project: com.intellij.openapi.project
                     
                     // If token is expired, try to refresh it
                     if (authState == AzureDevOpsAccountManager.AccountAuthState.EXPIRED) {
+                        logger.info("Token expired for account ${account.id}, attempting automatic refresh")
                         val refreshToken = accountManager.getRefreshToken(account.id)
                         if (refreshToken != null) {
                             // Try to refresh the token
                             val oauthService = AzureDevOpsOAuthService.getInstance()
                             val result = oauthService.refreshAccessToken(refreshToken, account.serverUrl)
                             if (result != null) {
+                                logger.info("Successfully refreshed token for account ${account.id}")
                                 // Update the account with new tokens
                                 accountManager.updateToken(
                                     account.id,
@@ -153,7 +158,11 @@ class AzureDevOpsConfigService(private val project: com.intellij.openapi.project
                                     result.expiresIn
                                 )
                                 return result.accessToken
+                            } else {
+                                logger.warn("Failed to refresh token for account ${account.id}")
                             }
+                        } else {
+                            logger.warn("No refresh token available for account ${account.id}")
                         }
                     }
                     

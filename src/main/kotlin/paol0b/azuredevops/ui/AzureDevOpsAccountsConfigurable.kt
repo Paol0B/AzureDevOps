@@ -1,6 +1,7 @@
 package paol0b.azuredevops.ui
 
 import com.intellij.icons.AllIcons
+import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.options.Configurable
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
@@ -30,6 +31,7 @@ class AzureDevOpsAccountsConfigurable : Configurable {
     private var mainPanel: JPanel? = null
     private lateinit var accountsTable: JBTable
     private lateinit var accountsModel: AccountsTableModel
+    private lateinit var accountInfoPanel: JPanel
     private val accountManager = AzureDevOpsAccountManager.getInstance()
     private val oauthService = AzureDevOpsOAuthService.getInstance()
 
@@ -40,22 +42,29 @@ class AzureDevOpsAccountsConfigurable : Configurable {
         accountsTable = JBTable(accountsModel).apply {
             setDefaultRenderer(Any::class.java, AccountStatusCellRenderer())
             setSelectionMode(ListSelectionModel.SINGLE_SELECTION)
+            selectionModel.addListSelectionListener { 
+                updateAccountInfoPanel()
+            }
         }
 
         val decorator = ToolbarDecorator.createDecorator(accountsTable)
             .setAddAction { addAccount() }
             .setRemoveAction { removeAccount() }
-            .addExtraAction(object : ToolbarDecorator.ElementActionButton("Refresh Token", 
-                "Refresh the authentication token for selected account", 
-                AllIcons.Actions.Refresh) {
-                override fun actionPerformed(e: java.awt.event.ActionEvent) {
+            .addExtraAction(object : com.intellij.ui.ToolbarDecorator.ElementActionButton(
+                "Refresh Token",
+                "Refresh the authentication token for selected account",
+                AllIcons.Actions.Refresh
+            ) {
+                override fun actionPerformed(e: com.intellij.openapi.actionSystem.AnActionEvent) {
                     refreshToken()
                 }
             })
-            .addExtraAction(object : ToolbarDecorator.ElementActionButton("Re-login", 
-                "Re-authenticate with selected account", 
-                AllIcons.Actions.Execute) {
-                override fun actionPerformed(e: java.awt.event.ActionEvent) {
+            .addExtraAction(object : com.intellij.ui.ToolbarDecorator.ElementActionButton(
+                "Re-login",
+                "Re-authenticate with selected account",
+                AllIcons.Actions.Execute
+            ) {
+                override fun actionPerformed(e: com.intellij.openapi.actionSystem.AnActionEvent) {
                     reAuthenticate()
                 }
             })
@@ -67,9 +76,20 @@ class AzureDevOpsAccountsConfigurable : Configurable {
             "<font size='-1' color='gray'>Manage your Azure DevOps accounts. " +
             "Accounts are stored globally and available across all projects.</font></html>")
 
+        // Account info panel
+        accountInfoPanel = JPanel(BorderLayout()).apply {
+            border = JBUI.Borders.empty(10, 0, 0, 0)
+            add(JBLabel("<html><i>Select an account to view details</i></html>"), BorderLayout.CENTER)
+        }
+
+        val centerPanel = JPanel(BorderLayout()).apply {
+            add(decoratorPanel, BorderLayout.CENTER)
+            add(accountInfoPanel, BorderLayout.SOUTH)
+        }
+
         mainPanel = JPanel(BorderLayout()).apply {
             add(infoLabel, BorderLayout.NORTH)
-            add(decoratorPanel, BorderLayout.CENTER)
+            add(centerPanel, BorderLayout.CENTER)
             border = JBUI.Borders.empty(10)
         }
 
@@ -78,8 +98,72 @@ class AzureDevOpsAccountsConfigurable : Configurable {
         return mainPanel!!
     }
 
+    private fun updateAccountInfoPanel() {
+        val selectedRow = accountsTable.selectedRow
+        if (selectedRow < 0) {
+            accountInfoPanel.removeAll()
+            accountInfoPanel.add(JBLabel("<html><i>Select an account to view details</i></html>"), BorderLayout.CENTER)
+            accountInfoPanel.revalidate()
+            accountInfoPanel.repaint()
+            return
+        }
+
+        val accountWithStatus = accountsModel.getAccountAt(selectedRow)
+        val account = accountWithStatus.account
+        
+        val infoText = StringBuilder("<html><b>Account Details:</b><br><br>")
+        infoText.append("<b>Display Name:</b> ${account.displayName}<br>")
+        infoText.append("<b>Server URL:</b> ${account.serverUrl}<br>")
+        infoText.append("<b>Account ID:</b> ${account.id}<br>")
+        infoText.append("<b>Status:</b> ${formatAuthState(accountWithStatus.state)}<br>")
+        
+        if (accountWithStatus.expiresAt > 0) {
+            val expiryDate = Date(accountWithStatus.expiresAt)
+            val dateFormat = SimpleDateFormat("MMM dd, yyyy HH:mm:ss")
+            infoText.append("<b>Token Expires:</b> ${dateFormat.format(expiryDate)}<br>")
+            
+            val now = System.currentTimeMillis()
+            val timeLeft = accountWithStatus.expiresAt - now
+            if (timeLeft > 0) {
+                val daysLeft = timeLeft / (1000 * 60 * 60 * 24)
+                val hoursLeft = (timeLeft % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)
+                infoText.append("<b>Time Remaining:</b> $daysLeft days, $hoursLeft hours<br>")
+            } else {
+                infoText.append("<b>Time Remaining:</b> <font color='red'>Expired</font><br>")
+            }
+        } else {
+            infoText.append("<b>Token Expires:</b> Unknown<br>")
+        }
+        
+        if (accountWithStatus.lastRefreshed > 0) {
+            val refreshDate = Date(accountWithStatus.lastRefreshed)
+            val dateFormat = SimpleDateFormat("MMM dd, yyyy HH:mm:ss")
+            infoText.append("<b>Last Refreshed:</b> ${dateFormat.format(refreshDate)}<br>")
+        }
+        
+        val hasRefreshToken = accountManager.getRefreshToken(account.id) != null
+        infoText.append("<b>Has Refresh Token:</b> ${if (hasRefreshToken) "Yes" else "No"}<br>")
+        
+        infoText.append("</html>")
+        
+        accountInfoPanel.removeAll()
+        accountInfoPanel.add(JBLabel(infoText.toString()), BorderLayout.CENTER)
+        accountInfoPanel.revalidate()
+        accountInfoPanel.repaint()
+    }
+
+    private fun formatAuthState(state: AzureDevOpsAccountManager.AccountAuthState): String {
+        return when (state) {
+            AzureDevOpsAccountManager.AccountAuthState.VALID -> "<font color='green'>✓ Valid</font>"
+            AzureDevOpsAccountManager.AccountAuthState.EXPIRED -> "<font color='orange'>⚠ Expired</font>"
+            AzureDevOpsAccountManager.AccountAuthState.REVOKED -> "<font color='red'>✗ Revoked</font>"
+            AzureDevOpsAccountManager.AccountAuthState.UNKNOWN -> "<font color='gray'>? Unknown</font>"
+        }
+    }
+
     private fun loadAccounts() {
         accountsModel.setAccounts(accountManager.getAccounts())
+        updateAccountInfoPanel()
     }
 
     private fun addAccount() {
@@ -92,9 +176,10 @@ class AzureDevOpsAccountsConfigurable : Configurable {
     private fun removeAccount() {
         val selectedRow = accountsTable.selectedRow
         if (selectedRow >= 0) {
-            val account = accountsModel.getAccountAt(selectedRow)
+            val accountWithStatus = accountsModel.getAccountAt(selectedRow)
+            val account = accountWithStatus.account
             val result = Messages.showYesNoDialog(
-                mainPanel,
+                null,
                 "Are you sure you want to remove account '${account.displayName}'?\nThis will remove all stored credentials.",
                 "Remove Account",
                 Messages.getQuestionIcon()
@@ -109,16 +194,17 @@ class AzureDevOpsAccountsConfigurable : Configurable {
     private fun refreshToken() {
         val selectedRow = accountsTable.selectedRow
         if (selectedRow < 0) {
-            Messages.showWarningDialog(mainPanel, "Please select an account", "No Account Selected")
+            Messages.showWarningDialog(null, "Please select an account", "No Account Selected")
             return
         }
 
-        val account = accountsModel.getAccountAt(selectedRow)
+        val accountWithStatus = accountsModel.getAccountAt(selectedRow)
+        val account = accountWithStatus.account
         val refreshToken = accountManager.getRefreshToken(account.id)
 
         if (refreshToken == null) {
             Messages.showWarningDialog(
-                mainPanel,
+                null as com.intellij.openapi.project.Project?,
                 "No refresh token available for this account.\nPlease re-authenticate using 'Re-login' button.",
                 "No Refresh Token"
             )
@@ -157,15 +243,16 @@ class AzureDevOpsAccountsConfigurable : Configurable {
 
             override fun onSuccess() {
                 if (success) {
+                    loadAccounts()  // Reload the table data
+                    updateAccountInfoPanel()  // Update the info panel to show new expiry
                     Messages.showInfoMessage(
-                        mainPanel,
+                        null as com.intellij.openapi.project.Project?,
                         "Access token refreshed successfully for '${account.displayName}'",
                         "Token Refreshed"
                     )
-                    loadAccounts()
                 } else {
                     Messages.showErrorDialog(
-                        mainPanel,
+                        null as com.intellij.openapi.project.Project?,
                         errorMessage ?: "Unknown error occurred",
                         "Refresh Failed"
                     )
@@ -177,13 +264,14 @@ class AzureDevOpsAccountsConfigurable : Configurable {
     private fun reAuthenticate() {
         val selectedRow = accountsTable.selectedRow
         if (selectedRow < 0) {
-            Messages.showWarningDialog(mainPanel, "Please select an account", "No Account Selected")
+            Messages.showWarningDialog(null, "Please select an account", "No Account Selected")
             return
         }
 
-        val account = accountsModel.getAccountAt(selectedRow)
+        val accountWithStatus = accountsModel.getAccountAt(selectedRow)
+        val account = accountWithStatus.account
         val result = Messages.showYesNoDialog(
-            mainPanel,
+            null,
             "Re-authenticate with '${account.displayName}'?\nThis will open a browser window for authentication.",
             "Re-authenticate",
             Messages.getQuestionIcon()
@@ -196,14 +284,14 @@ class AzureDevOpsAccountsConfigurable : Configurable {
             if (dialog.showAndGet()) {
                 loadAccounts()
                 Messages.showInfoMessage(
-                    mainPanel,
+                    null as com.intellij.openapi.project.Project?,
                     "Successfully re-authenticated!",
                     "Authentication Complete"
                 )
             } else {
                 // Restore if cancelled? Or leave removed?
                 Messages.showWarningDialog(
-                    mainPanel,
+                    null as com.intellij.openapi.project.Project?,
                     "Authentication was cancelled. The account has been removed.",
                     "Cancelled"
                 )
@@ -226,17 +314,20 @@ class AzureDevOpsAccountsConfigurable : Configurable {
     }
 
     /**
+     * Data class for account with status information
+     */
+    data class AccountWithStatus(
+        val account: AzureDevOpsAccount,
+        val state: AzureDevOpsAccountManager.AccountAuthState,
+        val expiresAt: Long,
+        val lastRefreshed: Long
+    )
+
+    /**
      * Table model for accounts list
      */
     private inner class AccountsTableModel : AbstractTableModel() {
         private var accounts: List<AccountWithStatus> = emptyList()
-
-        data class AccountWithStatus(
-            val account: AzureDevOpsAccount,
-            val state: AzureDevOpsAccountManager.AccountAuthState,
-            val expiresAt: Long,
-            val lastRefreshed: Long
-        )
 
         fun setAccounts(accountsList: List<AzureDevOpsAccount>) {
             accounts = accountsList.map { account ->
@@ -251,7 +342,7 @@ class AzureDevOpsAccountsConfigurable : Configurable {
             fireTableDataChanged()
         }
 
-        fun getAccountAt(row: Int): AzureDevOpsAccount = accounts[row].account
+        fun getAccountAt(row: Int): AccountWithStatus = accounts[row]
 
         override fun getRowCount(): Int = accounts.size
 
