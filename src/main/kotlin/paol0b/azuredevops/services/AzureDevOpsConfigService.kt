@@ -114,7 +114,8 @@ class AzureDevOpsConfigService(private val project: com.intellij.openapi.project
     
     /**
      * Tries to match the current repository with a global OAuth account
-     * and retrieve the OAuth token if a match is found
+     * and retrieve the OAuth token if a match is found.
+     * Automatically refreshes expired tokens if a refresh token is available.
      */
     private fun tryGetTokenFromOAuthAccount(): String? {
         try {
@@ -133,7 +134,30 @@ class AzureDevOpsConfigService(private val project: com.intellij.openapi.project
                 // Extract organization from account server URL
                 val accountOrg = extractOrganizationFromUrl(account.serverUrl)
                 if (accountOrg.equals(organization, ignoreCase = true)) {
-                    // Found matching account, return its token
+                    // Found matching account
+                    val authState = accountManager.getAccountAuthState(account.id)
+                    
+                    // If token is expired, try to refresh it
+                    if (authState == AzureDevOpsAccountManager.AccountAuthState.EXPIRED) {
+                        val refreshToken = accountManager.getRefreshToken(account.id)
+                        if (refreshToken != null) {
+                            // Try to refresh the token
+                            val oauthService = AzureDevOpsOAuthService.getInstance()
+                            val result = oauthService.refreshAccessToken(refreshToken, account.serverUrl)
+                            if (result != null) {
+                                // Update the account with new tokens
+                                accountManager.updateToken(
+                                    account.id,
+                                    result.accessToken,
+                                    result.refreshToken,
+                                    result.expiresIn
+                                )
+                                return result.accessToken
+                            }
+                        }
+                    }
+                    
+                    // Return the token (valid or after refresh)
                     return accountManager.getToken(account.id)
                 }
             }

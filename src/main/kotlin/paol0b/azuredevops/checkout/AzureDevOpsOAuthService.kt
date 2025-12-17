@@ -166,6 +166,44 @@ class AzureDevOpsOAuthService {
     }
 
     /**
+     * Refreshes an access token using a refresh token.
+     * According to Microsoft docs: https://learn.microsoft.com/en-us/azure/active-directory/develop/v2-oauth2-device-code
+     */
+    fun refreshAccessToken(refreshToken: String, organizationUrl: String): OAuthResult? {
+        return try {
+            logger.info("Attempting to refresh access token")
+            val connection = URI.create(TOKEN_URL).toURL().openConnection() as java.net.HttpURLConnection
+            
+            connection.requestMethod = "POST"
+            connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+            connection.doOutput = true
+
+            val postData = "client_id=${URLEncoder.encode(CLIENT_ID, StandardCharsets.UTF_8)}" +
+                    "&grant_type=refresh_token" +
+                    "&refresh_token=${URLEncoder.encode(refreshToken, StandardCharsets.UTF_8)}" +
+                    "&scope=${URLEncoder.encode(SCOPES, StandardCharsets.UTF_8)}"
+
+            connection.outputStream.use { os ->
+                os.write(postData.toByteArray(StandardCharsets.UTF_8))
+            }
+
+            val responseCode = connection.responseCode
+            if (responseCode == 200) {
+                val response = connection.inputStream.bufferedReader().use { it.readText() }
+                logger.info("Successfully refreshed access token")
+                return parseTokenResponse(response, organizationUrl)
+            } else {
+                val error = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
+                logger.error("Failed to refresh token: HTTP $responseCode - $error")
+                null
+            }
+        } catch (e: Exception) {
+            logger.error("Failed to refresh access token", e)
+            null
+        }
+    }
+
+    /**
      * Authenticates using Personal Access Token (PAT) - fallback method
      */
     fun authenticateWithPAT(organizationUrl: String, pat: String): OAuthResult? {

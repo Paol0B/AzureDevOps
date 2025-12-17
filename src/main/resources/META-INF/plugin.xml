@@ -78,6 +78,20 @@
         <applicationService serviceImplementation="paol0b.azuredevops.checkout.AzureDevOpsAccountManager"/>
         <!-- OAuth authentication service -->
         <applicationService serviceImplementation="paol0b.azuredevops.checkout.AzureDevOpsOAuthService"/>
+        
+        <!-- Application-level configuration for accounts -->
+        <applicationConfigurable 
+            parentId="tools" 
+            instance="paol0b.azuredevops.ui.AzureDevOpsAccountsConfigurable"
+            id="paol0b.azuredevops.accounts"
+            displayName="Azure DevOps Accounts"/>
+            
+        <!-- Project-level configuration -->
+        <projectConfigurable
+            parentId="tools"
+            instance="paol0b.azuredevops.ui.AzureDevOpsProjectConfigurable"
+            id="paol0b.azuredevops.project"
+            displayName="Azure DevOps"/>
 
         <!-- Notification Group -->
         <notificationGroup

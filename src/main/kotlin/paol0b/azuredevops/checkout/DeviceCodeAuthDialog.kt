@@ -168,7 +168,12 @@ class DeviceCodeAuthDialog(
                         if (result != null) {
                             // Authentication successful
                             val accountManager = AzureDevOpsAccountManager.getInstance()
-                            authenticatedAccount = accountManager.addAccount(result.serverUrl, result.accessToken)
+                            authenticatedAccount = accountManager.addAccount(
+                                result.serverUrl, 
+                                result.accessToken, 
+                                result.refreshToken, 
+                                result.expiresIn
+                            )
                             
                             statusLabel.text = "✓ Authentication successful!"
                             statusLabel.foreground = java.awt.Color(0, 128, 0)

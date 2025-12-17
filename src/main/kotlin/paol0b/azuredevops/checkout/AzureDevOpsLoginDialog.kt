@@ -302,7 +302,7 @@ class AzureDevOpsLoginDialog(private val project: Project?) : DialogWrapper(proj
 
         // Save account
         val accountManager = AzureDevOpsAccountManager.getInstance()
-        account = accountManager.addAccount(serverUrl, token)
+        account = accountManager.addAccount(serverUrl, token, null, null)
 
         super.doOKAction()
     }
