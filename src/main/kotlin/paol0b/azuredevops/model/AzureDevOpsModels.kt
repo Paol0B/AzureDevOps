@@ -403,13 +403,16 @@ data class CreateCommentRequest(
 
 /**
  * Request to update the status of a thread
- * Azure DevOps API 7.2 requires only the status field with the value in lowercase
+ * Azure DevOps API requires status field and the comments array
+ * The comments array must be included even if just updating status
  */
 data class UpdateThreadStatusRequest(
     @SerializedName("status")
-    val status: String
+    val status: String,
+    @SerializedName("comments")
+    val comments: List<Comment>?
 ) {
-    constructor(status: ThreadStatus) : this(status.toApiValue())
+    constructor(status: ThreadStatus, comments: List<Comment>?) : this(status.toApiValue(), comments)
 }
 
 /**

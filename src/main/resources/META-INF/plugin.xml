@@ -167,18 +167,6 @@
             <add-to-group group-id="Vcs.MainMenu" anchor="last"/>
         </action>
 
-        <!-- Toggle PR Comments - Quick Access -->
-        <action
-                id="AzureDevOps.TogglePRComments"
-                class="paol0b.azuredevops.actions.TogglePRCommentsAction"
-                text="Show/Hide PR Comments"
-                description="Toggle Pull Request comments visibility in the editor"
-                icon="AllIcons.Toolwindows.ToolWindowMessages">
-            <add-to-group group-id="EditorPopupMenu" anchor="first"/>
-            <add-to-group group-id="Vcs.MainMenu" anchor="last"/>
-            <add-to-group group-id="MainToolBar" anchor="last"/>
-        </action>
-
         <!-- Show PR Comments in Editor (legacy action) -->
         <action
                 id="AzureDevOps.ShowPRComments"

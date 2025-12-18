@@ -15,6 +15,16 @@ class PullRequestToolWindowFactory : ToolWindowFactory, DumbAware {
         val pullRequestToolWindow = PullRequestToolWindow(project)
         val content = toolWindow.contentManager.factory.createContent(pullRequestToolWindow.getContent(), "", false)
         toolWindow.contentManager.addContent(content)
+        
+        // Add listener to load PRs when tab becomes visible
+        toolWindow.addContentManagerListener(object : com.intellij.ui.content.ContentManagerListener {
+            override fun selectionChanged(event: com.intellij.ui.content.ContentManagerEvent) {
+                if (event.content == content && event.operation == com.intellij.ui.content.ContentManagerEvent.ContentOperation.add) {
+                    // Tab just opened/became visible - load PRs
+                    pullRequestToolWindow.loadPullRequestsIfNeeded()
+                }
+            }
+        })
 
         // Ensure we stop polling when the content is removed
         toolWindow.contentManager.addContentManagerListener(object : com.intellij.ui.content.ContentManagerAdapter() {

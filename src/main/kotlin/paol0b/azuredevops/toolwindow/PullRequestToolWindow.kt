@@ -26,6 +26,7 @@ class PullRequestToolWindow(private val project: Project) {
     private val pullRequestListPanel: PullRequestListPanel
     private val pullRequestDetailsPanel: PullRequestDetailsPanel
     private val pollingService = paol0b.azuredevops.services.PullRequestsPollingService.getInstance(project)
+    private var isInitialLoadDone: Boolean = false
 
     init {
         pullRequestListPanel = PullRequestListPanel(project) { selectedPR ->
@@ -50,11 +51,17 @@ class PullRequestToolWindow(private val project: Project) {
             setContent(splitter)
         }
 
-        // Load PRs at startup
-        pullRequestListPanel.refreshPullRequests()
-
+        // Don't load PRs at startup - wait for tab to be visible
+        
         // Start polling to automatically update the PR list
         pollingService.startPolling {
+            pullRequestListPanel.refreshPullRequests()
+        }
+    }
+    
+    fun loadPullRequestsIfNeeded() {
+        if (!isInitialLoadDone) {
+            isInitialLoadDone = true
             pullRequestListPanel.refreshPullRequests()
         }
     }

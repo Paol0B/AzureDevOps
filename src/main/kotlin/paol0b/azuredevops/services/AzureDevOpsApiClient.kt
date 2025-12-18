@@ -319,8 +319,13 @@ The plugin will automatically use your authenticated account for this repository
             throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
         }
 
-        // Create the request with the correct format for the API
-        val request = UpdateThreadStatusRequest(status)
+        // First get the current thread to include its comments in the update request
+        val threads = getCommentThreads(pullRequestId)
+        val currentThread = threads.firstOrNull { it.id == threadId }
+            ?: throw AzureDevOpsApiException("Thread not found: $threadId")
+        
+        // Create the request with status and existing comments (required by API)
+        val request = UpdateThreadStatusRequest(status, currentThread.comments)
         
         val url = buildApiUrl(config.project, config.repository, "/pullRequests/$pullRequestId/threads/$threadId?api-version=$API_VERSION")
         
