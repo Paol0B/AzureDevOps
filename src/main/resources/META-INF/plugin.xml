@@ -16,51 +16,96 @@
          Guidelines: https://plugins.jetbrains.com/docs/marketplace/best-practices-for-listing.html#plugin-description -->
     <description><![CDATA[
         <h2>Azure DevOps Integration for JetBrains IDEs</h2>
-        <p>Integrate Azure DevOps directly into your JetBrains IDE with a dedicated Tool Window for managing Pull Requests, inspired by Visual Studio.</p>
+        <p>Seamlessly integrate Azure DevOps into your JetBrains IDE with powerful tool windows, OAuth 2.0 authentication, and intelligent PR management - inspired by Visual Studio.</p>
 
         <h3>✨ Key Features:</h3>
+        
+        <h4>🔐 Authentication & Accounts</h4>
         <ul>
-            <li><b>🪟 "Azure DevOps PRs" Tool Window:</b> Sidebar window to view and manage all pull requests</li>
-            <li><b>📋 Organized PR List:</b> See all PRs grouped by status (Active, Completed, Abandoned)</li>
-            <li><b>🔎 Full Details:</b> Panel with title, description, branch, author, reviewers, and status</li>
-            <li><b>🎨 Status Badges:</b> Instantly identify PR status with color-coded badges</li>
-            <li><b>🔍 Filters:</b> Show only active PRs or all PRs with one click</li>
-            <li><b>� Automatic Detection:</b> The plugin auto-detects Azure DevOps repositories by analyzing the Git remote URL</li>
-            <li><b>⚡ Easy Setup:</b> Only the Personal Access Token is required; Organization, Project, and Repository are auto-detected</li>
-            <li><b>📝 Create Pull Requests:</b> Create PRs to main/master directly from the IDE or Tool Window</li>
-            <li><b>🌿 Branch Selection:</b> Choose source and target branches with autocomplete</li>
-            <li><b>🔒 Secure Storage:</b> PAT is securely saved using the IDE's password storage system</li>
-            <li><b>🔔 Notifications:</b> Get instant feedback on success or errors</li>
-            <li><b>🔗 Quick Links:</b> Open PRs in your browser with one click</li>
-            <li><b>👁️ Smart Visibility:</b> Tool window and actions appear only for Azure DevOps repositories</li>
-            <li><b>☑️ File Selection for Diff:</b> Select which files to include in PR review diffs using checkboxes</li>
-            <li><b>💬 Enhanced Comments:</b> View, add, and manage PR comments with auto-refresh and feedback</li>
-            <li><b>📊 Changes & Commits Tabs:</b> View file changes grouped by directory with [A]dded, [M]odified, [D]eleted indicators and all commits included in the PR</li>
+            <li><b>OAuth 2.0 Authentication:</b> Secure Microsoft Device Code Flow authentication</li>
+            <li><b>Centralized Account Management:</b> Add multiple Azure DevOps organizations in Settings → Tools → Azure DevOps Accounts</li>
+            <li><b>Automatic Token Refresh:</b> Tokens refresh automatically when expired - no manual intervention needed</li>
+            <li><b>Auto-Matching:</b> Plugin automatically matches your repository to the correct OAuth account</li>
+            <li><b>Secure Storage:</b> All credentials encrypted in IDE's PasswordSafe</li>
+        </ul>
+
+        <h4>📋 Azure DevOps PRs Tool Window</h4>
+        <ul>
+            <li><b>Modern PR List:</b> View all Pull Requests with status badges (Active, Completed, Abandoned, All)</li>
+            <li><b>Lazy Loading:</b> PRs load automatically when you open the tab - instant IDE startup</li>
+            <li><b>Auto-Polling:</b> Automatic refresh in background to keep PR list up-to-date</li>
+            <li><b>Detailed View:</b> See title, description, author, reviewers, branches, and status at a glance</li>
+            <li><b>Create PRs:</b> Create new Pull Requests directly from the IDE with branch autocomplete</li>
+            <li><b>Reviewer Management:</b> Add required and optional reviewers with search</li>
+            <li><b>Diff Viewer:</b> View file changes with [A]dded, [M]odified, [D]eleted indicators</li>
+            <li><b>Commits Tab:</b> See all commits included in the PR</li>
+            <li><b>Quick Actions:</b> Open PRs in browser, refresh list, create new PRs with one click</li>
+        </ul>
+
+        <h4>💬 PR Comments Tool Window</h4>
+        <ul>
+            <li><b>Modern Card UI:</b> Beautiful card-based interface with clear visual hierarchy</li>
+            <li><b>Lazy Loading:</b> Comments load automatically when you open the tab</li>
+            <li><b>Smart Search:</b> Filter comments by file name, author, or content in real-time</li>
+            <li><b>Advanced Filters:</b> Show All, Active, Resolved, or General comments with one click</li>
+            <li><b>Auto-Show Comments:</b> Enable checkbox to automatically display comments when opening files</li>
+            <li><b>Intelligent Auto-Refresh:</b> Updates every 30 seconds but only re-renders if there are actual changes</li>
+            <li><b>One-Click Navigation:</b> Click any comment to jump directly to the file and line</li>
+            <li><b>Comment Threads:</b> Press Enter to open full thread dialog with reply functionality</li>
+            <li><b>Visual Indicators:</b> Icons show comment status (active, resolved, general)</li>
+        </ul>
+
+        <h4>🎨 Editor & File Tree Integration</h4>
+        <ul>
+            <li><b>Gutter Icons:</b> Comments appear as icons in the editor gutter</li>
+            <li><b>File Tree Badges:</b> See comment counts on files and folders</li>
+            <li><b>Color-Coded:</b> Orange badges for active comments, green for resolved</li>
+            <li><b>Rich Tooltips:</b> Hover over badges to see detailed comment breakdown</li>
+            <li><b>Inline Viewing:</b> Click gutter icons to view and reply to comment threads</li>
+            <li><b>C# & Rider Support:</b> Full support for all project types including .NET solutions</li>
+        </ul>
+
+        <h4>⚡ Performance & User Experience</h4>
+        <ul>
+            <li><b>Lazy Loading:</b> Tool windows load content only when opened - zero startup impact</li>
+            <li><b>Smart Refresh:</b> Intelligent change detection minimizes unnecessary updates</li>
+            <li><b>Theme-Aware UI:</b> Perfect contrast and colors in both light and dark themes</li>
+            <li><b>Automatic Detection:</b> Organization, project, and repository auto-detected from Git remote</li>
+            <li><b>Multi-Organization:</b> Seamlessly work with multiple Azure DevOps organizations</li>
+            <li><b>Background Operations:</b> All API calls run in background threads - no UI freezing</li>
         </ul>
 
         <h3>📋 Requirements:</h3>
         <ul>
-            <li>Repository cloned from Azure DevOps (HTTPS or SSH URL)</li>
-            <li>Personal Access Token with Code and Pull Request permissions</li>
+            <li>IntelliJ IDEA 2024.1 or newer (all JetBrains IDEs supported)</li>
+            <li>Git repository connected to Azure DevOps</li>
+            <li>Microsoft account with access to your Azure DevOps organization</li>
         </ul>
 
-        <h3>🚀 How to Use:</h3>
+        <h3>🚀 Quick Start:</h3>
         <ol>
-            <li>Clone a repository from Azure DevOps</li>
-            <li>Go to <b>Settings → Tools → Azure DevOps</b></li>
-            <li>Enter only your <b>Personal Access Token</b> (Organization/Project/Repository are auto-detected)</li>
-            <li>Open the <b>"Azure DevOps PRs" Tool Window</b> in the sidebar</li>
-            <li>View, create, and manage your Pull Requests!</li>
+            <li>Install the plugin and restart the IDE</li>
+            <li>Go to <b>Settings → Tools → Azure DevOps Accounts</b></li>
+            <li>Click <b>Add</b> and sign in with your Microsoft account via browser (OAuth 2.0)</li>
+            <li>Open your Azure DevOps repository in the IDE</li>
+            <li>Open the <b>Azure DevOps PRs</b> or <b>PR Comments</b> tool window on the right sidebar</li>
+            <li>Start managing Pull Requests and comments!</li>
         </ol>
 
-        <h3>🌐 Supported URLs:</h3>
+        <h3>💡 How It Works:</h3>
+        <p>The plugin uses OAuth 2.0 Device Code Flow for secure authentication. Once authenticated, your account is stored globally and automatically matched to repositories based on organization URL. The plugin detects your repository information from Git remotes - no manual configuration needed!</p>
+        
+        <p>When you open a tool window, it loads data automatically. Enable "Auto-show comments" in the PR Comments tab to see comments on files as you open them. Both tool windows refresh intelligently to keep data up-to-date without impacting performance.</p>
+
+        <h3>📚 Documentation:</h3>
         <ul>
-            <li>HTTPS: <code>https://dev.azure.com/{org}/{project}/_git/{repo}</code></li>
-            <li>SSH: <code>git@ssh.dev.azure.com:v3/{org}/{project}/{repo}</code></li>
-            <li>Legacy: <code>https://{org}.visualstudio.com/{project}/_git/{repo}</code></li>
+            <li><a href="https://github.com/paol0b/AzureDevOps/blob/main/GETTING_STARTED.md">Getting Started Guide</a></li>
+            <li><a href="https://github.com/paol0b/AzureDevOps/blob/main/docs/OAUTH_SETUP.md">OAuth Setup Instructions</a></li>
+            <li><a href="https://github.com/paol0b/AzureDevOps/blob/main/docs/USAGE_EXAMPLES.md">Usage Examples</a></li>
         </ul>
 
-        <p><em>Works only with Azure DevOps repositories. The plugin automatically detects the Git remote URL and shows features only when applicable.</em></p>
+        <h3>🆘 Support:</h3>
+        <p>Issues, questions, or feature requests? Visit the <a href="https://github.com/paol0b/AzureDevOps">GitHub repository</a>.</p>
     ]]></description>
 
     <!-- Product and plugin compatibility requirements.
