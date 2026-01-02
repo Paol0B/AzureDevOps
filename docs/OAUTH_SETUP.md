@@ -1,193 +1,138 @@
-# Azure DevOps OAuth Setup Guide - Microsoft Entra ID
+# Authentication Setup - Azure DevOps Integration
 
-This guide explains how to configure OAuth 2.0 authentication using **Microsoft Entra ID** (recommended by Microsoft) for the Azure DevOps IntelliJ plugin.
+This plugin uses **OAuth 2.0** for secure authentication with your Microsoft account. No need to create tokens or manage credentials manually!
 
-> **Note:** Microsoft Entra ID OAuth is the recommended authentication method. Azure DevOps OAuth is deprecated and no longer accepts new registrations as of April 2025.
+---
 
-## Prerequisites
+## How It Works
 
-You need to register an OAuth application with Microsoft Entra ID (formerly Azure AD) to obtain:
-- **Application (client) ID**
-- **Client Secret**
+The plugin authenticates using **OAuth 2.0**, which means:
+- ✅ You sign in with your Microsoft account in your browser
+- ✅ Your credentials are never stored locally
+- ✅ The plugin only gets a token to access your Azure DevOps
+- ✅ The token automatically refreshes when it expires
+- ✅ It's as secure as signing into websites
 
-## Step 1: Register Your Application in Azure Portal
+---
 
-1. Go to [Azure Portal - App Registrations](https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade)
+## Sign In (Quick Version)
 
-2. Click **"+ New registration"**
+### The Easiest Way - Clone a Repository
 
-3. Fill in the application details:
-   - **Name**: `Azure DevOps IntelliJ Plugin`
-   - **Supported account types**: Select **"Accounts in any organizational directory (Any Azure AD directory - Multitenant)"**
-     > ✅ **Questo è corretto**: Supporta account aziendali/scolastici da qualsiasi organizzazione
-     > ⚠️ **Non selezionare** l'opzione con "personal Microsoft accounts" - può causare problemi
-   - **Redirect URI**: Select **"Web"** and enter: `http://localhost:8888/callback`
+1. Go to **File** → **New** → **Project from Version Control**
+2. Click **Azure DevOps**
+3. A login prompt appears (if not already logged in)
+4. Click **"Sign in with Browser"**
+5. Your browser opens automatically
+6. Sign in with your **Microsoft account**
+7. Grant the plugin access
+8. Return to the IDE - you're logged in!
+9. The clone tool window shows your repositories
+10. Select and clone any repository
 
-4. Click **"Register"**
+**Or add an account manually:**
 
-5. Save the **Application (client) ID** - you'll need this later
+1. Go to **Settings** → **Tools** → **Azure DevOps Accounts**
+2. Click **Add**
+3. Enter your organization URL: `https://dev.azure.com/yourorganization`
+4. Click **"Sign in with Browser"**
+5. A browser window opens
+6. Sign in with your Microsoft account
+7. Click to approve access
+8. Done! The plugin remembers your account
 
-## Step 2: Create a Client Secret
+That's it. You don't need to do anything else. The plugin handles all the technical details.
 
-1. In your app registration, go to **"Certificates & secrets"**
+---
 
-2. Click **"+ New client secret"**
+## FAQ - Authentication
 
-3. Add a description (e.g., "IntelliJ Plugin Secret")
+### Q: Is my password safe?
+**A:** Yes. You never enter your password in the IDE. You sign in using your browser, which is much more secure.
 
-4. Select an expiration period (recommended: 24 months)
+### Q: Do I need to manually refresh tokens?
+**A:** No. The plugin automatically refreshes tokens when they expire. You won't notice anything.
 
-5. Click **"Add"**
+### Q: Can I use multiple accounts?
+**A:** Yes. Go to **Settings** → **Tools** → **Azure DevOps Accounts** and click **Add** again.
 
-6. **IMPORTANT**: Copy the **Value** immediately - it won't be shown again!
+### Q: What if I forget to sign in?
+**A:** The plugin will tell you when you open a PR tool window. Just click "Add Account" and follow the steps.
 
-## Step 3: Add API Permissions for Azure DevOps
+### Q: Can I sign out?
+**A:** Yes. In **Settings** → **Tools** → **Azure DevOps Accounts**, click the account and select **Remove**.
 
-1. In your app registration, go to **"API permissions"**
+### Q: What does "Valid", "Expired", or "Invalid" mean?
+- **Valid** ✅ - Your account is working
+- **Expired** ⚠️ - Token expired but will refresh automatically next time you use it
+- **Invalid** ❌ - Something went wrong, try signing in again
 
-2. Click **"+ Add a permission"**
-
-3. Select **"Azure DevOps"** from the list of Microsoft APIs
-
-4. Select **"Delegated permissions"**
-
-5. Check the following permissions:
-   - ✅ **user_impersonation** - Access Azure DevOps on behalf of the user
-   
-   Or select specific scopes:
-   - ✅ **vso.code** - Read source code
-   - ✅ **vso.code_write** - Read and write source code  
-   - ✅ **vso.project** - Read projects and teams
-
-6. Click **"Add permissions"**
-
-7. (Optional) Click **"Grant admin consent for [Your Organization]"** to avoid user consent prompts
-
-## Step 4: Configure the Plugin
-
-Open the file `src/main/kotlin/paol0b/azuredevops/checkout/AzureDevOpsOAuthService.kt` and replace:
-
-```kotlin
-private val CLIENT_ID = "YOUR_CLIENT_ID_HERE"
-private val CLIENT_SECRET = "YOUR_CLIENT_SECRET_HERE"
-```
-
-With your actual credentials from Azure Portal:
-
-```kotlin
-private val CLIENT_ID = "12345678-1234-1234-1234-123456789abc"  // Application (client) ID
-private val CLIENT_SECRET = "abC8Q~xXxXxXxXxXxXxXxXxXxXxXxXxXxXxX"  // Client secret value
-```
-
-## Step 3: Rebuild the Plugin
-
-After updating the credentials, rebuild the plugin:
-
-```bash
-./gradlew clean buildPlugin
-```
-
-## Step 4: Test OAuth Flow
-
-1. Install the rebuilt plugin in IntelliJ IDEA
-2. Go to **File → New → Project from Version Control**
-3. Select **Azure DevOps** from the list
-4. Click **"+"** to add a new account
-5. Enter your organization URL (e.g., `https://dev.azure.com/YourOrg`)
-6. Click **"Sign in with Browser (OAuth)"**
-7. Your browser will open to authenticate
-8. After successful authentication, you'll be redirected back
-9. The plugin will automatically fetch your repositories
-
-## OAuth Flow Diagram
-
-```
-User Action                    Browser                     Azure DevOps
-    |                             |                              |
-    | 1. Click "Sign in"         |                              |
-    |--------------------------->|                              |
-    |                             |                              |
-    | 2. Open browser with auth URL                             |
-    |----------------------------------------------------------->|
-    |                             |                              |
-    |                             | 3. User logs in             |
-    |                             |----------------------------->|
-    |                             |                              |
-    |                             | 4. Authorization code       |
-    |                             |<-----------------------------|
-    |                             |                              |
-    | 5. Callback to localhost:8888/callback                    |
-    |<-----------------------------------------------------------|
-    |                             |                              |
-    | 6. Exchange code for token                                |
-    |----------------------------------------------------------->|
-    |                             |                              |
-    | 7. Access token             |                              |
-    |<-----------------------------------------------------------|
-    |                             |                              |
-    | 8. Save credentials globally in IDE                       |
-    |                             |                              |
-```
-
-## Security Notes
-
-⚠️ **Important Security Considerations:**
-
-1. **Never commit credentials**: Don't commit your `CLIENT_ID` and `CLIENT_SECRET` to version control
-2. **Use environment variables**: For production, consider loading credentials from environment variables
-3. **Token storage**: Tokens are stored securely using IntelliJ's `PasswordSafe` API
-4. **Localhost redirect**: OAuth uses `localhost:8888` which is safe for local development
-
-## Alternative: Personal Access Token
-
-If you prefer not to set up OAuth, users can still authenticate using Personal Access Tokens:
-
-1. In the login dialog, check **"Use Personal Access Token instead"**
-2. Enter the organization URL
-3. Enter a PAT created at: **Azure DevOps → User Settings → Personal Access Tokens**
-4. Click **"Sign In"**
+---
 
 ## Troubleshooting
 
-### "The client does not exist or is not enabled for consumers"
+### **"Browser didn't open"**
+- Your browser should open automatically
+- If it doesn't, manually visit the URL shown in the dialog
+- Or check if a pop-up blocker is preventing it
 
-**Questo errore indica che stai provando ad usare un account personale Microsoft quando l'app è configurata solo per account aziendali.**
+### **"Authentication failed"**
+- Make sure you're signing in with the right Microsoft account
+- Check that your account has access to the Azure DevOps organization
+- Try removing the account and adding it again
 
-**Soluzione:**
-1. **USA UN ACCOUNT AZIENDALE/SCOLASTICO** (work/school account) per Azure DevOps
-   - Account validi: nome@azienda.com, nome@scuola.edu
-   - Account NON validi per Azure DevOps: outlook.com, hotmail.com, live.com
-   
-2. Al momento del login, ti apparirà una schermata per **scegliere l'account**
-   - Seleziona l'account aziendale/scolastico
-   - NON usare account Microsoft personali
+### **"Account shows as Invalid"**
+1. Go to **Settings** → **Tools** → **Azure DevOps Accounts**
+2. Click **Remove** on the invalid account
+3. Click **Add** and sign in again
+4. The account should now show as **Valid**
 
-3. Se continua a dare errore, verifica la configurazione app:
-   - Vai su [Azure Portal - App Registrations](https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade)
-   - Seleziona la tua app → **"Authentication"**
-   - **Supported account types** deve essere: **"Accounts in any organizational directory (Multitenant)"**
-   - NON deve includere "personal Microsoft accounts"
+### **"Token expired" warning**
+- This is normal. The plugin automatically refreshes the token
+- You'll see the warning once, then it refreshes in the background
+- No action needed from you
 
-> 💡 **Importante**: L'endpoint `/organizations` con `prompt=select_account` ti permette di scegliere tra tutti i tuoi account al login!
+### **"Organization URL is wrong"**
+- Check your URL format: `https://dev.azure.com/yourorganization`
+- Replace `yourorganization` with your actual organization name
+- Don't include trailing slashes
 
-### OAuth authentication fails
-- Verify your **Application (client) ID** and **Client Secret** are correct
-- Check that the callback URL is exactly: `http://localhost:8888/callback`
-- Ensure port 8888 is not blocked by firewall
-- Check IntelliJ logs: **Help → Show Log in Explorer**
+---
 
-### Browser doesn't open
-- Try manually opening the authentication URL
-- Check if default browser is set correctly
-- Verify `BrowserUtil.browse()` has permissions
+## Security & Privacy
 
-### Token exchange fails
-- Verify your client secret is correct (it's long, like a JWT token)
-- Check network connectivity to Azure DevOps
-- Review logs for detailed error messages
+### What data does the plugin collect?
+- **Only tokens** to access Azure DevOps API
+- **Your organization URL** to know which Azure DevOps to connect to
+- Nothing else. No tracking, no analytics, no personal data.
 
-## References
+### Where are tokens stored?
+- In your IDE's **PasswordSafe** (encrypted password storage)
+- The same place where other IDE secrets are stored
+- Your operating system's security manages the encryption
 
-- [Azure DevOps OAuth Documentation](https://docs.microsoft.com/en-us/azure/devops/integrate/get-started/authentication/oauth)
-- [Register an OAuth App](https://app.vsaex.visualstudio.com/app/register)
-- [Azure DevOps REST API](https://docs.microsoft.com/en-us/rest/api/azure/devops/)
+### Can I see the token?
+- No, it's hidden for security
+- The plugin shows you only the account status and organization name
+
+---
+
+## What If You Have Problems?
+
+1. **Check your internet connection** - OAuth requires a browser request
+2. **Clear browser cookies** - Sometimes old cookies cause issues
+3. **Try a different browser** - Switch from Chrome to Firefox to test
+4. **Restart the IDE** - A full restart often fixes auth issues
+5. **Remove and re-add the account** - Complete re-authentication
+
+Still stuck? Visit [GitHub Issues](https://github.com/paol0b/AzureDevOps/issues)
+
+---
+
+## Next Steps
+
+Once authenticated, you can:
+- ✅ [View pull requests](GETTING_STARTED.md)
+- ✅ [Create new PRs](USAGE_EXAMPLES.md)
+- ✅ [Review code changes](USAGE_EXAMPLES.md)
+- ✅ [Manage comments](USAGE_EXAMPLES.md)

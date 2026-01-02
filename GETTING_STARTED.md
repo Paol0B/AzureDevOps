@@ -1,257 +1,175 @@
-# Getting Started - Azure DevOps Integration Plugin
+# Getting Started - Azure DevOps Integration
 
-## 🚀 Quick Start Guide
+Welcome! This guide will help you set up the Azure DevOps plugin and start managing Pull Requests from your IDE.
 
----
+## Installation
 
-## 📋 Step-by-Step Setup
+1. **Open your JetBrains IDE** (IntelliJ IDEA, WebStorm, PyCharm, etc.)
+2. Go to **Settings** (Windows/Linux) or **Preferences** (Mac)
+3. Navigate to **Plugins** → **Marketplace**
+4. Search for "**Azure DevOps Integration**"
+5. Click **Install** and restart your IDE
 
-### 1. Install the Plugin
-
-1. Open your JetBrains IDE
-2. Go to **File → Settings → Plugins** (Windows/Linux) or **IntelliJ IDEA → Preferences → Plugins** (macOS)
-3. Search for "Azure DevOps Integration"
-4. Click **Install** and restart the IDE
-
-### 2. Authenticate with Azure DevOps (OAuth 2.0)
-
-1. Go to **File → Settings → Tools → Azure DevOps Accounts**
-2. Click the **Add** button
-3. Enter your Azure DevOps organization URL (e.g., `https://dev.azure.com/yourorganization`)
-4. Click **Sign in with Browser (OAuth)**
-5. Your browser will open - sign in with your Microsoft account
-6. Copy the device code shown in the dialog
-7. Paste it in the browser and authorize the application
-8. Once authenticated, the account will appear in the list
-
-**Benefits:**
-- ✅ Secure OAuth 2.0 authentication
-- ✅ Automatic token refresh
-- ✅ Works across all projects in the same organization
-- ✅ No need to manage tokens manually
+That's it! The plugin is now ready to use.
 
 ---
 
-## 🎯 Using the Plugin
+## Step 1: Clone a Repository from Azure DevOps
 
-### Tool Windows
+The plugin integrates directly into JetBrains' standard clone dialog:
 
-The plugin adds two tool windows on the right side of the IDE:
+1. Go to **File** → **New** → **Project from Version Control**
+2. Click **Azure DevOps** (instead of Git)
+3. **If not logged in yet:** Sign in when prompted
+   - The OAuth login dialog appears
+   - Your browser opens to authenticate
+   - Sign in with your Microsoft account
+   - Grant access and return to the IDE
+4. **If already logged in:** The clone tool window shows immediately:
+   - Your Azure DevOps organizations
+   - Projects and repositories
+5. **Browse and select** the repository you want to clone
+6. **Choose the target directory** on your computer
+7. Click **Clone**
 
-#### 1. **Azure DevOps PRs** 📋
-
-View and manage all Pull Requests:
-
-- **Features:**
-  - List of all PRs (active, completed, abandoned)
-  - PR details: title, description, reviewers, status
-  - Diff viewer for PR changes
-  - Create new Pull Requests
-  - Add comments and reviews
-  - Lazy loading: opens automatically when you click the tab
-
-- **Actions:**
-  - Click **+** to create a new PR
-  - Click **Refresh** to update the PR list
-  - Select a PR to see its details and changes
-
-#### 2. **PR Comments** 💬
-
-Navigate and manage PR comments:
-
-- **Features:**
-  - Modern card-based UI
-  - Search by file name, author, or content
-  - Filter comments: All, Active, Resolved, General
-  - **Auto-show comments**: Enable checkbox to automatically show comments on files
-  - Auto-refresh every 30 seconds (intelligent: updates only if there are changes)
-  - Navigate to file and line with one click
-  - Lazy loading: opens automatically when you click the tab
-
-- **How to use:**
-  1. Open the "PR Comments" tab
-  2. Enable "Auto-show comments on files" checkbox (optional)
-  3. Use search field to filter comments
-  4. Click on a comment to navigate to the file
-  5. Press Enter on a selected comment to open the full thread dialog
+The repository is cloned and ready to use. The plugin automatically detects your Azure DevOps configuration.
 
 ---
 
-## 🔧 Features in Detail
+## Step 2: Open the Tool Windows
 
-### Clone a Repository
-1. Go to 'Clone Repository' (tool built in)
-2. Select for 'Version Control' AzureDevops
-3. If you are not signed in, do sing in
-4. Select the Repo you like it and clone! (You can use search bar for searching)
+Once you have a repository open, you'll see two new tool windows on the **right side** of your IDE:
+
+### **Azure DevOps PRs** (Pull Request Manager)
+- View all pull requests
+- Create new PRs
+- Review changes
+- Approve or complete PRs
+
+### **PR Comments** (Comment Browser)
+- See all comments on the PR
+- Jump to the exact line in your code
+- Filter comments by status
+
+If you don't see these windows, go to **View** → **Tool Windows** and select them.
+
+---
+
+## Common Tasks
 
 ### Create a Pull Request
 
-1. Make sure your changes are committed to a branch
-2. Click the **+** button in the "Azure DevOps PRs" tool window
-   - OR: Go to **Git → Azure DevOps → Create Pull Request**
-3. Fill in:
-   - **Title**: Descriptive PR title
-   - **Description**: Details about your changes
-   - **Target branch**: Usually `main` or `develop`
-   - **Reviewers**: Add required or optional reviewers
-4. Click **Create**
+1. Make sure your changes are **pushed to a branch** on Azure DevOps:
+   ```bash
+   git push origin your-branch-name
+   ```
 
-### View PR Comments in Editor
+2. Open the **"Azure DevOps PRs"** tool window (right sidebar)
 
-When a PR exists for your current branch:
+3. Click the **"Create PR"** button (or use **VCS** → **Create Azure DevOps PR**)
 
-1. Open any file that has comments
-2. Comments will automatically appear as gutter icons
-3. Click on the icon to see the comment thread
-4. Reply directly from the editor
+4. Fill in the form:
+   - **Source Branch:** Your feature branch (e.g., `feature/add-login`)
+   - **Target Branch:** Usually `main` or `develop`
+   - **Title:** Brief description of changes (e.g., "Add user login")
+   - **Description:** More detailed explanation (optional but recommended)
+   - **Reviewers:** Add people who should review your code
 
-**Or use the Auto-show feature:**
-1. Open "PR Comments" tab
-2. Enable "Auto-show comments on files"
-3. Comments will appear automatically on all files when you open them
+5. Click **Create Pull Request**
 
-### File Tree Decorations
+6. Your PR is now live! You can see it in the PR list.
 
-Files and folders with PR comments show badges:
+### View Pull Requests
 
-- **Orange badge**: Active comments
-- **Green badge**: Resolved comments
-- **Number**: Comment count
-- **Hover**: See detailed tooltip with comment breakdown
+1. Open the **"Azure DevOps PRs"** tool window
+2. PRs are automatically loaded and grouped by status:
+   - **Active:** Open PRs waiting for review
+   - **Completed:** Merged PRs
+   - **Abandoned:** Closed PRs
+   - **All:** Every PR in the repository
+
+3. Click on a PR to see details like:
+   - Description
+   - Reviewers
+   - Changed files
+   - Commits
 
 ### Review a Pull Request
 
-1. Select a PR from the "Azure DevOps PRs" tool window
-2. View the changes in the diff viewer
-3. Click on a line to add a comment
-4. Submit your review with approval/rejection
+1. Click on a PR in the list to see its **changes** and **commits**
+2. Click on files to see what was modified
+3. Click **"Open in Browser"** to see detailed comments and discussions (if you need more advanced features)
+
+### View Comments
+
+1. Open the **"PR Comments"** tool window
+2. See all comments on the current pull request
+3. Click on any comment to jump to that exact line in the code
+4. Use filters to show:
+   - **All** comments
+   - **Active** comments (discussions still happening)
+   - **Resolved** comments (already fixed)
 
 ---
 
-## 🔐 Managing Accounts
+## Tips & Tricks
 
-### View Your Accounts
+### 🔄 Auto-Refresh
+The plugin automatically refreshes your PR list every 30 seconds. You don't need to manually refresh.
 
-**Settings → Tools → Azure DevOps Accounts**
+### 🔐 Multiple Accounts
+Working with different organizations? Add multiple accounts in **Settings** → **Tools** → **Azure DevOps Accounts**. The plugin automatically picks the right account for your repository.
 
-Here you can:
-- See all authenticated accounts
-- View account status (Valid ✅ / Expired ⚠️ / Invalid ❌)
-- Add new accounts
-- Remove accounts
-- Test account authentication
+### ⌨️ Keyboard Shortcuts
+- **Create PR:** Use VCS menu → **Create Azure DevOps PR**
+- **Show PR Comments:** Use VCS menu → **Show PR Comments**
 
-### Account Status
+### 🎨 Dark Mode
+The plugin automatically adapts to your IDE's color theme (light or dark).
 
-- **Valid** ✅: Token is active and working
-- **Expired** ⚠️: Token expired but has refresh token (auto-refreshed when used)
-- **Invalid** ❌: Authentication failed, needs re-authentication
-
-### Multiple Organizations
-
-You can add multiple Azure DevOps accounts for different organizations:
-
-1. Add each organization as a separate account
-2. The plugin automatically matches your repository to the correct account
-3. No manual switching needed - it's automatic!
+### 🔗 SSH vs HTTPS
+The plugin works with both SSH and HTTPS repository URLs. No special setup needed.
 
 ---
 
-## 🎨 User Interface
+## Troubleshooting
 
-### PR Comments Tab Features
+### **"Account not found"**
+- Make sure you've added the account in **Settings** → **Tools** → **Azure DevOps Accounts**
+- The account must be for the same organization as your repository
 
-- **Search bar**: Filter comments instantly as you type
-- **Filter buttons**: 
-  - **All**: Show all comments
-  - **Active**: Only unresolved comments
-  - **Resolved**: Only resolved comments
-  - **General**: Only general PR comments (not tied to specific lines)
-- **Auto-show checkbox**: Automatically display comments when opening files
-- **Refresh button**: Manually refresh comments
-- **Status bar**: Shows comment counts and last check time
+### **"Failed to authenticate"**
+- Make sure you signed in with the correct Microsoft account
+- Check that your account has access to the Azure DevOps organization
+- Try removing and re-adding your account
 
-### Comment Cards
+### **PR tool window shows "Configure Azure DevOps"**
+- Go to **Settings** → **Tools** → **Azure DevOps Accounts** and add an account
+- Make sure the account matches your repository's organization
 
-Each comment displays:
-- **File location**: `filename:line` or "General PR Comment"
-- **Author and timestamp**: Who wrote it and when
-- **Comment preview**: First 80 characters
-- **Comment count**: Number of replies in thread
-- **Visual indicators**: Icons for active/resolved/general comments
+### **Comments not loading**
+- Open the **PR Comments** tool window
+- Comments should load automatically when you open a PR
+- Click the refresh button if needed
 
 ---
 
+## What's Next?
 
-## 🔍 Troubleshooting
+Now that you're set up, you can:
 
-### Authentication Issues
+✅ **Browse pull requests** without leaving your IDE  
+✅ **Create new PRs** in seconds  
+✅ **Review changes** directly in your editor  
+✅ **Read comments** on the exact lines of code  
+✅ **Manage PRs** - approve, complete, or abandon them  
 
-**Problem**: "Authentication required" error
-
-**Solution**:
-1. Go to **Settings → Tools → Azure DevOps Accounts**
-2. Check account status
-3. If expired/invalid, click **Remove** and **Add** again
-4. Complete OAuth authentication in browser
-
-### Comments Not Showing
-
-**Problem**: Comments don't appear in editor or tool window
-
-**Solution**:
-1. Check that you have an active PR for your current branch
-2. Click **Refresh** in the PR Comments tool window
-3. Enable "Auto-show comments on files" checkbox
-4. Verify your account has access to the repository
-
-
-### Performance Issues
-
-**Problem**: IDE feels slow
-
-**Solution**:
-- Both tool windows use lazy loading - they only load when you open them
-- Auto-refresh is intelligent and only updates when needed
-- Disable "Auto-show comments" if not needed
-- The plugin has minimal impact on IDE performance
+Enjoy coding and managing your PRs efficiently! 🚀
 
 ---
 
-## 💡 Tips & Tricks
+## Need Help?
 
-
-### Best Practices
-
-1. **Use OAuth authentication**: Secure and convenient OAuth 2.0 authentication
-2. **Enable auto-show comments**: Great for active code reviews
-3. **Use search and filters**: Quickly find specific comments
-4. **Keep the plugin updated**: New features and improvements regularly
-
-### Integration with Git
-
-- The plugin automatically detects your current branch
-- PRs are associated with branches automatically
-- Comments sync in real-time with Azure DevOps
-
----
-
-## 🆘 Support
-
-### Documentation
-
-- **OAuth Setup**: See `docs/OAUTH_SETUP.md`
-- **Usage Examples**: See `docs/USAGE_EXAMPLES.md`
-
-### Getting Help
-
-If you encounter issues:
-
-1. Check the IDE logs: **Help → Show Log in Explorer/Finder**
-2. Look for errors with "AzureDevOps" in the log
-3. Report issues on the plugin's GitHub repository
-4. Include log snippets and steps to reproduce
-
----
-**Happy coding! 🎉**
+- 📖 See [Common Workflows](docs/USAGE_EXAMPLES.md) for step-by-step examples
+- 🔐 See [Authentication Setup](docs/OAUTH_SETUP.md) for OAuth configuration
+- 🐛 Found a bug? Visit [GitHub Issues](https://github.com/paol0b/AzureDevOps/issues)
