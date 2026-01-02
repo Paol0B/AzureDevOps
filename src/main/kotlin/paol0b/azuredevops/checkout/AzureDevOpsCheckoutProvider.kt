@@ -1,5 +1,6 @@
 package paol0b.azuredevops.checkout
 
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
@@ -11,6 +12,7 @@ import git4idea.commands.Git
 import git4idea.commands.GitCommand
 import git4idea.commands.GitLineHandler
 import paol0b.azuredevops.AzureDevOpsIcons
+import paol0b.azuredevops.services.GitCredentialHelperService
 import java.io.File
 import java.net.URI
 import java.net.URLDecoder
@@ -26,6 +28,8 @@ import javax.swing.Icon
  */
 class AzureDevOpsCheckoutProvider : CheckoutProvider {
 
+    private val logger = Logger.getInstance(AzureDevOpsCheckoutProvider::class.java)
+
     override fun getVcsName(): String = "Azure DevOps"
     
     /**
@@ -39,7 +43,7 @@ class AzureDevOpsCheckoutProvider : CheckoutProvider {
         if (dialog.showAndGet()) {
             val selectedRepo = dialog.getSelectedRepository() ?: return
             val targetDirectory = dialog.getTargetDirectory()
-            
+
             // Normalize URL: decode if already encoded, then properly construct
             val cloneUrl = normalizeAzureDevOpsUrl(selectedRepo.remoteUrl)
             
@@ -64,19 +68,30 @@ class AzureDevOpsCheckoutProvider : CheckoutProvider {
                         val checkoutDir = File(targetDirectory)
                         checkoutDir.mkdirs()
                         
-                        // Prepare clone URL with authentication if token is available
-                        val authenticatedUrl = if (token != null && cloneUrl.startsWith("https://")) {
-                            // Inject token into URL for authentication
-                            cloneUrl.replace("https://", "https://:$token@")
-                        } else {
-                            cloneUrl
+                        // Ensure parent directory exists, but NOT the target directory itself
+                        // Git clone will fail if the target directory already exists
+                        val parentCreated = checkoutDir.parentFile?.mkdirs() ?: false
+                        logger.info("Parent dir created/exists: $parentCreated, Parent exists: ${checkoutDir.parentFile?.exists()}")
+                        
+                        // Get token
+                        val token = account?.let { 
+                            AzureDevOpsAccountManager.getInstance().getToken(it.id) 
                         }
                         
                         // Execute git clone
                         val handler = GitLineHandler(project, checkoutDir.parentFile, GitCommand.CLONE)
-                        handler.setUrl(authenticatedUrl)
+                        
+                        // Use http.extraHeader to pass credentials securely and reliably
+                        // This works for both PAT and OAuth tokens (using token as password)
+                        if (token != null) {
+                            logger.info("Configuring git http.extraHeader with token (length: ${token.length})")
+                            val authHeader = "Authorization: Basic " + java.util.Base64.getEncoder().encodeToString(":$token".toByteArray(StandardCharsets.UTF_8))
+                            handler.addParameters("-c", "http.extraHeader=$authHeader")
+                        }
+                        
+                        // Git clone syntax: git clone [options] <repository> [<directory>]
                         handler.addParameters("--progress")
-                        handler.addParameters(authenticatedUrl)
+                        handler.addParameters(cloneUrl) // Use the normalized (encoded) URL
                         handler.addParameters(checkoutDir.name)
                         
                         // Add progress listener
@@ -95,7 +110,7 @@ class AzureDevOpsCheckoutProvider : CheckoutProvider {
                         indicator.fraction = 0.1
                         val result = Git.getInstance().runCommand(handler)
                         indicator.fraction = 1.0
-                        
+
                         if (result.success()) {
                             // Save credentials to git credential helper for future use
                             if (token != null) {
@@ -145,7 +160,13 @@ class AzureDevOpsCheckoutProvider : CheckoutProvider {
                 val uri = java.net.URI(url)
                 writer.write("protocol=${uri.scheme}\n")
                 writer.write("host=${uri.host}\n")
-                writer.write("username=\n")
+                // Include path for proper credential matching with special characters
+                val path = uri.path?.removePrefix("/")?.removeSuffix(".git") ?: ""
+                if (path.isNotBlank()) {
+                    writer.write("path=$path\n")
+                }
+                // Use a valid username placeholder for Azure DevOps
+                writer.write("username=oauth\n")
                 writer.write("password=$token\n")
                 writer.write("\n")
                 writer.flush()
