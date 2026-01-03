@@ -32,8 +32,17 @@ class AzureDevOpsAccountManager : PersistentStateComponent<AzureDevOpsAccountMan
     data class AccountData(
         var id: String = "",
         var serverUrl: String = "",
-        var displayName: String = ""
+        var displayName: String = "",
+        var expiresAt: Long = 0,  // Unix timestamp (millis) when token expires
+        var lastRefreshed: Long = 0  // Unix timestamp (millis) of last token refresh
     )
+    
+    enum class AccountAuthState {
+        VALID,       // Token is valid and not expired
+        EXPIRED,     // Token has expired
+        REVOKED,     // Token was revoked or invalid
+        UNKNOWN      // State cannot be determined
+    }
 
     companion object {
         fun getInstance(): AzureDevOpsAccountManager {
@@ -65,22 +74,34 @@ class AzureDevOpsAccountManager : PersistentStateComponent<AzureDevOpsAccountMan
     /**
      * Add a new Azure DevOps account with credentials
      */
-    fun addAccount(serverUrl: String, token: String): AzureDevOpsAccount {
+    fun addAccount(serverUrl: String, token: String, refreshToken: String? = null, expiresIn: Int? = null): AzureDevOpsAccount {
         val id = generateAccountId(serverUrl)
         val displayName = extractDisplayName(serverUrl)
+        
+        val now = System.currentTimeMillis()
+        val expiresAt = if (expiresIn != null) {
+            now + (expiresIn * 1000L)
+        } else {
+            0L  // Unknown expiry
+        }
 
         // Store account metadata
         val accountData = AccountData(
             id = id,
             serverUrl = serverUrl,
-            displayName = displayName
+            displayName = displayName,
+            expiresAt = expiresAt,
+            lastRefreshed = now
         )
         myState.accounts.add(accountData)
 
-        // Store token securely
+        // Store tokens securely
         saveToken(id, token)
+        if (refreshToken != null) {
+            saveRefreshToken(id, refreshToken)
+        }
 
-        logger.info("Added Azure DevOps account: $displayName")
+        logger.info("Added Azure DevOps account: $displayName (expires: ${if (expiresAt > 0) java.util.Date(expiresAt) else "unknown"})")
 
         return AzureDevOpsAccount(id, serverUrl, displayName)
     }
@@ -105,12 +126,48 @@ class AzureDevOpsAccountManager : PersistentStateComponent<AzureDevOpsAccountMan
         val credentialAttributes = createCredentialAttributes(accountId)
         return PasswordSafe.instance.getPassword(credentialAttributes)
     }
+    
+    /**
+     * Get Refresh Token for an account
+     */
+    fun getRefreshToken(accountId: String): String? {
+        val credentialAttributes = createCredentialAttributes(accountId, "refresh")
+        return PasswordSafe.instance.getPassword(credentialAttributes)
+    }
 
     /**
      * Update token for an existing account
      */
-    fun updateToken(accountId: String, newToken: String) {
+    fun updateToken(accountId: String, newToken: String, newRefreshToken: String? = null, expiresIn: Int? = null) {
         saveToken(accountId, newToken)
+        if (newRefreshToken != null) {
+            saveRefreshToken(accountId, newRefreshToken)
+        }
+        
+        // Update expiry time
+        val account = myState.accounts.find { it.id == accountId }
+        if (account != null) {
+            val now = System.currentTimeMillis()
+            account.lastRefreshed = now
+            if (expiresIn != null) {
+                account.expiresAt = now + (expiresIn * 1000L)
+            }
+        }
+    }
+    
+    /**
+     * Get authentication state for an account
+     */
+    fun getAccountAuthState(accountId: String): AccountAuthState {
+        val account = myState.accounts.find { it.id == accountId } ?: return AccountAuthState.UNKNOWN
+        val token = getToken(accountId) ?: return AccountAuthState.REVOKED
+        
+        // Check if token is expired
+        if (account.expiresAt > 0 && System.currentTimeMillis() > account.expiresAt) {
+            return AccountAuthState.EXPIRED
+        }
+        
+        return AccountAuthState.VALID
     }
 
     private fun saveToken(accountId: String, token: String) {
@@ -118,10 +175,17 @@ class AzureDevOpsAccountManager : PersistentStateComponent<AzureDevOpsAccountMan
         val credentials = Credentials("", token)
         PasswordSafe.instance.set(credentialAttributes, credentials)
     }
+    
+    private fun saveRefreshToken(accountId: String, refreshToken: String) {
+        val credentialAttributes = createCredentialAttributes(accountId, "refresh")
+        val credentials = Credentials("", refreshToken)
+        PasswordSafe.instance.set(credentialAttributes, credentials)
+    }
 
-    private fun createCredentialAttributes(accountId: String): CredentialAttributes {
+    private fun createCredentialAttributes(accountId: String, suffix: String = ""): CredentialAttributes {
+        val key = if (suffix.isNotEmpty()) "$accountId-$suffix" else accountId
         return CredentialAttributes(
-            generateServiceName(CREDENTIAL_SERVICE_NAME, accountId)
+            generateServiceName(CREDENTIAL_SERVICE_NAME, key)
         )
     }
 

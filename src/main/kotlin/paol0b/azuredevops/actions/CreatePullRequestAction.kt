@@ -2,6 +2,7 @@ package paol0b.azuredevops.actions
 
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
+import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.diagnostic.Logger
@@ -28,6 +29,10 @@ import java.nio.charset.StandardCharsets
 class CreatePullRequestAction : AnAction() {
 
     private val logger = Logger.getInstance(CreatePullRequestAction::class.java)
+
+    override fun getActionUpdateThread(): ActionUpdateThread {
+        return ActionUpdateThread.BGT
+    }
 
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return

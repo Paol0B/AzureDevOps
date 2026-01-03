@@ -1,6 +1,7 @@
 package paol0b.azuredevops.actions
 
 import com.intellij.icons.AllIcons
+import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
@@ -21,6 +22,10 @@ class TogglePRCommentsAction : AnAction(
     "Show or hide Pull Request comments in the current file",
     AllIcons.Toolwindows.ToolWindowMessages
 ) {
+
+    override fun getActionUpdateThread(): ActionUpdateThread {
+        return ActionUpdateThread.BGT
+    }
 
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return

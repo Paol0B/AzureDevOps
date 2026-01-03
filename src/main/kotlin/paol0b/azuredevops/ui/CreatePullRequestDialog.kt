@@ -29,7 +29,6 @@ import paol0b.azuredevops.services.GitRepositoryService
 import java.awt.*
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
-import java.net.URL
 import javax.imageio.ImageIO
 import javax.swing.*
 import javax.swing.event.DocumentEvent
@@ -447,7 +446,8 @@ class CreatePullRequestDialog private constructor(
         
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
-                val url = URL(imageUrl)
+                val uri = java.net.URI(imageUrl)
+                val url = uri.toURL()
                 val image = ImageIO.read(url)
                 val scaledImage = image.getScaledInstance(
                     targetLabel.preferredSize.width,

@@ -1,5 +1,6 @@
 package paol0b.azuredevops.actions
 
+import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
@@ -14,6 +15,10 @@ import paol0b.azuredevops.services.PullRequestCommentsService
  * Action to load and display PR comments in the current file
  */
 class ShowPullRequestCommentsAction : AnAction() {
+
+    override fun getActionUpdateThread(): ActionUpdateThread {
+        return ActionUpdateThread.BGT
+    }
 
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return

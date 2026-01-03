@@ -3,6 +3,7 @@
     <idea-version since-build="251" />
     <!-- Unique identifier of the plugin. It should be FQN. It cannot be changed between the plugin versions. -->
     <id>paol0b.AzureDevOps</id>
+    <version>2.0</version>
 
     <!-- Public plugin name should be written in Title Case.
          Guidelines: https://plugins.jetbrains.com/docs/marketplace/best-practices-for-listing.html#plugin-name -->
@@ -15,51 +16,79 @@
          Guidelines: https://plugins.jetbrains.com/docs/marketplace/best-practices-for-listing.html#plugin-description -->
     <description><![CDATA[
         <h2>Azure DevOps Integration for JetBrains IDEs</h2>
-        <p>Integrate Azure DevOps directly into your JetBrains IDE with a dedicated Tool Window for managing Pull Requests, inspired by Visual Studio.</p>
+        <p>Manage Azure DevOps Pull Requests directly from your IDE - clone repositories, view PRs, browse code changes, read comments, and handle reviews without switching to the browser.</p>
 
-        <h3>✨ Key Features:</h3>
+        <h3>✨ Core Features:</h3>
+
+        <h4>📦 Clone Repositories from Azure DevOps</h4>
         <ul>
-            <li><b>🪟 "Azure DevOps PRs" Tool Window:</b> Sidebar window to view and manage all pull requests</li>
-            <li><b>📋 Organized PR List:</b> See all PRs grouped by status (Active, Completed, Abandoned)</li>
-            <li><b>🔎 Full Details:</b> Panel with title, description, branch, author, reviewers, and status</li>
-            <li><b>🎨 Status Badges:</b> Instantly identify PR status with color-coded badges</li>
-            <li><b>🔍 Filters:</b> Show only active PRs or all PRs with one click</li>
-            <li><b>� Automatic Detection:</b> The plugin auto-detects Azure DevOps repositories by analyzing the Git remote URL</li>
-            <li><b>⚡ Easy Setup:</b> Only the Personal Access Token is required; Organization, Project, and Repository are auto-detected</li>
-            <li><b>📝 Create Pull Requests:</b> Create PRs to main/master directly from the IDE or Tool Window</li>
-            <li><b>🌿 Branch Selection:</b> Choose source and target branches with autocomplete</li>
-            <li><b>🔒 Secure Storage:</b> PAT is securely saved using the IDE's password storage system</li>
-            <li><b>🔔 Notifications:</b> Get instant feedback on success or errors</li>
-            <li><b>🔗 Quick Links:</b> Open PRs in your browser with one click</li>
-            <li><b>👁️ Smart Visibility:</b> Tool window and actions appear only for Azure DevOps repositories</li>
-            <li><b>☑️ File Selection for Diff:</b> Select which files to include in PR review diffs using checkboxes</li>
-            <li><b>💬 Enhanced Comments:</b> View, add, and manage PR comments with auto-refresh and feedback</li>
-            <li><b>📊 Changes & Commits Tabs:</b> View file changes grouped by directory with [A]dded, [M]odified, [D]eleted indicators and all commits included in the PR</li>
+            <li><b>Browse by Organization:</b> See all your Azure DevOps organizations</li>
+            <li><b>Project & Repository Listing:</b> Easy navigation through projects and repos</li>
+            <li><b>One-Click Clone:</b> Clone directly into your IDE with automatic setup</li>
+            <li><b>Multiple Accounts:</b> Switch between different Azure DevOps accounts</li>
+        </ul>
+
+        <h4>📋 Pull Request Management Tool</h4>
+        <ul>
+            <li><b>View All PRs:</b> Browse PRs filtered by status (Active, Completed, Abandoned, All)</li>
+            <li><b>PR Details:</b> See title, description, author, reviewers, and source/target branches</li>
+            <li><b>Create PRs:</b> New PR dialog with branch autocomplete and reviewer selection</li>
+            <li><b>Quick Actions:</b> Approve, Complete, or Abandon PRs directly from the IDE</li>
+            <li><b>Open in Browser:</b> Jump to the PR in Azure DevOps for advanced options</li>
+            <li><b>File Changes:</b> View which files were modified in each PR</li>
+            <li><b>Commit History:</b> See all commits included in the PR</li>
+        </ul>
+
+        <h4>💬 Comment Browser Tool</h4>
+        <ul>
+            <li><b>Find Comments:</b> See all PR comments with one-click navigation to the code</li>
+            <li><b>Filter By Status:</b> Show all, active, resolved, or general comments</li>
+            <li><b>Search Comments:</b> Filter by file, author, or content</li>
+            <li><b>Jump to Code:</b> Click any comment to go directly to that line in the editor</li>
+            <li><b>View Threads:</b> Read full comment conversations and discussions</li>
+            <li><b>Comment Counts:</b> See badges on files showing how many comments they have</li>
+        </ul>
+
+        <h4>🔐 Authentication & Security</h4>
+        <ul>
+            <li><b>OAuth 2.0:</b> Sign in with your Microsoft account (no token copy/paste needed)</li>
+            <li><b>Multiple Accounts:</b> Add and switch between different organizations</li>
+            <li><b>Auto-Detection:</b> Plugin automatically finds the right account for your repository</li>
+            <li><b>Secure Storage:</b> Credentials safely stored in IDE's password manager</li>
+            <li><b>Token Refresh:</b> Tokens update automatically - no manual renewal</li>
         </ul>
 
         <h3>📋 Requirements:</h3>
         <ul>
-            <li>Repository cloned from Azure DevOps (HTTPS or SSH URL)</li>
-            <li>Personal Access Token with Code and Pull Request permissions</li>
+            <li>IntelliJ IDEA 2025.1 or newer (supports all JetBrains IDEs)</li>
+            <li>Git repository cloned from Azure DevOps</li>
+            <li>Microsoft account with access to your Azure DevOps organization</li>
         </ul>
 
-        <h3>🚀 How to Use:</h3>
+        <h3>🚀 Getting Started:</h3>
         <ol>
-            <li>Clone a repository from Azure DevOps</li>
-            <li>Go to <b>Settings → Tools → Azure DevOps</b></li>
-            <li>Enter only your <b>Personal Access Token</b> (Organization/Project/Repository are auto-detected)</li>
-            <li>Open the <b>"Azure DevOps PRs" Tool Window</b> in the sidebar</li>
-            <li>View, create, and manage your Pull Requests!</li>
+            <li><b>Install & Restart:</b> Install plugin and restart your IDE</li>
+            <li><b>Add Account:</b> Go to Settings → Tools → Azure DevOps Accounts → Add</li>
+            <li><b>Sign In:</b> Click "Sign in with Browser" and authenticate with Microsoft</li>
+            <li><b>Open PR Tool:</b> Look for "Azure DevOps PRs" in the right-side tool windows</li>
+            <li><b>Start Managing:</b> View PRs, create new ones, browse comments, and merge code</li>
         </ol>
 
-        <h3>🌐 Supported URLs:</h3>
+        <h3>📚 Documentation:</h3>
         <ul>
-            <li>HTTPS: <code>https://dev.azure.com/{org}/{project}/_git/{repo}</code></li>
-            <li>SSH: <code>git@ssh.dev.azure.com:v3/{org}/{project}/{repo}</code></li>
-            <li>Legacy: <code>https://{org}.visualstudio.com/{project}/_git/{repo}</code></li>
+            <li><a href="https://github.com/paol0b/AzureDevOps/blob/main/GETTING_STARTED.md">Getting Started Guide</a> - Complete setup and feature tour</li>
+            <li><a href="https://github.com/paol0b/AzureDevOps/blob/main/docs/OAUTH_SETUP.md">Authentication Setup</a> - Configure OAuth 2.0 login</li>
+            <li><a href="https://github.com/paol0b/AzureDevOps/blob/main/docs/USAGE_EXAMPLES.md">Common Workflows</a> - Step-by-step examples for creating PRs and reviewing code</li>
         </ul>
 
-        <p><em>Works only with Azure DevOps repositories. The plugin automatically detects the Git remote URL and shows features only when applicable.</em></p>
+        <h3>🆘 Support & Bug Reports:</h3>
+        <p><b>Found a bug or need help?</b> Please <a href="https://github.com/paol0b/AzureDevOps/issues">open an issue on GitHub</a> instead of leaving a bad review!</p>
+        <ul>
+            <li><b>Report bugs:</b> Help us fix issues faster by reporting them with details</li>
+            <li><b>Request features:</b> Share your ideas to help the plugin grow</li>
+            <li><b>Get support:</b> Ask questions and get help from the community</li>
+        </ul>
+        <p>Issues are much more helpful than negative reviews. With your feedback, we can make this plugin better for everyone! 💪</p>
     ]]></description>
 
     <!-- Product and plugin compatibility requirements.
@@ -75,14 +104,24 @@
         <checkoutProvider implementation="paol0b.azuredevops.checkout.AzureDevOpsCheckoutProvider"/>
         <!-- Application-level service for account management -->
         <applicationService serviceImplementation="paol0b.azuredevops.checkout.AzureDevOpsAccountManager"/>
-
-        <!-- Project Settings -->
+        <!-- OAuth authentication service -->
+        <applicationService serviceImplementation="paol0b.azuredevops.checkout.AzureDevOpsOAuthService"/>
+        
+        <!-- Application-level configuration for accounts -->
+        <applicationConfigurable 
+            parentId="tools" 
+            instance="paol0b.azuredevops.ui.AzureDevOpsAccountsConfigurable"
+            id="paol0b.azuredevops.accounts"
+            displayName="Azure DevOps Accounts"/>
+            
+        <!-- Project-level configuration -->
+        <!--
         <projectConfigurable
-                parentId="tools"
-                instance="paol0b.azuredevops.ui.AzureDevOpsConfigurable"
-                id="paol0b.azuredevops.settings"
-                displayName="Azure DevOps"
-                nonDefaultProject="true"/>
+            parentId="tools"
+            instance="paol0b.azuredevops.ui.AzureDevOpsProjectConfigurable"
+            id="paol0b.azuredevops.project"
+            displayName="Azure DevOps"/>
+        -->
 
         <!-- Notification Group -->
         <notificationGroup
@@ -137,6 +176,13 @@
                     text="Create Pull Request..."
                     description="Create a Pull Request on Azure DevOps"
                     icon="paol0b.azuredevops.AzureDevOpsIcons.ToolWindow"/>
+
+            <action
+                    id="AzureDevOps.OpenInBrowser"
+                    class="paol0b.azuredevops.actions.OpenRepositoryInBrowserAction"
+                    text="Open in Browser"
+                    description="Open the repository in Azure DevOps web portal"
+                    icon="AllIcons.Ide.External_link_arrow"/>
         </group>
 
         <!-- Add to VCS menu (legacy) -->
@@ -147,18 +193,6 @@
                 description="Create a Pull Request on Azure DevOps"
                 icon="paol0b.azuredevops.AzureDevOpsIcons.ToolWindow">
             <add-to-group group-id="Vcs.MainMenu" anchor="last"/>
-        </action>
-
-        <!-- Toggle PR Comments - Quick Access -->
-        <action
-                id="AzureDevOps.TogglePRComments"
-                class="paol0b.azuredevops.actions.TogglePRCommentsAction"
-                text="Show/Hide PR Comments"
-                description="Toggle Pull Request comments visibility in the editor"
-                icon="AllIcons.Toolwindows.ToolWindowMessages">
-            <add-to-group group-id="EditorPopupMenu" anchor="first"/>
-            <add-to-group group-id="Vcs.MainMenu" anchor="last"/>
-            <add-to-group group-id="MainToolBar" anchor="last"/>
         </action>
 
         <!-- Show PR Comments in Editor (legacy action) -->

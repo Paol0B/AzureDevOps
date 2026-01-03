@@ -1,6 +1,7 @@
 package paol0b.azuredevops.actions
 
 import com.intellij.icons.AllIcons
+import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import paol0b.azuredevops.model.PullRequest
@@ -17,6 +18,10 @@ class ReviewPullRequestAction(
     "Review all changes in this Pull Request with integrated diff viewer and code analysis",
     AllIcons.Actions.Diff
 ) {
+
+    override fun getActionUpdateThread(): ActionUpdateThread {
+        return ActionUpdateThread.BGT
+    }
 
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
