@@ -28,6 +28,7 @@ class FileWithCommentsDecorator(private val project: Project) : ProjectViewNodeD
     private val commentsTracker: PullRequestCommentsTracker
         get() = project.service()
 
+    @Suppress("OVERRIDE_DEPRECATION")
     override fun decorate(node: ProjectViewNode<*>, data: PresentationData) {
         try {
             val file = node.virtualFile ?: return
@@ -183,7 +184,9 @@ class FileWithCommentsDecorator(private val project: Project) : ProjectViewNodeD
         return baseIcon
     }
 
+    @Suppress("OVERRIDE_DEPRECATION")
     override fun decorate(node: com.intellij.packageDependencies.ui.PackageDependenciesNode?, cellRenderer: com.intellij.ui.ColoredTreeCellRenderer?) {
         // Default implementation for backward compatibility
+        // This override is required by the interface but not used in our implementation
     }
 }

@@ -1,12 +1,13 @@
 package paol0b.azuredevops.checkout
 
+import com.intellij.notification.NotificationGroupManager
+import com.intellij.notification.NotificationType
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vcs.CheckoutProvider
-import com.intellij.openapi.vcs.VcsNotifier
 import git4idea.GitVcs
 import git4idea.commands.Git
 import git4idea.commands.GitCommand
@@ -26,6 +27,7 @@ import javax.swing.Icon
  * This provider integrates Azure DevOps into the standard IDE checkout workflow,
  * allowing users to browse and clone repositories directly from Azure DevOps organizations.
  */
+@Suppress("OVERRIDE_DEPRECATION")
 class AzureDevOpsCheckoutProvider : CheckoutProvider {
 
     private val logger = Logger.getInstance(AzureDevOpsCheckoutProvider::class.java)
@@ -120,22 +122,34 @@ class AzureDevOpsCheckoutProvider : CheckoutProvider {
                             listener?.directoryCheckedOut(checkoutDir, GitVcs.getKey())
                             listener?.checkoutCompleted()
                             
-                            VcsNotifier.getInstance(project).notifySuccess(
-                                "Azure DevOps Clone",
-                                "Repository '${selectedRepo.name}' cloned successfully to ${checkoutDir.absolutePath}"
-                            )
+                            NotificationGroupManager.getInstance()
+                                .getNotificationGroup("AzureDevOps.Notifications")
+                                .createNotification(
+                                    "Azure DevOps Clone",
+                                    "Repository '${selectedRepo.name}' cloned successfully to ${checkoutDir.absolutePath}",
+                                    NotificationType.INFORMATION
+                                )
+                                .notify(project)
                         } else {
                             val errorMessage = result.errorOutputAsJoinedString
-                            VcsNotifier.getInstance(project).notifyError(
-                                "Azure DevOps Clone Error",
-                                "Failed to clone repository: $errorMessage"
-                            )
+                            NotificationGroupManager.getInstance()
+                                .getNotificationGroup("AzureDevOps.Notifications")
+                                .createNotification(
+                                    "Azure DevOps Clone Error",
+                                    "Failed to clone repository: $errorMessage",
+                                    NotificationType.ERROR
+                                )
+                                .notify(project)
                         }
                     } catch (e: Exception) {
-                        VcsNotifier.getInstance(project).notifyError(
-                            "Azure DevOps Clone Error",
-                            "Failed to clone repository: ${e.message}"
-                        )
+                        NotificationGroupManager.getInstance()
+                            .getNotificationGroup("AzureDevOps.Notifications")
+                            .createNotification(
+                                "Azure DevOps Clone Error",
+                                "Failed to clone repository: ${e.message}",
+                                NotificationType.ERROR
+                            )
+                            .notify(project)
                     }
                 }
             })

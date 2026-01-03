@@ -27,7 +27,7 @@ class PullRequestToolWindowFactory : ToolWindowFactory, DumbAware {
         })
 
         // Ensure we stop polling when the content is removed
-        toolWindow.contentManager.addContentManagerListener(object : com.intellij.ui.content.ContentManagerAdapter() {
+        toolWindow.contentManager.addContentManagerListener(object : com.intellij.ui.content.ContentManagerListener {
             override fun contentRemoved(event: com.intellij.ui.content.ContentManagerEvent) {
                 if (event.content == content) {
                     pullRequestToolWindow.dispose()

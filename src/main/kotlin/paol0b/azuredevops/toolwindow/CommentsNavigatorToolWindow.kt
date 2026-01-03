@@ -69,7 +69,7 @@ class CommentsNavigatorToolWindow : ToolWindowFactory {
         })
         
         // Also add cleanup listener
-        toolWindow.contentManager.addContentManagerListener(object : com.intellij.ui.content.ContentManagerAdapter() {
+        toolWindow.contentManager.addContentManagerListener(object : com.intellij.ui.content.ContentManagerListener {
             override fun contentRemoved(event: com.intellij.ui.content.ContentManagerEvent) {
                 if (event.content == content) {
                     panel.dispose()
