@@ -7,6 +7,7 @@ import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
 import com.intellij.ui.ColoredTreeCellRenderer
+import com.intellij.ui.JBColor
 import com.intellij.ui.SimpleTextAttributes
 import com.intellij.ui.TreeUIHelper
 import com.intellij.ui.components.JBScrollPane
@@ -16,6 +17,8 @@ import paol0b.azuredevops.model.PullRequest
 import paol0b.azuredevops.model.PullRequestStatus
 import paol0b.azuredevops.services.AzureDevOpsApiClient
 import java.awt.BorderLayout
+import java.awt.Color
+import java.awt.Dimension
 import java.awt.Font
 import javax.swing.*
 import javax.swing.event.TreeSelectionListener
@@ -36,6 +39,8 @@ class PullRequestListPanel(
     private val rootNode: DefaultMutableTreeNode
     private var currentFilter = "active"
     private val statusLabel: JLabel
+    private var lastSelectedPrId: Int? = null  // Backup of last selected PR ID
+    private var cachedPullRequests: List<PullRequest> = emptyList()  // Cache for comparison
 
     init {
         rootNode = DefaultMutableTreeNode("Pull Requests")
@@ -44,28 +49,40 @@ class PullRequestListPanel(
             isRootVisible = false
             showsRootHandles = true
             cellRenderer = PullRequestCellRenderer()
-            border = JBUI.Borders.empty(5)
+            border = JBUI.Borders.empty(8, 12)
+            rowHeight = 0 // Auto-calculate based on content
+            toggleClickCount = 0 // Disable expand on double-click
         }
 
-        // Setup UI helper for the tree
+        // Setup UI helper for the tree with improved search
         TreeUIHelper.getInstance().installTreeSpeedSearch(tree)
 
-        // Listener for selection
+        // Listener for selection with visual feedback
         tree.addTreeSelectionListener(TreeSelectionListener {
             val selectedNode = tree.lastSelectedPathComponent as? DefaultMutableTreeNode
             val pr = selectedNode?.userObject as? PullRequest
+            
+            // Save the selected PR ID for backup
+            lastSelectedPrId = pr?.pullRequestId
+            
             onSelectionChanged(pr)
         })
         
-        // Status label at the bottom
+        // Status label with modern design
         statusLabel = JLabel("Ready").apply {
-            border = JBUI.Borders.empty(5, 10)
+            border = JBUI.Borders.empty(8, 12)
             font = font.deriveFont(Font.PLAIN, 11f)
+            foreground = JBColor.GRAY
         }
 
         panel = JPanel(BorderLayout()).apply {
-            add(JBScrollPane(tree), BorderLayout.CENTER)
+            val scrollPane = JBScrollPane(tree).apply {
+                border = JBUI.Borders.empty()
+                verticalScrollBar.unitIncrement = 16
+            }
+            add(scrollPane, BorderLayout.CENTER)
             add(statusLabel, BorderLayout.SOUTH)
+            minimumSize = Dimension(250, 0)
         }
     }
 
@@ -75,8 +92,8 @@ class PullRequestListPanel(
         statusLabel.text = "Loading Pull Requests..."
         statusLabel.icon = AllIcons.Process.Step_1
         
-        // Save the currently selected PR
-        val selectedPrId = getSelectedPullRequest()?.pullRequestId
+        // Save the currently selected PR ID (with fallback to last known)
+        val selectedPrId = getSelectedPullRequest()?.pullRequestId ?: lastSelectedPrId
         
         ProgressManager.getInstance().run(object : Task.Backgroundable(
             project,
@@ -90,15 +107,32 @@ class PullRequestListPanel(
                     val pullRequests = apiClient.getPullRequests(status = currentFilter)
 
                     ApplicationManager.getApplication().invokeLater {
-                        updateTreeWithPullRequests(pullRequests, selectedPrId)
-                        statusLabel.text = "Loaded ${pullRequests.size} Pull Request(s)"
-                        statusLabel.icon = AllIcons.General.InspectionsOK
+                        // Only update UI if data has changed
+                        if (hasDataChanged(pullRequests)) {
+                            cachedPullRequests = pullRequests
+                            updateTreeWithPullRequests(pullRequests, selectedPrId)
+                            statusLabel.text = "Loaded ${pullRequests.size} Pull Request(s)"
+                            statusLabel.icon = AllIcons.General.InspectionsOK
+                        } else {
+                            // Data hasn't changed, just update status without tree refresh
+                            statusLabel.text = "${pullRequests.size} Pull Request(s) (up to date)"
+                            statusLabel.icon = AllIcons.General.InspectionsOK
+                        }
                     }
                 } catch (e: Exception) {
                     ApplicationManager.getApplication().invokeLater {
-                        updateTreeWithError(e.message ?: "Unknown error")
-                        statusLabel.text = "Error loading Pull Requests"
-                        statusLabel.icon = AllIcons.General.Error
+                        val isConfigError = e.message?.contains("not configured", ignoreCase = true) == true
+                        if (isConfigError) {
+                            // Don't show error in tree for config issues, only in status label
+                            rootNode.removeAllChildren()
+                            treeModel.reload()
+                            statusLabel.text = "Azure DevOps not configured"
+                            statusLabel.icon = AllIcons.General.Warning
+                        } else {
+                            updateTreeWithError(e.message ?: "Unknown error")
+                            statusLabel.text = "Error loading Pull Requests"
+                            statusLabel.icon = AllIcons.General.Error
+                        }
                     }
                 }
             }
@@ -119,7 +153,7 @@ class PullRequestListPanel(
         rootNode.removeAllChildren()
 
         if (pullRequests.isEmpty()) {
-            val emptyNode = DefaultMutableTreeNode("No Pull Requests found")
+            val emptyNode = DefaultMutableTreeNode("No Pull Requests")
             rootNode.add(emptyNode)
         } else {
             // Group by status
@@ -154,17 +188,67 @@ class PullRequestListPanel(
 
         treeModel.reload()
         
-        // Expand all nodes
+        // Expand all nodes first
         for (i in 0 until tree.rowCount) {
             tree.expandRow(i)
         }
         
-        // Restore selection if there was a selected PR
+        // Restore selection after tree is fully expanded and rendered
         if (previouslySelectedPrId != null) {
-            restoreSelection(previouslySelectedPrId)
+            // Use invokeLater with a small delay to ensure tree is fully rendered
+            javax.swing.SwingUtilities.invokeLater {
+                // Double-check tree is ready
+                javax.swing.SwingUtilities.invokeLater {
+                    restoreSelection(previouslySelectedPrId)
+                }
+            }
         }
     }
     
+    /**
+     * Checks if pull request data has changed compared to cache
+     */
+    private fun hasDataChanged(newPullRequests: List<PullRequest>): Boolean {
+        // If size is different, data has changed
+        if (cachedPullRequests.size != newPullRequests.size) {
+            return true
+        }
+        
+        // Compare each PR by ID and key properties
+        val cachedMap = cachedPullRequests.associateBy { it.pullRequestId }
+        
+        for (newPr in newPullRequests) {
+            val cachedPr = cachedMap[newPr.pullRequestId]
+            
+            // If PR doesn't exist in cache, data has changed
+            if (cachedPr == null) {
+                return true
+            }
+            
+            // Compare key properties that affect display
+            if (cachedPr.status != newPr.status ||
+                cachedPr.title != newPr.title ||
+                cachedPr.isDraft != newPr.isDraft ||
+                cachedPr.reviewers?.size != newPr.reviewers?.size) {
+                return true
+            }
+            
+            // Compare reviewer votes (most likely to change)
+            val cachedReviewers = cachedPr.reviewers?.associateBy { it.id } ?: emptyMap()
+            val newReviewers = newPr.reviewers ?: emptyList()
+            
+            for (newReviewer in newReviewers) {
+                val cachedReviewer = cachedReviewers[newReviewer.id]
+                if (cachedReviewer?.vote != newReviewer.vote) {
+                    return true
+                }
+            }
+        }
+        
+        // No changes detected
+        return false
+    }
+
     /**
      * Restores the selection of a PR after refresh
      */
@@ -211,34 +295,42 @@ class PullRequestListPanel(
 
             when (userObject) {
                 is PullRequest -> {
-                    // Icon and color based on status
+                    // Modern icon based on status with better visuals
                     icon = when (userObject.status) {
                         PullRequestStatus.Active -> {
                             if (userObject.isDraft == true) AllIcons.Vcs.Patch_applied 
                             else AllIcons.Vcs.Branch
                         }
-                        PullRequestStatus.Completed -> AllIcons.Process.ProgressPauseSmall
-                        PullRequestStatus.Abandoned -> AllIcons.Process.Stop
+                        PullRequestStatus.Completed -> AllIcons.RunConfigurations.TestPassed
+                        PullRequestStatus.Abandoned -> AllIcons.RunConfigurations.TestFailed
                         else -> AllIcons.Vcs.Branch
                     }
 
-                    // PR ID with color
+                    // PR ID with modern styling
                     val idColor = when (userObject.status) {
-                        PullRequestStatus.Active -> SimpleTextAttributes.LINK_BOLD_ATTRIBUTES
-                        PullRequestStatus.Completed -> SimpleTextAttributes.GRAYED_BOLD_ATTRIBUTES
-                        else -> SimpleTextAttributes.GRAY_ATTRIBUTES
-                    }
-                    append("PR #${userObject.pullRequestId} ", idColor)
-                    
-                    // Draft badge
-                    if (userObject.isDraft == true) {
-                        append("[DRAFT] ", SimpleTextAttributes(
+                        PullRequestStatus.Active -> SimpleTextAttributes(
                             SimpleTextAttributes.STYLE_BOLD,
-                            java.awt.Color(255, 165, 0)
+                            JBColor(Color(0, 122, 204), Color(0, 164, 239))
+                        )
+                        PullRequestStatus.Completed -> SimpleTextAttributes(
+                            SimpleTextAttributes.STYLE_BOLD,
+                            JBColor(Color(106, 153, 85), Color(106, 153, 85))
+                        )
+                        else -> SimpleTextAttributes.GRAYED_BOLD_ATTRIBUTES
+                    }
+                    append("#${userObject.pullRequestId}", idColor)
+                    append("  ", SimpleTextAttributes.REGULAR_ATTRIBUTES)
+                    
+                    // Draft badge with modern styling
+                    if (userObject.isDraft == true) {
+                        append("DRAFT", SimpleTextAttributes(
+                            SimpleTextAttributes.STYLE_BOLD,
+                            JBColor(Color(255, 165, 0), Color(255, 140, 0))
                         ))
+                        append("  ", SimpleTextAttributes.REGULAR_ATTRIBUTES)
                     }
 
-                    // PR title
+                    // PR title with better typography
                     val titleAttrs = if (userObject.status == PullRequestStatus.Active) {
                         SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES
                     } else {
@@ -246,49 +338,56 @@ class PullRequestListPanel(
                     }
                     append(userObject.title, titleAttrs)
 
-                    // Branch info on new visual line
-                    append("  ")
-                    append("${userObject.getSourceBranchName()}", SimpleTextAttributes.GRAYED_SMALL_ATTRIBUTES)
-                    append(" → ", SimpleTextAttributes(
+                    // Branch info with modern arrow and colors
+                    append("\n    ", SimpleTextAttributes.REGULAR_ATTRIBUTES)
+                    append("${userObject.getSourceBranchName()}", SimpleTextAttributes(
                         SimpleTextAttributes.STYLE_PLAIN,
-                        java.awt.Color(120, 120, 120)
+                        JBColor(Color(34, 139, 34), Color(50, 205, 50))
                     ))
-                    append("${userObject.getTargetBranchName()}", SimpleTextAttributes.GRAYED_SMALL_ATTRIBUTES)
+                    append(" → ", SimpleTextAttributes(
+                        SimpleTextAttributes.STYLE_BOLD,
+                        JBColor.GRAY
+                    ))
+                    append("${userObject.getTargetBranchName()}", SimpleTextAttributes(
+                        SimpleTextAttributes.STYLE_PLAIN,
+                        JBColor(Color(70, 130, 180), Color(135, 206, 250))
+                    ))
                     
-                    // Author info
+                    // Author info with modern styling
                     userObject.createdBy?.displayName?.let { author ->
                         append("  •  ", SimpleTextAttributes.GRAYED_SMALL_ATTRIBUTES)
-                        append("by $author", SimpleTextAttributes(
+                        append(author, SimpleTextAttributes(
                             SimpleTextAttributes.STYLE_ITALIC,
-                            java.awt.Color(100, 150, 200)
+                            JBColor(Color(100, 150, 200), Color(120, 170, 220))
                         ))
                     }
                 }
                 is String -> {
-                    // Folder nodes with improved icons and styles
+                    // Modern folder nodes with better visual hierarchy
                     when {
                         userObject.startsWith("Active") -> {
-                            icon = AllIcons.Nodes.Folder
+                            icon = AllIcons.Actions.Commit
                             append(userObject, SimpleTextAttributes(
                                 SimpleTextAttributes.STYLE_BOLD,
-                                java.awt.Color(34, 139, 34)
+                                JBColor(Color(34, 139, 34), Color(40, 167, 69))
                             ))
                         }
                         userObject.startsWith("Completed") -> {
-                            icon = AllIcons.Nodes.Folder
+                            icon = AllIcons.RunConfigurations.TestPassed
                             append(userObject, SimpleTextAttributes(
                                 SimpleTextAttributes.STYLE_BOLD,
-                                java.awt.Color(100, 100, 100)
+                                JBColor(Color(106, 153, 85), Color(106, 153, 85))
                             ))
                         }
                         userObject.startsWith("Abandoned") -> {
-                            icon = AllIcons.Nodes.Folder
+                            icon = AllIcons.RunConfigurations.TestFailed
                             append(userObject, SimpleTextAttributes(
                                 SimpleTextAttributes.STYLE_BOLD,
-                                java.awt.Color(178, 34, 34)
+                                JBColor(Color(220, 53, 69), Color(200, 35, 51))
                             ))
                         }
                         else -> {
+                            icon = AllIcons.General.Information
                             append(userObject, SimpleTextAttributes.GRAYED_ITALIC_ATTRIBUTES)
                         }
                     }

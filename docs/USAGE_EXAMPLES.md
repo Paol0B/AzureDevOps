@@ -1,495 +1,422 @@
-# Esempi di Utilizzo
+# Common Workflows & Examples
 
-Questa guida mostra esempi pratici di come usare il plugin Azure DevOps Integration.
-
-## 📚 Indice
-
-1. [Configurazione Iniziale](#configurazione-iniziale)
-2. [Creare la Prima PR](#creare-la-prima-pr)
-3. [Scenari Comuni](#scenari-comuni)
-4. [Tips & Tricks](#tips--tricks)
+This guide shows you how to do common tasks with the Azure DevOps plugin. Each section has step-by-step instructions.
 
 ---
 
-## Configurazione Iniziale
+## Cloning Your First Repository
 
-### Scenario: Primo utilizzo del plugin
+### The Standard Way Using JetBrains Clone Dialog
 
-**Situazione**: Hai appena installato il plugin e vuoi configurarlo.
+**Steps:**
 
-**Passi**:
+1. **Open the clone dialog**
+   - Go to **File** → **New** → **Project from Version Control**
 
-1. **Ottieni le informazioni Azure DevOps**
+2. **Select Azure DevOps**
+   - Click **Azure DevOps** (instead of Git)
+   - This is where the plugin integrates with JetBrains
+
+3. **Authenticate if needed**
+   - If you see "Sign in with Browser" button:
+     - Click it
+     - Your browser opens
+     - Sign in with your **Microsoft account**
+     - Grant access to the plugin
+     - Return to the IDE
+   - If already logged in, skip to next step
+
+4. **Browse repositories**
+   - The clone tool window shows:
+     - Your Azure DevOps organizations
+     - Projects in each organization
+     - Repositories in each project
+   - Use the search bar to find a specific repo
+
+5. **Select and clone**
+   - Click on the repository you want
+   - Choose a **target directory** on your computer
+   - Click **Clone**
+
+6. **Done!**
+   - The repository is cloned
+   - The IDE opens it automatically
+   - You can now use the Azure DevOps PR tool windows
+
+---
+
+### Scenario: Feature branch to main
+
+You've finished working on a new feature and want to create a PR for review.
+
+**Setup:**
+- Your branch: `feature/user-authentication`
+- Target branch: `main`
+
+**Steps:**
+
+1. **Push your changes**
+   ```bash
+   git push origin feature/user-authentication
    ```
-   URL del tuo progetto: https://dev.azure.com/mycompany/MyProject/_git/my-repo
-   
-   Da questo URL estrai:
-   - Organization: mycompany
-   - Project: MyProject  
-   - Repository: my-repo
-   ```
 
-2. **Crea il PAT** (vedi [PAT_SETUP.md](PAT_SETUP.md))
+2. **Open the PR creation dialog**
+   - Option A: Click the **+** button in the "Azure DevOps PRs" tool window
+   - Option B: Use menu **VCS** → **Create Azure DevOps PR**
 
-3. **Configura il plugin**
-   - Apri Settings (Ctrl+Alt+S / Cmd+,)
-   - Tools → Azure DevOps
-   - Compila:
+3. **Fill in the PR details**
+   - **Source Branch:** `feature/user-authentication` (should be auto-selected)
+   - **Target Branch:** `main` (should be auto-selected)
+   - **Title:** `Add user authentication system`
+   - **Description:**
      ```
-     Organization: mycompany
-     Project: MyProject
-     Repository: my-repo
-     PAT: [il tuo token]
+     ## Changes
+     - Added login form UI
+     - Implemented OAuth 2.0 integration
+     - Added unit tests for auth service
+     - Updated documentation
+     
+     ## Testing
+     - Tested on Chrome, Firefox, Safari
+     - All unit tests passing
+     - Manual testing completed
+     
+     Closes #123
      ```
-   - Clicca "Test Connection"
-   - Se OK → Apply → OK
+   - **Reviewers:** Add teammates who should review (required vs optional)
+
+4. **Click "Create Pull Request"**
+
+5. **Done!** Your PR is now created. You can see it in the PR list.
 
 ---
 
-## Creare la Prima PR
+## Reviewing a Pull Request
 
-### Scenario: Feature branch verso main
+### Scenario: A colleague wants you to review their code
 
-**Situazione**: Hai completato una feature e vuoi creare una PR.
+**Steps:**
 
-**Branch corrente**: `feature/add-login`  
-**Target**: `main`
+1. **Find the PR you need to review**
+   - Open the "Azure DevOps PRs" tool window
+   - Look in the **Active** section
+   - Click on the PR title
 
-**Passi**:
+2. **See what changed**
+   - View the list of changed files
+   - Click on any file to see what lines were added/modified/deleted
+   - Look for the status badge: [A] = Added, [M] = Modified, [D] = Deleted
 
-1. **Assicurati di aver pushato le modifiche**
+3. **Read the PR description**
+   - Understand what the PR is trying to do
+   - Check if it solves the mentioned issue
+
+4. **Check the commits**
+   - Click on the "Commits" tab
+   - See the commit messages
+   - Verify the work makes sense
+
+5. **View comments**
+   - Open the "PR Comments" tool window
+   - See if others have already commented
+   - Read previous discussion threads
+
+6. **Approve or request changes**
+   - Click **"Approve"** button if you're satisfied
+   - Click **"Open in Browser"** if you need to leave detailed comments
+   - Or click **"Abandon"** if the PR should be closed
+
+---
+
+## Finding a Specific Comment
+
+### Scenario: You remember a comment but forgot which file it's on
+
+**Steps:**
+
+1. **Open the "PR Comments" tool window**
+   - Look for the PR Comments tab on the right side
+   - Comments should load automatically
+
+2. **Search for the comment**
+   - Use the search field at the top
+   - Type keywords you remember (author name, part of the comment text, etc.)
+   - Results update as you type
+
+3. **Filter by status (optional)**
+   - Click **"Active"** to see only open discussions
+   - Click **"Resolved"** to see only closed discussions
+   - Click **"All"** to see everything
+
+4. **Click on the comment**
+   - The IDE jumps to the exact file and line
+   - The comment opens in an inline dialog
+
+5. **Reply to the comment**
+   - Type your response
+   - Press Enter to save
+
+---
+
+## Switching Between PRs
+
+### Scenario: You're reviewing multiple PRs and need to switch between them
+
+**Steps:**
+
+1. **Open the "Azure DevOps PRs" tool window**
+
+2. **Click on a different PR**
+   - The details panel updates
+   - The file changes update
+   - Comments refresh automatically
+
+3. **Notice the comments update**
+   - The "PR Comments" tool window automatically shows comments from the new PR
+   - No manual refresh needed
+
+---
+
+## Checking PR Status
+
+### Scenario: You want to know the current status of your PR
+
+**Steps:**
+
+1. **Open the "Azure DevOps PRs" tool window**
+
+2. **Find your PR**
+   - Look in the **Active** section if it's not merged yet
+   - Look in the **Completed** section if it's merged
+   - Look in the **Abandoned** section if it was closed
+
+3. **Check the status badge**
+   - **Active** = Still waiting for review
+   - **Completed** = Merged successfully
+   - **Abandoned** = Closed without merging
+
+4. **See who approved/rejected**
+   - Click on the PR to see reviewer details
+   - Look at the reviewers list
+   - Check their approval status
+
+---
+
+## Merging a PR
+
+### Scenario: Your PR has been approved and is ready to merge
+
+**Steps:**
+
+1. **Open the PR in the tool window**
+   - Click on your PR in the "Azure DevOps PRs" tool window
+
+2. **Make sure it's approved**
+   - Check the reviewers list
+   - Everyone should have approved (if required)
+
+3. **Click "Complete PR"** button
+   - A dialog might appear asking about the merge strategy
+   - Choose your merge strategy (usually "Squash" or "Commit")
+   - The PR is merged!
+
+4. **Update your local code**
    ```bash
-   git push origin feature/add-login
+   git checkout main
+   git pull origin main
    ```
-
-2. **Apri il dialog di creazione PR**
-   - Menu: VCS → Create Azure DevOps PR
-   - Oppure usa lo shortcut (se configurato)
-
-3. **Compila il form**
-   ```
-   Source Branch: feature/add-login (già selezionato)
-   Target Branch: main (già selezionato automaticamente)
-   Title: Add user login functionality
-   Description:
-   ## Changes
-   - Added login form
-   - Implemented authentication logic
-   - Added unit tests
-   
-   ## Testing
-   - Tested on Chrome, Firefox, Safari
-   - All tests passing
-   ```
-
-4. **Clicca OK**
-
-5. **Risultato**
-   - Notifica: "Pull Request Created Successfully"
-   - Click "Open in Browser" per vedere la PR
 
 ---
 
-## Scenari Comuni
+## Abandoning a PR
 
-### 1. Bugfix urgente
+### Scenario: The PR is no longer needed and should be closed
 
-**Situazione**: Bug critico in produzione
+**Steps:**
 
+1. **Open the PR in the tool window**
+   - Click on the PR you want to close
+
+2. **Click "Abandon PR"** button
+   - Confirm when asked
+   - The PR is now marked as Abandoned
+
+3. **Optionally add a comment**
+   - Add a note explaining why you're abandoning it
+   - This helps your team understand the decision
+
+---
+
+## Working With Multiple Organizations
+
+### Scenario: You work with code in multiple Azure DevOps organizations
+
+**Setup:**
+- Organization A: `https://dev.azure.com/companyA`
+- Organization B: `https://dev.azure.com/companyB`
+
+**Steps:**
+
+1. **Add both organizations**
+   - Go to **Settings** → **Tools** → **Azure DevOps Accounts**
+   - Click **Add** (repeat for each organization)
+   - Sign in to each one
+
+2. **Switch repositories**
+   - When you switch projects in your IDE
+   - The plugin automatically detects which organization you're in
+   - It uses the correct account automatically
+   - No manual switching needed!
+
+---
+
+## Filtering PRs by Status
+
+### Scenario: You only want to see PRs you created
+
+**Steps:**
+
+1. **Open the "Azure DevOps PRs" tool window**
+
+2. **Use the filter buttons**
+   - **Active** - Open PRs (default)
+   - **Completed** - Merged PRs
+   - **Abandoned** - Closed PRs
+   - **All** - Every PR in the repo
+   - **My** - Only PRs you created
+
+3. **The list updates**
+   - Only PRs matching the filter are shown
+
+---
+
+## Creating a Draft PR
+
+### Scenario: You want to get early feedback but the PR isn't ready yet
+
+**Steps:**
+
+1. **Open the PR creation dialog**
+   - Click **+** in the "Azure DevOps PRs" tool window
+   - Or use **VCS** → **Create Azure DevOps PR**
+
+2. **Fill in the details normally**
+   - Title, description, source/target branches
+   - Add reviewers as usual
+
+3. **Create the PR**
+   - The PR is created
+   - You can mark it as Draft in Azure DevOps (open in browser)
+   - Reviewers get notified but know it's not ready yet
+
+4. **Update when ready**
+   - Keep pushing commits to the same branch
+   - Comments will appear in the PR
+   - When ready, click "Mark as Ready" in the browser
+
+---
+
+## Adding Required Reviewers
+
+### Scenario: Certain team members must approve before merging
+
+**Steps:**
+
+1. **Open the PR creation dialog**
+
+2. **Add reviewers**
+   - Type a name in the reviewers field
+   - A list of available reviewers appears
+   - Select the person's name
+
+3. **Mark as required**
+   - When adding, specify if they're **required** or **optional**
+   - Required reviewers must approve before the PR can be merged
+   - Optional reviewers are nice to have
+
+4. **Create the PR**
+   - Reviewers are automatically notified
+   - The PR shows their approval status
+
+---
+
+## Tips & Best Practices
+
+### Writing Good PR Titles
+- ✅ DO: `Add user login functionality`
+- ❌ DON'T: `Fix stuff` or `Update code`
+
+### Writing Good PR Descriptions
+- ✅ Include **What** changed and **Why**
+- ✅ Add **Testing** info - how did you test this?
+- ✅ Reference related **Issues** - use `Fixes #123`
+- ✅ Use **Markdown** for formatting
+
+### Reviewing Code
+- ✅ Read the entire description first
+- ✅ Understand the intent, not just the code
+- ✅ Ask questions if something's unclear
+- ✅ Be respectful and constructive
+- ❌ Don't nit-pick about style if that's auto-formatted
+
+### Commit Messages
+Use descriptive commit messages:
 ```
-Current Branch: hotfix/critical-bug
-Target: main
-```
+✅ Good:
+- "Add authentication module"
+- "Fix null pointer in user service"
+- "Refactor database connection logic"
 
-**Dialog**:
-```
-Source: hotfix/critical-bug
-Target: main
-Title: [HOTFIX] Fix critical null pointer exception
-Description:
-## Bug
-- NullPointerException in UserService.getUser()
-
-## Fix
-- Added null check before accessing user object
-- Added defensive programming
-
-## Impact
-- Critical: affects all users
-- Should be merged ASAP
-
-Fixes: #1234
-```
-
-### 2. Release branch
-
-**Situazione**: Preparare una release
-
-```
-Current Branch: release/v2.0.0
-Target: main
-```
-
-**Dialog**:
-```
-Source: release/v2.0.0
-Target: main
-Title: Release v2.0.0
-Description:
-## Release Notes
-
-### New Features
-- Feature A
-- Feature B
-
-### Bug Fixes
-- Fixed issue #123
-- Fixed issue #456
-
-### Breaking Changes
-- API endpoint /old removed
-
-## Checklist
-- [x] All tests passing
-- [x] Documentation updated
-- [x] Changelog updated
-- [x] Version bumped
-```
-
-### 3. Multiple piccole modifiche
-
-**Situazione**: Piccoli fix/refactoring
-
-```
-Current Branch: chore/code-cleanup
-Target: develop
-```
-
-**Dialog**:
-```
-Source: chore/code-cleanup
-Target: develop
-Title: Code cleanup and refactoring
-Description:
-## Changes
-- Removed unused imports
-- Fixed typos in comments
-- Improved variable naming
-- Extracted magic numbers to constants
-
-## Type
-Chore/Refactoring - no functional changes
-```
-
-### 4. PR da branch remoto
-
-**Situazione**: Vuoi creare PR per un branch che hai fetchato
-
-```
-Fetched: origin/feature/new-api
-```
-
-**Passi**:
-1. Il plugin rileva automaticamente anche i branch remoti
-2. Seleziona il branch remoto dal dropdown
-3. Procedi normalmente
-
-**Dialog**:
-```
-Source: feature/new-api
-Target: main
-Title: Implement new REST API endpoints
-Description: ...
-```
-
-### 5. PR verso branch non-standard
-
-**Situazione**: Target non è main/master
-
-```
-Current Branch: feature/experimental
-Target: develop
-```
-
-**Dialog**:
-```
-Source: feature/experimental
-Target: develop (seleziona manualmente)
-Title: Add experimental feature
-Description: ...
+❌ Bad:
+- "fix"
+- "update"
+- "asdf"
 ```
 
 ---
 
-## Tips & Tricks
+## Keyboard Shortcuts
 
-### 🎯 Template per descrizioni
+### Create PR
+- Use **VCS** menu → **Create Azure DevOps PR**
+- Or click the **+** button in the tool window
 
-Crea template standardizzati per le tue PR:
+### Show Comments
+- Use **VCS** menu → **Show PR Comments**
 
-#### Template Bug Fix
-```markdown
-## 🐛 Bug Description
-[Descrivi il bug]
-
-## 🔧 Fix
-[Come hai risolto]
-
-## ✅ Testing
-- [ ] Unit tests added
-- [ ] Manual testing done
-- [ ] Regression testing done
-
-## 📎 Related
-Fixes: #[issue-number]
-```
-
-#### Template Feature
-```markdown
-## ✨ Feature
-[Descrivi la feature]
-
-## 💡 Implementation
-[Dettagli implementazione]
-
-## 🧪 Testing
-[Come è stata testata]
-
-## 📖 Documentation
-- [ ] Code comments added
-- [ ] README updated
-- [ ] API docs updated
-
-## 🔗 Related
-Closes: #[issue-number]
-```
-
-#### Template Refactoring
-```markdown
-## ♻️ Refactoring
-[Cosa hai refactorizzato]
-
-## 🎯 Goals
-- Improve code quality
-- Reduce complexity
-- Better maintainability
-
-## ⚠️ Breaking Changes
-[Se ci sono breaking changes]
-
-## ✅ Verification
-- [ ] All tests passing
-- [ ] No functional changes
-```
-
-### ⌨️ Keyboard Shortcuts
-
-Puoi configurare uno shortcut personalizzato:
-
-1. Settings → Keymap
-2. Cerca "Create Azure DevOps PR"
-3. Click destro → Add Keyboard Shortcut
-4. Esempio: `Ctrl+Shift+P` (Windows/Linux) o `Cmd+Shift+P` (Mac)
-
-### 📋 Checklist pre-PR
-
-Prima di creare una PR, verifica:
-
-- [ ] Codice compilato senza errori
-- [ ] Test passano tutti
-- [ ] Codice formattato correttamente
-- [ ] Commenti e documentazione aggiornati
-- [ ] Commit message descrittivi
-- [ ] Branch aggiornato con target (rebase/merge)
-- [ ] Nessun file sensibile committato
-- [ ] Changelog aggiornato (se applicabile)
-
-### 🔍 Verifica prima di pushare
-
-```bash
-# Verifica lo stato
-git status
-
-# Verifica i commit
-git log origin/main..HEAD
-
-# Verifica le differenze
-git diff origin/main
-
-# Se tutto OK
-git push origin [branch-name]
-```
-
-### 🚀 Workflow efficiente
-
-**Flusso consigliato**:
-
-1. Crea branch feature
-   ```bash
-   git checkout -b feature/my-feature
-   ```
-
-2. Lavora e committa
-   ```bash
-   git add .
-   git commit -m "feat: add my feature"
-   ```
-
-3. Push del branch
-   ```bash
-   git push -u origin feature/my-feature
-   ```
-
-4. **Usa il plugin per creare PR** ⚡
-   - VCS → Create Azure DevOps PR
-   - Compila e invia
-
-5. Review e merge su Azure DevOps
-
-### 🎨 Markdown nella descrizione
-
-Puoi usare Markdown nella descrizione:
-
-```markdown
-# Titolo H1
-## Titolo H2
-
-**Bold text**
-*Italic text*
-
-- Lista
-- Elementi
-
-1. Lista
-2. Numerata
-
-`code inline`
-
-```python
-# Code block
-def hello():
-    print("Hello")
-```
-
-| Colonna 1 | Colonna 2 |
-|-----------|-----------|
-| Data 1    | Data 2    |
-
-> Quote
-
-[Link](https://example.com)
-
-![Image](url)
-```
-
-### 🔗 Riferimenti automatici
-
-Azure DevOps supporta riferimenti automatici:
-
-- `#123` → Work item 123
-- `!456` → PR 456  
-- `@username` → Menziona utente
-- `Fixes #123` → Collega e chiude work item al merge
-- `Related to #456` → Collega work item
-
-Esempio:
-```
-Title: Fix login bug
-
-Description:
-This PR fixes the login issue.
-
-Fixes #1234
-Related to #1235, #1236
-CC: @john.doe @jane.smith
-```
-
-### 📊 Branch naming conventions
-
-Usa convenzioni standard:
-
-```
-feature/     → Nuove feature
-bugfix/      → Bug fix
-hotfix/      → Fix critici
-release/     → Preparazione release
-chore/       → Task manutenzione
-refactor/    → Refactoring
-docs/        → Solo documentazione
-test/        → Solo test
-```
-
-Esempi:
-- `feature/user-authentication`
-- `bugfix/fix-null-pointer`
-- `hotfix/critical-security-patch`
-- `release/v2.0.0`
-- `chore/update-dependencies`
-
-### 🎯 Commit message conventions
-
-Usa [Conventional Commits](https://www.conventionalcommits.org/):
-
-```
-feat:     → Nuova feature
-fix:      → Bug fix
-docs:     → Documentazione
-style:    → Formatting
-refactor: → Refactoring
-test:     → Test
-chore:    → Manutenzione
-```
-
-Esempi:
-```
-feat: add user login functionality
-fix: resolve null pointer exception in UserService
-docs: update API documentation
-refactor: extract common logic to helper class
-```
+### Open in Browser
+- Click the **"Open in Browser"** link in the PR details
 
 ---
 
-## 🆘 Problemi Comuni
+## Troubleshooting Common Issues
 
-### PR già esistente
+### "No pull requests found"
+- Check if you've pushed your branch to Azure DevOps
+- Click **Refresh** in the tool window
+- Make sure the branch exists in the remote
 
-**Errore**: "A pull request already exists for these branches"
+### "Can't create PR - branch doesn't exist"
+- Push your branch first: `git push origin your-branch`
+- Wait a few seconds
+- Try creating the PR again
 
-**Soluzione**: 
-- Verifica su Azure DevOps se esiste già una PR
-- Se sì, aggiorna quella esistente invece di crearne una nuova
-- Se no, controlla che i branch siano corretti
+### "Reviewers not showing up"
+- Click **Refresh** in the tool window
+- Make sure the reviewers are part of your organization
+- Check if they have access to the repository
 
-### Branch non aggiornato
-
-**Problema**: Target branch è avanti rispetto al tuo branch
-
-**Soluzione**:
-```bash
-# Aggiorna il target branch
-git checkout main
-git pull
-
-# Torna al tuo branch
-git checkout feature/my-feature
-
-# Rebase o merge
-git rebase main  # oppure git merge main
-
-# Push (forzato se hai fatto rebase)
-git push --force-with-lease
-```
-
-### Conflitti
-
-**Problema**: Il tuo branch ha conflitti con il target
-
-**Soluzione**:
-1. Risolvi i conflitti localmente (vedi sopra)
-2. Poi crea la PR
-3. Oppure crea la PR e risolvi i conflitti su Azure DevOps
+### "Can't merge - not approved"
+- Check the reviewers list
+- Make sure all required reviewers have approved
+- Ask reviewers to approve if they haven't yet
 
 ---
 
-**Hai altri scenari o domande?** Contribuisci con esempi su [GitHub](https://github.com/paol0b/azuredevops-plugin)!
+## Next Steps
+
+- 📖 See [Getting Started](../GETTING_STARTED.md) for setup
+- 🔐 See [Authentication](OAUTH_SETUP.md) for account help
+- 🐛 Found a bug? [Report it on GitHub](https://github.com/paol0b/AzureDevOps/issues)
+
+Happy reviewing! 🚀

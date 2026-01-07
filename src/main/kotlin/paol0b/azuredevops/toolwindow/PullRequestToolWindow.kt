@@ -26,6 +26,7 @@ class PullRequestToolWindow(private val project: Project) {
     private val pullRequestListPanel: PullRequestListPanel
     private val pullRequestDetailsPanel: PullRequestDetailsPanel
     private val pollingService = paol0b.azuredevops.services.PullRequestsPollingService.getInstance(project)
+    private var isInitialLoadDone: Boolean = false
 
     init {
         pullRequestListPanel = PullRequestListPanel(project) { selectedPR ->
@@ -34,23 +35,33 @@ class PullRequestToolWindow(private val project: Project) {
         
         pullRequestDetailsPanel = PullRequestDetailsPanel(project)
 
-        // Vertical splitter: list above, details below (like Visual Studio)
-        val splitter = JBSplitter(true, 0.5f).apply {
-            firstComponent = JBScrollPane(pullRequestListPanel.getComponent())
-            secondComponent = JBScrollPane(pullRequestDetailsPanel.getComponent())
+        // Vertical splitter with better proportions and resize support
+        val splitter = JBSplitter(true, 0.4f).apply {
+            firstComponent = pullRequestListPanel.getComponent()
+            secondComponent = pullRequestDetailsPanel.getComponent()
+            setResizeEnabled(true)
+            setShowDividerControls(true)
+            setShowDividerIcon(true)
+            setHonorComponentsMinimumSize(true)
         }
 
-        // Panel with toolbar
+        // Panel with toolbar and improved layout
         mainPanel = SimpleToolWindowPanel(true, true).apply {
             toolbar = createToolbar()
             setContent(splitter)
         }
 
-        // Load PRs at startup
-        pullRequestListPanel.refreshPullRequests()
-
+        // Don't load PRs at startup - wait for tab to be visible
+        
         // Start polling to automatically update the PR list
         pollingService.startPolling {
+            pullRequestListPanel.refreshPullRequests()
+        }
+    }
+    
+    fun loadPullRequestsIfNeeded() {
+        if (!isInitialLoadDone) {
+            isInitialLoadDone = true
             pullRequestListPanel.refreshPullRequests()
         }
     }

@@ -25,6 +25,13 @@ class AzureDevOpsApiClient(private val project: Project) {
     companion object {
         private const val API_VERSION = "7.0"
         
+        private const val AUTH_ERROR_MESSAGE = """Authentication required. Please login:
+1. Go to File → Settings → Tools → Azure DevOps Accounts
+2. Click 'Add' button to add your account  
+3. Complete the authentication in your browser
+
+The plugin will automatically use your authenticated account for this repository."""
+        
         fun getInstance(project: Project): AzureDevOpsApiClient {
             return project.getService(AzureDevOpsApiClient::class.java)
         }
@@ -64,7 +71,7 @@ class AzureDevOpsApiClient(private val project: Project) {
         val config = configService.getConfig()
 
         if (!config.isValid()) {
-            throw AzureDevOpsApiException("Azure DevOps not configured. Please configure Organization, Project, Repository, and PAT in settings.")
+            throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
         }
 
         // Create the list of reviewers in the format required by the API
@@ -118,7 +125,7 @@ class AzureDevOpsApiClient(private val project: Project) {
         val config = configService.getConfig()
 
         if (!config.isValid()) {
-            throw AzureDevOpsApiException("Azure DevOps not configured.")
+            throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
         }
 
         val statusParam = if (status == "all") "all" else status
@@ -148,7 +155,7 @@ class AzureDevOpsApiClient(private val project: Project) {
         val config = configService.getConfig()
 
         if (!config.isValid()) {
-            throw AzureDevOpsApiException("Azure DevOps not configured.")
+            throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
         }
 
         val url = buildApiUrl(config.project, config.repository, "/pullrequests/$pullRequestId?api-version=$API_VERSION")
@@ -199,7 +206,7 @@ class AzureDevOpsApiClient(private val project: Project) {
         val config = configService.getConfig()
 
         if (!config.isValid()) {
-            throw AzureDevOpsApiException("Azure DevOps not configured.")
+            throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
         }
 
         val url = buildApiUrl(
@@ -231,7 +238,7 @@ class AzureDevOpsApiClient(private val project: Project) {
         val config = configService.getConfig()
 
         if (!config.isValid()) {
-            throw AzureDevOpsApiException("Azure DevOps not configured.")
+            throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
         }
 
         val url = buildApiUrl(config.project, config.repository, "/pullRequests/$pullRequestId/threads?api-version=$API_VERSION")
@@ -279,7 +286,7 @@ class AzureDevOpsApiClient(private val project: Project) {
         val config = configService.getConfig()
 
         if (!config.isValid()) {
-            throw AzureDevOpsApiException("Azure DevOps not configured.")
+            throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
         }
 
         val request = CreateCommentRequest(content = content)
@@ -309,11 +316,16 @@ class AzureDevOpsApiClient(private val project: Project) {
         val config = configService.getConfig()
 
         if (!config.isValid()) {
-            throw AzureDevOpsApiException("Azure DevOps not configured.")
+            throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
         }
 
-        // Create the request with the correct format for the API
-        val request = UpdateThreadStatusRequest(status)
+        // First get the current thread to include its comments in the update request
+        val threads = getCommentThreads(pullRequestId)
+        val currentThread = threads.firstOrNull { it.id == threadId }
+            ?: throw AzureDevOpsApiException("Thread not found: $threadId")
+        
+        // Create the request with status and existing comments (required by API)
+        val request = UpdateThreadStatusRequest(status, currentThread.comments)
         
         val url = buildApiUrl(config.project, config.repository, "/pullRequests/$pullRequestId/threads/$threadId?api-version=$API_VERSION")
         
@@ -340,7 +352,7 @@ class AzureDevOpsApiClient(private val project: Project) {
         val config = configService.getConfig()
 
         if (!config.isValid()) {
-            throw AzureDevOpsApiException("Azure DevOps not configured.")
+            throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
         }
 
         val refName = "refs/heads/$branchName"
@@ -491,18 +503,25 @@ class AzureDevOpsApiClient(private val project: Project) {
         // Try to parse the error
         val errorMessage = try {
             val error = gson.fromJson(errorBody, AzureDevOpsErrorResponse::class.java)
-            error.message ?: "Unknown error"
-        } catch (e: JsonSyntaxException) {
+            error?.message ?: "Unknown error"
+        } catch (e: Exception) {
+            logger.warn("Failed to parse error response", e)
             errorBody.ifEmpty { "HTTP Error $statusCode" }
         }
 
         return when (statusCode) {
             HttpURLConnection.HTTP_UNAUTHORIZED -> 
-                AzureDevOpsApiException("Authentication failed. Check the Personal Access Token (401)")
+                AzureDevOpsApiException("Authentication failed (401). Please login:\n" +
+                    "1. Go to File → Settings → Tools → Azure DevOps Accounts\n" +
+                    "2. Click 'Add' to login with your Microsoft account\n" +
+                    "3. Complete the authentication in your browser")
             HttpURLConnection.HTTP_FORBIDDEN ->
-                AzureDevOpsApiException("Insufficient permissions. Check PAT permissions (403)")
+                AzureDevOpsApiException("Insufficient permissions (403). Your account doesn't have access to this resource.\n" +
+                    "Please check that you have the required permissions in Azure DevOps.")
             HttpURLConnection.HTTP_NOT_FOUND ->
-                AzureDevOpsApiException("Resource not found. Check Organization, Project, and Repository (404)")
+                AzureDevOpsApiException("Resource not found (404).\n" +
+                    "Please verify that the Organization, Project, and Repository names are correct\n" +
+                    "and that you have access to them in Azure DevOps.")
             HttpURLConnection.HTTP_CONFLICT ->
                 AzureDevOpsApiException("Conflict: $errorMessage (409)")
             HttpURLConnection.HTTP_BAD_REQUEST ->
@@ -599,7 +618,7 @@ class AzureDevOpsApiClient(private val project: Project) {
 
         if (!config.isValid()) {
             logger.error("Config not valid for searchIdentities")
-            throw AzureDevOpsApiException("Azure DevOps not configured.")
+            throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
         }
 
         logger.info("=== SEARCHING IDENTITIES ===")
