@@ -41,6 +41,7 @@ class PullRequestListPanel(
     private val statusLabel: JLabel
     private var lastSelectedPrId: Int? = null  // Backup of last selected PR ID
     private var cachedPullRequests: List<PullRequest> = emptyList()  // Cache for comparison
+    private var isErrorState: Boolean = false  // Track if the tree is currently showing an error
 
     init {
         rootNode = DefaultMutableTreeNode("Pull Requests")
@@ -107,8 +108,8 @@ class PullRequestListPanel(
                     val pullRequests = apiClient.getPullRequests(status = currentFilter)
 
                     ApplicationManager.getApplication().invokeLater {
-                        // Only update UI if data has changed
-                        if (hasDataChanged(pullRequests)) {
+                        // Only update UI if data has changed or if recovering from an error
+                        if (isErrorState || hasDataChanged(pullRequests)) {
                             cachedPullRequests = pullRequests
                             updateTreeWithPullRequests(pullRequests, selectedPrId)
                             statusLabel.text = "Loaded ${pullRequests.size} Pull Request(s)"
@@ -128,6 +129,8 @@ class PullRequestListPanel(
                             treeModel.reload()
                             statusLabel.text = "Azure DevOps not configured"
                             statusLabel.icon = AllIcons.General.Warning
+                            // Config error is a form of error state where we want to refresh when fixed
+                            isErrorState = true
                         } else {
                             updateTreeWithError(e.message ?: "Unknown error")
                             statusLabel.text = "Error loading Pull Requests"
@@ -151,6 +154,7 @@ class PullRequestListPanel(
 
     private fun updateTreeWithPullRequests(pullRequests: List<PullRequest>, previouslySelectedPrId: Int? = null) {
         rootNode.removeAllChildren()
+        isErrorState = false
 
         if (pullRequests.isEmpty()) {
             val emptyNode = DefaultMutableTreeNode("No Pull Requests")
@@ -271,6 +275,7 @@ class PullRequestListPanel(
     }
 
     private fun updateTreeWithError(errorMessage: String) {
+        isErrorState = true
         rootNode.removeAllChildren()
         val errorNode = DefaultMutableTreeNode("Error: $errorMessage")
         rootNode.add(errorNode)
