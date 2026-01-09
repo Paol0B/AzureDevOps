@@ -14,7 +14,8 @@ data class AzureDevOpsRepoInfo(
     val organization: String,
     val project: String,
     val repository: String,
-    val remoteUrl: String
+    val remoteUrl: String,
+    val useVisualStudioDomain: Boolean = false
 ) {
     fun isValid(): Boolean = organization.isNotBlank() && 
                             project.isNotBlank() && 
@@ -138,7 +139,8 @@ class AzureDevOpsRepositoryDetector(private val project: Project) {
                 organization = urlDecode(matcher.group(1)),
                 project = urlDecode(matcher.group(2)),
                 repository = urlDecode(matcher.group(3)),
-                remoteUrl = url
+                remoteUrl = url,
+                useVisualStudioDomain = false
             )
         }
 
@@ -149,7 +151,8 @@ class AzureDevOpsRepositoryDetector(private val project: Project) {
                 organization = urlDecode(matcher.group(1)),
                 project = urlDecode(matcher.group(2)),
                 repository = urlDecode(matcher.group(3)),
-                remoteUrl = url
+                remoteUrl = url,
+                useVisualStudioDomain = true
             )
         }
 
@@ -160,7 +163,8 @@ class AzureDevOpsRepositoryDetector(private val project: Project) {
                 organization = urlDecode(matcher.group(1)),
                 project = urlDecode(matcher.group(2)),
                 repository = urlDecode(matcher.group(3)),
-                remoteUrl = url
+                remoteUrl = url,
+                useVisualStudioDomain = false
             )
         }
 
@@ -171,7 +175,8 @@ class AzureDevOpsRepositoryDetector(private val project: Project) {
                 organization = urlDecode(matcher.group(1)),
                 project = urlDecode(matcher.group(2)),
                 repository = urlDecode(matcher.group(3)),
-                remoteUrl = url
+                remoteUrl = url,
+                useVisualStudioDomain = true
             )
         }
 

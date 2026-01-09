@@ -43,8 +43,9 @@ The plugin will automatically use your authenticated account for this repository
      */
     private fun buildApiUrl(project: String, repository: String, endpoint: String): String {
         val configService = AzureDevOpsConfigService.getInstance(this.project)
-        val encodedProject = URLEncoder.encode(project, StandardCharsets.UTF_8.toString())
-        val encodedRepository = URLEncoder.encode(repository, StandardCharsets.UTF_8.toString())
+        // URLEncoder encodes spaces as "+", but for URL paths we need "%20"
+        val encodedProject = URLEncoder.encode(project, StandardCharsets.UTF_8.toString()).replace("+", "%20")
+        val encodedRepository = URLEncoder.encode(repository, StandardCharsets.UTF_8.toString()).replace("+", "%20")
         return "${configService.getApiBaseUrl()}/$encodedProject/_apis/git/repositories/$encodedRepository$endpoint"
     }
 

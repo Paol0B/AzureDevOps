@@ -74,12 +74,11 @@ class OpenRepositoryInBrowserAction : AnAction() {
             throw IllegalStateException("Azure DevOps repository information is not available")
         }
 
-        // URL encode components to handle special characters
-        val encodedOrg = URLEncoder.encode(config.organization, StandardCharsets.UTF_8.toString())
-        val encodedProject = URLEncoder.encode(config.project, StandardCharsets.UTF_8.toString())
-        val encodedRepo = URLEncoder.encode(config.repository, StandardCharsets.UTF_8.toString())
+        // Use the base URL from config service which handles domain selection (dev.azure.com vs visualstudio.com)
+        val baseUrl = configService.getApiBaseUrl()
+        val encodedProject = URLEncoder.encode(config.project, StandardCharsets.UTF_8.toString()).replace("+", "%20")
+        val encodedRepo = URLEncoder.encode(config.repository, StandardCharsets.UTF_8.toString()).replace("+", "%20")
 
-        // URL format: https://dev.azure.com/{org}/{project}/_git/{repo}
-        return "https://dev.azure.com/$encodedOrg/$encodedProject/_git/$encodedRepo"
+        return "$baseUrl/$encodedProject/_git/$encodedRepo"
     }
 }
