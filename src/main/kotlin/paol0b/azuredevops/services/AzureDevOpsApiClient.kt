@@ -24,6 +24,7 @@ class AzureDevOpsApiClient(private val project: Project) {
 
     companion object {
         private const val API_VERSION = "7.0"
+        private const val MAX_REDIRECTS = 5
         
         private const val AUTH_ERROR_MESSAGE = """Authentication required. Please login:
 1. Go to File → Settings → Tools → Azure DevOps Accounts
@@ -137,6 +138,13 @@ The plugin will automatically use your authenticated account for this repository
         
         return try {
             val response = executeGet(url, config.personalAccessToken)
+            
+            // Check if response is valid JSON object
+            if (response.trim().startsWith("<") || !response.trim().startsWith("{")) {
+                logger.error("Received invalid JSON response: ${response.take(1000)}")
+                throw AzureDevOpsApiException("Received invalid response from server (possible HTML or proxy error). First 100 chars: ${response.take(100)}")
+            }
+
             val listResponse = gson.fromJson(response, PullRequestListResponse::class.java)
             listResponse.value
         } catch (e: Exception) {
@@ -373,10 +381,18 @@ The plugin will automatically use your authenticated account for this repository
     }
 
     /**
-     * Executes a GET request
+     * Executes a GET request with redirect handling
      */
     @Throws(IOException::class, AzureDevOpsApiException::class)
     private fun executeGet(urlString: String, token: String): String {
+        return executeGetWithRedirects(urlString, token, 0)
+    }
+
+    private fun executeGetWithRedirects(urlString: String, token: String, redirectCount: Int): String {
+        if (redirectCount > MAX_REDIRECTS) {
+            throw AzureDevOpsApiException("Too many redirects")
+        }
+
         val url = java.net.URI(urlString).toURL()
         val connection = url.openConnection() as HttpURLConnection
         
@@ -386,11 +402,46 @@ The plugin will automatically use your authenticated account for this repository
             connection.setRequestProperty("Accept", "application/json")
             connection.connectTimeout = 10000
             connection.readTimeout = 10000
+            connection.instanceFollowRedirects = false // Handle redirects manually to preserve Auth header
 
             val responseCode = connection.responseCode
             
-            if (responseCode == HttpURLConnection.HTTP_OK) {
-                return connection.inputStream.bufferedReader().use { it.readText() }
+            // Handle Redirects
+            if (responseCode == HttpURLConnection.HTTP_MOVED_TEMP || 
+                responseCode == HttpURLConnection.HTTP_MOVED_PERM || 
+                responseCode == HttpURLConnection.HTTP_SEE_OTHER ||
+                responseCode == 307 || 
+                responseCode == 308) {
+                
+                val location = connection.getHeaderField("Location")
+                if (location != null) {
+                    logger.info("Following redirect to: $location")
+                    return executeGetWithRedirects(location, token, redirectCount + 1)
+                }
+            }
+
+            // Accept 203 (Non-Authoritative Information) as success (common with some proxies/legacy domains)
+            if (responseCode == HttpURLConnection.HTTP_OK || responseCode == HttpURLConnection.HTTP_NOT_AUTHORITATIVE) {
+                val response = connection.inputStream.bufferedReader().use { it.readText() }
+                
+                // Validate content is JSON and not HTML (Login page)
+                if (response.trimStart().startsWith("<") || response.contains("Azure DevOps Services | Sign In", ignoreCase = true)) {
+                    // If we got an HTML login page on the legacy URL, it means PAT auth failed due to complex federation/redirects
+                    // Try fallback to dev.azure.com if we are on a visualstudio.com URL
+                    if (urlString.contains(".visualstudio.com") && redirectCount == 0) {
+                        logger.warn("Received HTML login page from visualstudio.com, attempting fallback to dev.azure.com")
+                        val newUrl = convertToDevAzureUrl(urlString)
+                        if (newUrl != urlString) {
+                            return executeGetWithRedirects(newUrl, token, 0)
+                        }
+                    }
+                    
+                    val preview = response.take(1000)
+                    logger.error("Received HTML response instead of JSON: $preview")
+                    throw AzureDevOpsApiException("Authentication failed or endpoint invalid. The server returned an HTML login page instead of JSON data.")
+                }
+                
+                return response
             } else {
                 val errorBody = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
                 throw handleErrorResponse(responseCode, errorBody)
@@ -401,10 +452,18 @@ The plugin will automatically use your authenticated account for this repository
     }
 
     /**
-     * Executes a POST request
+     * Executes a POST request with redirect handling
      */
     @Throws(IOException::class, AzureDevOpsApiException::class)
     private fun executePost(urlString: String, body: Any, token: String): String {
+        return executePostWithRedirects(urlString, body, token, 0)
+    }
+
+    private fun executePostWithRedirects(urlString: String, body: Any, token: String, redirectCount: Int): String {
+        if (redirectCount > MAX_REDIRECTS) {
+            throw AzureDevOpsApiException("Too many redirects")
+        }
+
         val url = java.net.URI(urlString).toURL()
         val connection = url.openConnection() as HttpURLConnection
         
@@ -416,6 +475,7 @@ The plugin will automatically use your authenticated account for this repository
             connection.doOutput = true
             connection.connectTimeout = 10000
             connection.readTimeout = 10000
+            connection.instanceFollowRedirects = false
 
             // Write the body
             val jsonBody = gson.toJson(body)
@@ -425,7 +485,22 @@ The plugin will automatically use your authenticated account for this repository
 
             val responseCode = connection.responseCode
             
-            if (responseCode == HttpURLConnection.HTTP_OK || responseCode == HttpURLConnection.HTTP_CREATED) {
+            // Handle Redirects (307/308 preserve method, 301/302/303 might switch to GET so be careful)
+            // For API POSTs, usually we want to follow with POST only if it's 307/308, 
+            // but some APIs use 302 for "Resource Created at..." which is not a redirect for the action but the result.
+            // Azure DevOps usually doesn't redirect POSTs unless it's a domain move. 
+            // We'll safely follow 307/308. Any other 3xx is ambiguous for POST bodies.
+            if (responseCode == 307 || responseCode == 308) {
+                val location = connection.getHeaderField("Location")
+                if (location != null) {
+                    logger.info("Following redirect (preserve method) to: $location")
+                    return executePostWithRedirects(location, body, token, redirectCount + 1)
+                }
+            }
+
+            if (responseCode == HttpURLConnection.HTTP_OK || 
+                responseCode == HttpURLConnection.HTTP_CREATED || 
+                responseCode == HttpURLConnection.HTTP_NOT_AUTHORITATIVE) {
                 return connection.inputStream.bufferedReader().use { it.readText() }
             } else {
                 val errorBody = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
@@ -437,11 +512,18 @@ The plugin will automatically use your authenticated account for this repository
     }
 
     /**
-     * Executes a PATCH request
-     * Uses reflection to enable PATCH in HttpURLConnection
+     * Executes a PATCH request with redirect handling
      */
     @Throws(IOException::class, AzureDevOpsApiException::class)
     private fun executePatch(urlString: String, body: Any, token: String): String {
+        return executePatchWithRedirects(urlString, body, token, 0)
+    }
+
+    private fun executePatchWithRedirects(urlString: String, body: Any, token: String, redirectCount: Int): String {
+        if (redirectCount > MAX_REDIRECTS) {
+            throw AzureDevOpsApiException("Too many redirects")
+        }
+
         val url = java.net.URI(urlString).toURL()
         val connection = url.openConnection() as HttpURLConnection
         
@@ -464,6 +546,7 @@ The plugin will automatically use your authenticated account for this repository
             connection.doOutput = true
             connection.connectTimeout = 10000
             connection.readTimeout = 10000
+            connection.instanceFollowRedirects = false
 
             // Write the body
             val jsonBody = gson.toJson(body)
@@ -475,7 +558,18 @@ The plugin will automatically use your authenticated account for this repository
 
             val responseCode = connection.responseCode
             
-            if (responseCode == HttpURLConnection.HTTP_OK || responseCode == HttpURLConnection.HTTP_CREATED) {
+            // Handle Redirects (Same logic as POST: only 307/308 preserves method and body)
+            if (responseCode == 307 || responseCode == 308) {
+                val location = connection.getHeaderField("Location")
+                if (location != null) {
+                    logger.info("Following redirect (preserve method) to: $location")
+                    return executePatchWithRedirects(location, body, token, redirectCount + 1)
+                }
+            }
+
+            if (responseCode == HttpURLConnection.HTTP_OK || 
+                responseCode == HttpURLConnection.HTTP_CREATED || 
+                responseCode == HttpURLConnection.HTTP_NOT_AUTHORITATIVE) {
                 return connection.inputStream.bufferedReader().use { it.readText() }
             } else {
                 val errorBody = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
@@ -490,9 +584,36 @@ The plugin will automatically use your authenticated account for this repository
      * Creates the Basic Auth header with the PAT
      */
     private fun createAuthHeader(token: String): String {
-        val credentials = ":$token"
-        val encodedCredentials = Base64.getEncoder().encodeToString(credentials.toByteArray(StandardCharsets.UTF_8))
-        return "Basic $encodedCredentials"
+        // Heuristic: if token looks like a JWT (OAuth access token), use Bearer
+        // Typical JWTs have two dots and are fairly long
+        val isJwt = token.count { it == '.' } >= 2 && token.length >= 80
+        return if (isJwt) {
+            "Bearer $token"
+        } else {
+            // Otherwise assume Personal Access Token (PAT) -> Basic auth with empty username
+            val credentials = ":$token"
+            val encodedCredentials = Base64.getEncoder().encodeToString(credentials.toByteArray(StandardCharsets.UTF_8))
+            "Basic $encodedCredentials"
+        }
+    }
+
+    /**
+     * Converts a visualstudio.com URL to dev.azure.com format
+     * Example: https://myorg.visualstudio.com/project/_apis/... -> https://dev.azure.com/myorg/project/_apis/...
+     */
+    private fun convertToDevAzureUrl(url: String): String {
+        try {
+            val visualStudioPattern = java.util.regex.Pattern.compile("https://([^.]+)\\.visualstudio\\.com/(.+)")
+            val matcher = visualStudioPattern.matcher(url)
+            if (matcher.matches()) {
+                val org = matcher.group(1)
+                val path = matcher.group(2)
+                return "https://dev.azure.com/$org/$path"
+            }
+        } catch (e: Exception) {
+            logger.warn("Failed to convert URL to dev.azure.com format", e)
+        }
+        return url
     }
 
     /**
