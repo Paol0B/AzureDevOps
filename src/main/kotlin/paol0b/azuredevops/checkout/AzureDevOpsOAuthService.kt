@@ -113,59 +113,6 @@ class AzureDevOpsOAuthService {
     }
 
     /**
-     * @deprecated Use requestDeviceCodeSync() and authenticateWithDeviceCode() instead
-     */
-    @Deprecated("Use requestDeviceCodeSync() and authenticateWithDeviceCode() instead")
-    fun authenticate(organizationUrl: String, callback: DeviceCodeCallback? = null): CompletableFuture<OAuthResult?> {
-        val future = CompletableFuture<OAuthResult?>()
-        
-        try {
-            // Step 1: Request device code
-            logger.info("Requesting device code for authentication")
-            val deviceCodeResponse = requestDeviceCode()
-            
-            if (deviceCodeResponse == null) {
-                logger.error("Failed to obtain device code")
-                future.complete(null)
-                return future
-            }
-            
-            // Step 2: Notify callback with device code info
-            logger.info("Device code received: ${deviceCodeResponse.userCode}")
-            logger.info("Verification URI: ${deviceCodeResponse.verificationUri}")
-            
-            callback?.onDeviceCodeReceived(
-                deviceCodeResponse.userCode,
-                deviceCodeResponse.verificationUri,
-                deviceCodeResponse.message
-            )
-            
-            // Step 3: Open browser for user authentication
-            BrowserUtil.browse(deviceCodeResponse.verificationUri)
-            
-            // Step 4: Poll for token in background
-            val executor = Executors.newSingleThreadExecutor()
-            executor.submit {
-                try {
-                    val result = pollForToken(deviceCodeResponse, organizationUrl)
-                    future.complete(result)
-                } catch (e: Exception) {
-                    logger.error("Error during token polling", e)
-                    future.complete(null)
-                } finally {
-                    executor.shutdown()
-                }
-            }
-            
-        } catch (e: Exception) {
-            logger.error("Failed to start device code authentication", e)
-            future.complete(null)
-        }
-        
-        return future
-    }
-
-    /**
      * Refreshes an access token using a refresh token.
      * According to Microsoft docs: https://learn.microsoft.com/en-us/azure/active-directory/develop/v2-oauth2-device-code
      */

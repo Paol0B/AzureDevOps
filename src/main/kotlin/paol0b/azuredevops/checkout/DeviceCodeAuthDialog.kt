@@ -8,6 +8,7 @@ import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
+import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.FormBuilder
@@ -15,10 +16,12 @@ import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import paol0b.azuredevops.AzureDevOpsIcons
 import java.awt.BorderLayout
+import java.awt.Color
 import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
 import java.util.concurrent.CompletableFuture
 import javax.swing.*
+
 
 /**
  * Dialog that shows device code for authentication.
@@ -35,7 +38,7 @@ class DeviceCodeAuthDialog(
     private val codeField = JBTextField()
     private val statusLabel = JBLabel("Click 'Continue' to open browser and authenticate")
     private val instructionLabel = JBLabel()
-    private val copyButton = JButton("Copy Code")
+    private val copyButton = JButton("Copy Code Again")
     private val openBrowserButton = JButton("Open Browser Again")
     
     private var authenticatedAccount: AzureDevOpsAccount? = null
@@ -48,11 +51,20 @@ class DeviceCodeAuthDialog(
         codeField.text = deviceCodeResponse.userCode
         codeField.horizontalAlignment = JTextField.CENTER
         codeField.font = codeField.font.deriveFont(java.awt.Font.BOLD, 22f)
-        codeField.border = BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(java.awt.Color(0, 102, 204), 2),
-            BorderFactory.createEmptyBorder(10, 15, 10, 15)
+        codeField.setBorder(
+            BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(
+                    JBColor(
+                        Color(0, 102, 204),
+                        Color(0, 150, 255)
+                    ),
+                    2
+                ),
+                BorderFactory.createEmptyBorder(10, 15, 10, 15)
+            )
         )
-        
+
+
         // Copy code to clipboard immediately
         val clipboard = Toolkit.getDefaultToolkit().systemClipboard
         clipboard.setContents(StringSelection(deviceCodeResponse.userCode), null)
@@ -63,7 +75,7 @@ class DeviceCodeAuthDialog(
                 val clip = Toolkit.getDefaultToolkit().systemClipboard
                 clip.setContents(StringSelection(code), null)
                 copyButton.text = "Copied!"
-                javax.swing.Timer(2000) { 
+                Timer(2000) {
                     copyButton.text = "Copy Code" 
                 }.apply { 
                     isRepeats = false 
@@ -125,7 +137,6 @@ class DeviceCodeAuthDialog(
             .addVerticalGap(10)
             .addComponent(codePanel)
             .addVerticalGap(15)
-            .addComponent(statusLabel)
             .panel
         
         panel.add(headerPanel, BorderLayout.NORTH)
@@ -181,7 +192,7 @@ class DeviceCodeAuthDialog(
                             okAction.isEnabled = true
                             
                             // Auto-close and return to clone dialog
-                            javax.swing.Timer(1000) {
+                            Timer(1000) {
                                 close(OK_EXIT_CODE)
                             }.apply { 
                                 isRepeats = false 

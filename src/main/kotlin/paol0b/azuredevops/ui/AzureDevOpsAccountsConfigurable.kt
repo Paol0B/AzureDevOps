@@ -8,7 +8,7 @@ import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.ui.Messages
 import com.intellij.ui.AnActionButton
-import com.intellij.ui.AnActionButtonRunnable
+import com.intellij.ui.JBColor
 import com.intellij.ui.ToolbarDecorator
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.table.JBTable
@@ -50,7 +50,6 @@ class AzureDevOpsAccountsConfigurable : Configurable {
             }
         }
 
-        @Suppress("DEPRECATION")
         val decorator = ToolbarDecorator.createDecorator(accountsTable)
             .setAddAction { addAccount() }
             .setRemoveAction { removeAccount() }
@@ -76,7 +75,7 @@ class AzureDevOpsAccountsConfigurable : Configurable {
 
         // Account info panel
         accountInfoPanel = JPanel(BorderLayout()).apply {
-            border = JBUI.Borders.empty(10, 0, 0, 0)
+            border = JBUI.Borders.emptyTop(10)
             add(JBLabel("<html><i>Select an account to view details</i></html>"), BorderLayout.CENTER)
         }
 
@@ -450,12 +449,20 @@ class AzureDevOpsAccountsConfigurable : Configurable {
 
                 if (!isSelected) {
                     foreground = when (value) {
-                        AzureDevOpsAccountManager.AccountAuthState.VALID -> java.awt.Color(0, 128, 0)
-                        AzureDevOpsAccountManager.AccountAuthState.EXPIRED -> java.awt.Color(255, 140, 0)
-                        AzureDevOpsAccountManager.AccountAuthState.REVOKED -> java.awt.Color(200, 0, 0)
-                        AzureDevOpsAccountManager.AccountAuthState.UNKNOWN -> java.awt.Color(128, 128, 128)
+                        AzureDevOpsAccountManager.AccountAuthState.VALID ->
+                            JBColor(0x008000, 0x00A000)   // green (light, dark)
+
+                        AzureDevOpsAccountManager.AccountAuthState.EXPIRED ->
+                            JBColor(0xFF8C00, 0xFFA040)   // orange
+
+                        AzureDevOpsAccountManager.AccountAuthState.REVOKED ->
+                            JBColor(0xC80000, 0xFF4040)   // red
+
+                        AzureDevOpsAccountManager.AccountAuthState.UNKNOWN ->
+                            JBColor(0x808080, 0xA0A0A0)   // gray
                     }
                 }
+
             }
 
             return component

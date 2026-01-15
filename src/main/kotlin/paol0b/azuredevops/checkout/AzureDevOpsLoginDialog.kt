@@ -1,6 +1,5 @@
 package paol0b.azuredevops.checkout
 
-import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
@@ -11,7 +10,6 @@ import com.intellij.openapi.ui.ValidationInfo
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBPasswordField
 import com.intellij.ui.components.JBTextField
-import com.intellij.util.ui.FormBuilder
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import paol0b.azuredevops.AzureDevOpsIcons
@@ -57,6 +55,11 @@ class AzureDevOpsLoginDialog(private val project: Project?) : DialogWrapper(proj
         updateUIMode()
     }
 
+    override fun createActions(): Array<Action> {
+        return arrayOf(cancelAction)   // solo Cancel
+    }
+
+
     override fun createCenterPanel(): JComponent {
         val mainPanel = JPanel(BorderLayout(0, 15))
         
@@ -88,7 +91,7 @@ class AzureDevOpsLoginDialog(private val project: Project?) : DialogWrapper(proj
             }
             add(subtitleLabel)
             
-            border = JBUI.Borders.empty(10, 20, 10, 20)
+            border = JBUI.Borders.empty(10, 20)
         }
 
         // Content panel with form
@@ -98,7 +101,7 @@ class AzureDevOpsLoginDialog(private val project: Project?) : DialogWrapper(proj
             // Organization URL section with card-like appearance
             val urlCard = JPanel(BorderLayout(10, 10)).apply {
                 border = JBUI.Borders.compound(
-                    JBUI.Borders.empty(0, 20, 0, 20),
+                    JBUI.Borders.empty(0, 20),
                     JBUI.Borders.empty(10)
                 )
                 
@@ -307,8 +310,6 @@ class AzureDevOpsLoginDialog(private val project: Project?) : DialogWrapper(proj
         super.doOKAction()
     }
 
-    fun getAccount(): AzureDevOpsAccount? = account
-
     private fun isValidAzureDevOpsUrl(url: String): Boolean {
         return try {
             val uri = java.net.URI(url)
@@ -316,7 +317,7 @@ class AzureDevOpsLoginDialog(private val project: Project?) : DialogWrapper(proj
             host.contains("dev.azure.com") || 
             host.contains("visualstudio.com") ||
             host.contains("azure.com")
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             false
         }
     }
@@ -327,7 +328,7 @@ class AzureDevOpsLoginDialog(private val project: Project?) : DialogWrapper(proj
             val oauthService = AzureDevOpsOAuthService.getInstance()
             val result = oauthService.authenticateWithPAT(serverUrl, token)
             result != null
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             false
         }
     }
