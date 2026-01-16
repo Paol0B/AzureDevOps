@@ -8,7 +8,6 @@ import com.intellij.openapi.components.*
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.util.xmlb.XmlSerializerUtil
 import paol0b.azuredevops.checkout.AzureDevOpsAccountManager
-import paol0b.azuredevops.checkout.AzureDevOpsOAuthService
 import paol0b.azuredevops.model.AzureDevOpsConfig
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
@@ -80,13 +79,6 @@ class AzureDevOpsConfigService(private val project: com.intellij.openapi.project
         myState.manualRepository = config.repository
         savePersonalAccessToken(config.personalAccessToken)
     }
-    
-    /**
-     * Saves only the PAT (recommended method)
-     */
-    fun savePersonalAccessTokenOnly(token: String) {
-        savePersonalAccessToken(token)
-    }
 
     /**
      * Gets the Personal Access Token from secure storage
@@ -131,43 +123,15 @@ class AzureDevOpsConfigService(private val project: com.intellij.openapi.project
             
             // Check all OAuth accounts for a matching organization
             val accountManager = AzureDevOpsAccountManager.getInstance()
+            val tokenService = AzureDevOpsTokenService.getInstance()
             val accounts = accountManager.getAccounts()
             
             for (account in accounts) {
                 // Extract organization from account server URL
-                val accountOrg = extractOrganizationFromUrl(account.serverUrl)
+                val accountOrg = AzureDevOpsUrlUtil.extractOrganizationFromUrl(account.serverUrl)
                 if (accountOrg.equals(organization, ignoreCase = true)) {
-                    // Found matching account
-                    val authState = accountManager.getAccountAuthState(account.id)
-                    
-                    // If token is expired, try to refresh it
-                    if (authState == AzureDevOpsAccountManager.AccountAuthState.EXPIRED) {
-                        logger.info("Token expired for account ${account.id}, attempting automatic refresh")
-                        val refreshToken = accountManager.getRefreshToken(account.id)
-                        if (refreshToken != null) {
-                            // Try to refresh the token
-                            val oauthService = AzureDevOpsOAuthService.getInstance()
-                            val result = oauthService.refreshAccessToken(refreshToken, account.serverUrl)
-                            if (result != null) {
-                                logger.info("Successfully refreshed token for account ${account.id}")
-                                // Update the account with new tokens
-                                accountManager.updateToken(
-                                    account.id,
-                                    result.accessToken,
-                                    result.refreshToken,
-                                    result.expiresIn
-                                )
-                                return result.accessToken
-                            } else {
-                                logger.warn("Failed to refresh token for account ${account.id}")
-                            }
-                        } else {
-                            logger.warn("No refresh token available for account ${account.id}")
-                        }
-                    }
-                    
-                    // Return the token (valid or after refresh)
-                    return accountManager.getToken(account.id)
+                    // Found matching account - ensure token is valid and refresh if needed
+                    return tokenService.getValidAccessToken(account, project)
                 }
             }
         } catch (e: Exception) {
@@ -176,23 +140,6 @@ class AzureDevOpsConfigService(private val project: com.intellij.openapi.project
         }
         
         return null
-    }
-    
-    /**
-     * Extracts organization name from Azure DevOps URL
-     */
-    private fun extractOrganizationFromUrl(url: String): String? {
-        return try {
-            val uri = java.net.URI(url)
-            val path = uri.path.trim('/')
-            if (path.isNotEmpty()) {
-                path.split("/").firstOrNull()
-            } else {
-                null
-            }
-        } catch (e: Exception) {
-            null
-        }
     }
     
     /**
@@ -251,14 +198,6 @@ class AzureDevOpsConfigService(private val project: com.intellij.openapi.project
         } catch (e: Exception) {
             // Ignore errors, not critical
         }
-    }
-
-    /**
-     * Clears the Personal Access Token from secure storage
-     */
-    fun clearPersonalAccessToken() {
-        val credentialAttributes = createCredentialAttributes()
-        PasswordSafe.instance.set(credentialAttributes, null)
     }
 
     /**

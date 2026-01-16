@@ -106,6 +106,8 @@
         <applicationService serviceImplementation="paol0b.azuredevops.checkout.AzureDevOpsAccountManager"/>
         <!-- OAuth authentication service -->
         <applicationService serviceImplementation="paol0b.azuredevops.checkout.AzureDevOpsOAuthService"/>
+        <!-- Token lifecycle service (refresh + Git credential sync) -->
+        <applicationService serviceImplementation="paol0b.azuredevops.services.AzureDevOpsTokenService"/>
         
         <!-- Application-level configuration for accounts -->
         <applicationConfigurable 

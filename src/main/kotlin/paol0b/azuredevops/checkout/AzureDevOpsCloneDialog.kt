@@ -20,6 +20,7 @@ import com.intellij.util.ui.FormBuilder
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import paol0b.azuredevops.AzureDevOpsIcons
+import paol0b.azuredevops.services.AzureDevOpsTokenService
 import java.awt.BorderLayout
 import java.awt.Dimension
 import java.awt.Font
@@ -102,6 +103,7 @@ class AzureDevOpsCloneDialog private constructor(
                 override fun run(indicator: ProgressIndicator) {
                     val dataMap = mutableMapOf<String, ProjectsData>()
                     val currentAccounts = accountManager.getAccounts()
+                    val tokenService = AzureDevOpsTokenService.getInstance()
                     
                     if (currentAccounts.isEmpty()) {
                         return
@@ -115,7 +117,7 @@ class AzureDevOpsCloneDialog private constructor(
                             indicator.text = "Loading repositories for ${account.displayName}..."
                             indicator.fraction = index.toDouble() / accountCount
                             
-                            val token = accountManager.getToken(account.id)
+                            val token = tokenService.getValidAccessToken(account, project)
                             if (token != null) {
                                 val apiClient = AzureDevOpsCloneApiClient(account.serverUrl, token)
                                 val projects = apiClient.getProjects()
@@ -423,7 +425,8 @@ class AzureDevOpsCloneDialog private constructor(
             override fun run(indicator: ProgressIndicator) {
                 try {
                     val accountManager = AzureDevOpsAccountManager.getInstance()
-                    val token = accountManager.getToken(account.id)
+                    val tokenService = AzureDevOpsTokenService.getInstance()
+                    val token = tokenService.getValidAccessToken(account, project)
                     
                     if (token != null) {
                         indicator.text = "Fetching projects..."

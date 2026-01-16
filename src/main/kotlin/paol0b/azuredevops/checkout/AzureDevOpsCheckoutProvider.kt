@@ -13,10 +13,10 @@ import git4idea.commands.Git
 import git4idea.commands.GitCommand
 import git4idea.commands.GitLineHandler
 import paol0b.azuredevops.AzureDevOpsIcons
+import paol0b.azuredevops.services.AzureDevOpsTokenService
+import paol0b.azuredevops.services.AzureDevOpsUrlUtil
 import paol0b.azuredevops.services.GitCredentialHelperService
 import java.io.File
-import java.net.URI
-import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 import javax.swing.Icon
 
@@ -27,7 +27,6 @@ import javax.swing.Icon
  * This provider integrates Azure DevOps into the standard IDE checkout workflow,
  * allowing users to browse and clone repositories directly from Azure DevOps organizations.
  */
-@Suppress("OVERRIDE_DEPRECATION")
 class AzureDevOpsCheckoutProvider : CheckoutProvider {
 
     private val logger = Logger.getInstance(AzureDevOpsCheckoutProvider::class.java)
@@ -47,12 +46,11 @@ class AzureDevOpsCheckoutProvider : CheckoutProvider {
             val targetDirectory = dialog.getTargetDirectory()
 
             // Normalize URL: decode if already encoded, then properly construct
-            val cloneUrl = normalizeAzureDevOpsUrl(selectedRepo.remoteUrl)
+            val cloneUrl = AzureDevOpsUrlUtil.normalizeAzureDevOpsUrl(selectedRepo.remoteUrl)
             
             val account = dialog.getSelectedAccount()
-            val token = account?.let { 
-                AzureDevOpsAccountManager.getInstance().getToken(it.id) 
-            }
+            val tokenService = AzureDevOpsTokenService.getInstance()
+            val token = account?.let { tokenService.getValidAccessToken(it, project) }
             
             // Perform the clone operation using Git
             ProgressManager.getInstance().run(object : Task.Backgroundable(
@@ -75,11 +73,6 @@ class AzureDevOpsCheckoutProvider : CheckoutProvider {
                         val parentCreated = checkoutDir.parentFile?.mkdirs() ?: false
                         logger.info("Parent dir created/exists: $parentCreated, Parent exists: ${checkoutDir.parentFile?.exists()}")
                         
-                        // Get token
-                        val token = account?.let { 
-                            AzureDevOpsAccountManager.getInstance().getToken(it.id) 
-                        }
-                        
                         // Execute git clone
                         val handler = GitLineHandler(project, checkoutDir.parentFile, GitCommand.CLONE)
                         
@@ -87,7 +80,8 @@ class AzureDevOpsCheckoutProvider : CheckoutProvider {
                         // This works for both PAT and OAuth tokens (using token as password)
                         if (token != null) {
                             logger.info("Configuring git http.extraHeader with token (length: ${token.length})")
-                            val authHeader = "Authorization: Basic " + java.util.Base64.getEncoder().encodeToString(":$token".toByteArray(StandardCharsets.UTF_8))
+                            val authHeader = "Authorization: Basic " + java.util.Base64.getEncoder().encodeToString(":$token".toByteArray(
+                                StandardCharsets.UTF_8))
                             handler.addParameters("-c", "http.extraHeader=$authHeader")
                         }
                         
@@ -116,7 +110,10 @@ class AzureDevOpsCheckoutProvider : CheckoutProvider {
                         if (result.success()) {
                             // Save credentials to git credential helper for future use
                             if (token != null) {
-                                saveCredentialsToGit(checkoutDir, cloneUrl, token)
+                                val gitCredHelper = GitCredentialHelperService.getInstance(project)
+                                if (gitCredHelper.isCredentialHelperAvailable()) {
+                                    gitCredHelper.saveCredentialsToHelper(cloneUrl, "oauth", token)
+                                }
                             }
                             
                             listener?.directoryCheckedOut(checkoutDir, GitVcs.getKey())
@@ -156,79 +153,5 @@ class AzureDevOpsCheckoutProvider : CheckoutProvider {
         }
     }
     
-    /**
-     * Save credentials to git credential helper for seamless future operations
-     */
-    private fun saveCredentialsToGit(repoDir: File, url: String, token: String) {
-        try {
-            val processBuilder = ProcessBuilder(
-                "git", "credential", "approve"
-            )
-            processBuilder.directory(repoDir)
-            processBuilder.redirectErrorStream(true)
-            
-            val process = processBuilder.start()
-            
-            // Send credentials in git credential format
-            process.outputStream.bufferedWriter().use { writer ->
-                val uri = java.net.URI(url)
-                writer.write("protocol=${uri.scheme}\n")
-                writer.write("host=${uri.host}\n")
-                // Include path for proper credential matching with special characters
-                val path = uri.path?.removePrefix("/")?.removeSuffix(".git") ?: ""
-                if (path.isNotBlank()) {
-                    writer.write("path=$path\n")
-                }
-                // Use a valid username placeholder for Azure DevOps
-                writer.write("username=oauth\n")
-                writer.write("password=$token\n")
-                writer.write("\n")
-                writer.flush()
-            }
-            
-            process.waitFor()
-        } catch (e: Exception) {
-            // Ignore errors - credential saving is not critical
-        }
-    }
-
-    /**
-     * Normalize Azure DevOps URL to handle all special characters, spaces, etc.
-     * Properly decodes and reconstructs the URL to ensure Git can handle it.
-     */
-    private fun normalizeAzureDevOpsUrl(url: String): String {
-        return try {
-            // First, decode the URL completely (handle multiple encodings)
-            var decodedUrl = url
-            var previousUrl: String
-            
-            // Decode multiple times until no more changes (handle double-encoding)
-            do {
-                previousUrl = decodedUrl
-                decodedUrl = URLDecoder.decode(previousUrl, StandardCharsets.UTF_8)
-            } while (decodedUrl != previousUrl)
-            
-            // Parse the URL
-            val uri = URI(decodedUrl)
-            val scheme = uri.scheme ?: "https"
-            val host = uri.host ?: return url // Fallback if can't parse
-            
-            // Get path and properly encode it
-            val path = uri.path ?: return url
-            
-            // Split path and encode each segment properly
-            val segments = path.split("/").filter { it.isNotEmpty() }
-            val encodedPath = segments.joinToString("/") { segment ->
-                java.net.URLEncoder.encode(segment, StandardCharsets.UTF_8)
-                    .replace("+", "%20") // Space should be %20, not +
-            }
-            
-            // Reconstruct the URL
-            "$scheme://$host/$encodedPath"
-        } catch (e: Exception) {
-            // If anything fails, return original URL
-            url
-        }
-    }
 }
 

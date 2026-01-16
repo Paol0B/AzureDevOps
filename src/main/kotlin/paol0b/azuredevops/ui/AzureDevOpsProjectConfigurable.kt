@@ -9,10 +9,9 @@ import com.intellij.util.ui.FormBuilder
 import com.intellij.util.ui.JBUI
 import paol0b.azuredevops.checkout.AzureDevOpsAccount
 import paol0b.azuredevops.checkout.AzureDevOpsAccountManager
-import paol0b.azuredevops.model.AzureDevOpsConfig
-import paol0b.azuredevops.services.AzureDevOpsApiClient
 import paol0b.azuredevops.services.AzureDevOpsConfigService
 import paol0b.azuredevops.services.AzureDevOpsRepositoryDetector
+import paol0b.azuredevops.services.AzureDevOpsTokenService
 import java.awt.BorderLayout
 import java.awt.event.ItemEvent
 import java.net.URLEncoder
@@ -43,7 +42,7 @@ class AzureDevOpsProjectConfigurable(private val project: Project) : Configurabl
     override fun getDisplayName(): String = "Azure DevOps"
 
     override fun createComponent(): JComponent {
-        val configService = AzureDevOpsConfigService.getInstance(project)
+        AzureDevOpsConfigService.getInstance(project)
         val detector = AzureDevOpsRepositoryDetector.getInstance(project)
         val detectedInfo = detector.detectAzureDevOpsInfo()
         
@@ -191,8 +190,8 @@ class AzureDevOpsProjectConfigurable(private val project: Project) : Configurabl
 
         val selectedItem = accountComboBox.selectedItem as? AccountItem
         val token = if (selectedItem?.account != null) {
-            val accountManager = AzureDevOpsAccountManager.getInstance()
-            accountManager.getToken(selectedItem.account.id)
+            val tokenService = AzureDevOpsTokenService.getInstance()
+            tokenService.getValidAccessToken(selectedItem.account, project)
         } else {
             // Fallback to project-level PAT
             AzureDevOpsConfigService.getInstance(project).getConfig().personalAccessToken

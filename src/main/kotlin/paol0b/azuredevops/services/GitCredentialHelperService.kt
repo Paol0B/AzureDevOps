@@ -3,6 +3,8 @@ package paol0b.azuredevops.services
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
+import java.io.File
+import java.nio.charset.StandardCharsets
 
 /**
  * Service to interact with Git Credential Helper
@@ -134,18 +136,11 @@ class GitCredentialHelperService(private val project: Project) {
         return try {
             val (protocol, host, path) = parseUrl(url) ?: return false
             
-            val input = buildString {
-                appendLine("protocol=$protocol")
-                appendLine("host=$host")
-                if (path.isNotBlank()) {
-                    appendLine("path=$path")
-                }
-                appendLine("username=${username.ifBlank { "PersonalAccessToken" }}")
-                appendLine("password=$password")
-                appendLine()
-            }
-            
+            val input = buildCredentialInput(protocol, host, path, username, password)
             val processBuilder = ProcessBuilder("git", "credential", "approve")
+            GitRepositoryService.getInstance(project).getRepository()?.root?.let { root ->
+                processBuilder.directory(File(root.path))
+            }
             
             // IMPORTANT: Prevent process window from opening on Windows
             if (System.getProperty("os.name").lowercase().contains("windows")) {
@@ -163,17 +158,72 @@ class GitCredentialHelperService(private val project: Project) {
             }
             
             val exitCode = process.waitFor()
-            
+
+            val hostOnlySaved = saveHostOnlyCredential(protocol, host, username, password)
+
             if (exitCode == 0) {
                 logger.info("Credentials saved to Git credential helper for $host")
-                true
+                true || hostOnlySaved
             } else {
                 logger.warn("Failed to save credentials to Git credential helper, exit code: $exitCode")
-                false
+                hostOnlySaved
             }
         } catch (e: Exception) {
             logger.warn("Failed to save credentials to Git credential helper", e)
             false
+        }
+    }
+
+    private fun saveHostOnlyCredential(protocol: String, host: String, username: String, password: String): Boolean {
+        val isAzureDevOpsHost = host.equals("dev.azure.com", ignoreCase = true) ||
+            host.endsWith(".visualstudio.com", ignoreCase = true)
+
+        if (!isAzureDevOpsHost) {
+            return false
+        }
+
+        return try {
+            val input = buildCredentialInput(protocol, host, "", username, password)
+            val processBuilder = ProcessBuilder("git", "credential", "approve")
+            GitRepositoryService.getInstance(project).getRepository()?.root?.let { root ->
+                processBuilder.directory(File(root.path))
+            }
+
+            if (System.getProperty("os.name").lowercase().contains("windows")) {
+                processBuilder.redirectError(ProcessBuilder.Redirect.PIPE)
+                processBuilder.redirectOutput(ProcessBuilder.Redirect.PIPE)
+            } else {
+                processBuilder.redirectErrorStream(true)
+            }
+
+            val process = processBuilder.start()
+            process.outputStream.use { outputStream ->
+                outputStream.write(input.toByteArray())
+                outputStream.flush()
+            }
+            process.waitFor() == 0
+        } catch (e: Exception) {
+            logger.debug("Failed to save host-only credential", e)
+            false
+        }
+    }
+
+    private fun buildCredentialInput(
+        protocol: String,
+        host: String,
+        path: String,
+        username: String,
+        password: String
+    ): String {
+        return buildString {
+            appendLine("protocol=$protocol")
+            appendLine("host=$host")
+            if (path.isNotBlank()) {
+                appendLine("path=$path")
+            }
+            appendLine("username=${username.ifBlank { "PersonalAccessToken" }}")
+            appendLine("password=$password")
+            appendLine()
         }
     }
 
@@ -275,5 +325,120 @@ class GitCredentialHelperService(private val project: Project) {
         
         logger.info("Attempting to retrieve credentials for remote URL: $remoteUrl")
         return getCredentialsFromHelper(remoteUrl)
+    }
+
+    /**
+     * Updates or adds the local git config http.extraHeader Authorization entry.
+     * This keeps workflows that store auth headers in .git/config in sync
+     * with refreshed OAuth tokens.
+     */
+    fun upsertAuthorizationHeader(token: String): Boolean {
+        val repository = GitRepositoryService.getInstance(project).getRepository() ?: return false
+        val repoDir = File(repository.root.path)
+
+        val existingHeaders = readExtraHeaders(repoDir)
+        val authHeader = buildAuthorizationHeader(token)
+
+        if (existingHeaders!!.any { it == authHeader }) {
+            return true
+        }
+
+        val hasAuthorizationHeader = existingHeaders!!.any { it.startsWith("Authorization:") }
+        return if (hasAuthorizationHeader) {
+            replaceAuthorizationHeader(repoDir, authHeader)
+        } else {
+            addAuthorizationHeader(repoDir, authHeader)
+        }
+    }
+
+    private fun buildAuthorizationHeader(token: String): String {
+        val encoded = java.util.Base64.getEncoder().encodeToString(":$token".toByteArray(StandardCharsets.UTF_8))
+        return "Authorization: Basic $encoded"
+    }
+
+    private fun readExtraHeaders(repoDir: File): List<String>? {
+        return try {
+            val processBuilder = ProcessBuilder("git", "config", "--local", "--get-all", "http.extraHeader")
+            processBuilder.directory(repoDir)
+
+            if (System.getProperty("os.name").lowercase().contains("windows")) {
+                processBuilder.redirectError(ProcessBuilder.Redirect.PIPE)
+                processBuilder.redirectOutput(ProcessBuilder.Redirect.PIPE)
+            } else {
+                processBuilder.redirectErrorStream(true)
+            }
+
+            val process = processBuilder.start()
+            val output = process.inputStream.bufferedReader().use { it.readText() }
+            process.waitFor()
+
+            output.lines().map { it.trim() }.filter { it.isNotBlank() }
+        } catch (e: Exception) {
+            logger.debug("Failed to read http.extraHeader from git config", e)
+            emptyList()
+        }
+    }
+
+    private fun replaceAuthorizationHeader(repoDir: File, authHeader: String): Boolean {
+        return try {
+            val processBuilder = ProcessBuilder(
+                "git",
+                "config",
+                "--local",
+                "--replace-all",
+                "http.extraHeader",
+                authHeader,
+                "^Authorization:.*"
+            )
+            processBuilder.directory(repoDir)
+
+            if (System.getProperty("os.name").lowercase().contains("windows")) {
+                processBuilder.redirectError(ProcessBuilder.Redirect.PIPE)
+                processBuilder.redirectOutput(ProcessBuilder.Redirect.PIPE)
+            } else {
+                processBuilder.redirectErrorStream(true)
+            }
+
+            val process = processBuilder.start()
+            val exitCode = process.waitFor()
+            if (exitCode != 0) {
+                logger.warn("Failed to update http.extraHeader in git config, exit code: $exitCode")
+            }
+            exitCode == 0
+        } catch (e: Exception) {
+            logger.warn("Failed to update http.extraHeader in git config", e)
+            false
+        }
+    }
+
+    private fun addAuthorizationHeader(repoDir: File, authHeader: String): Boolean {
+        return try {
+            val processBuilder = ProcessBuilder(
+                "git",
+                "config",
+                "--local",
+                "--add",
+                "http.extraHeader",
+                authHeader
+            )
+            processBuilder.directory(repoDir)
+
+            if (System.getProperty("os.name").lowercase().contains("windows")) {
+                processBuilder.redirectError(ProcessBuilder.Redirect.PIPE)
+                processBuilder.redirectOutput(ProcessBuilder.Redirect.PIPE)
+            } else {
+                processBuilder.redirectErrorStream(true)
+            }
+
+            val process = processBuilder.start()
+            val exitCode = process.waitFor()
+            if (exitCode != 0) {
+                logger.warn("Failed to add http.extraHeader in git config, exit code: $exitCode")
+            }
+            exitCode == 0
+        } catch (e: Exception) {
+            logger.warn("Failed to add http.extraHeader in git config", e)
+            false
+        }
     }
 }

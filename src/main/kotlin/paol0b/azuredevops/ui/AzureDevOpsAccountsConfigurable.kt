@@ -17,6 +17,7 @@ import paol0b.azuredevops.checkout.AzureDevOpsAccount
 import paol0b.azuredevops.checkout.AzureDevOpsAccountManager
 import paol0b.azuredevops.checkout.AzureDevOpsLoginDialog
 import paol0b.azuredevops.checkout.AzureDevOpsOAuthService
+import paol0b.azuredevops.services.AzureDevOpsTokenService
 import java.awt.BorderLayout
 import java.awt.Component
 import java.text.SimpleDateFormat
@@ -272,14 +273,9 @@ class AzureDevOpsAccountsConfigurable : Configurable {
                 indicator.text = "Refreshing token for ${account.displayName}..."
 
                 try {
-                    val result = oauthService.refreshAccessToken(refreshToken, account.serverUrl)
-                    if (result != null) {
-                        accountManager.updateToken(
-                            account.id,
-                            result.accessToken,
-                            result.refreshToken,
-                            result.expiresIn
-                        )
+                    val tokenService = AzureDevOpsTokenService.getInstance()
+                    val token = tokenService.refreshAccessToken(account)
+                    if (!token.isNullOrBlank()) {
                         success = true
                     } else {
                         errorMessage = "Failed to refresh token. The refresh token may be expired or invalid."
