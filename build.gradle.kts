@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "paol0b"
-version = "2.0"
+version = "2.1"
 
 repositories {
     mavenCentral()
@@ -37,6 +37,15 @@ intellijPlatform {
         }
 
         changeNotes = """
+            Version 2.1:
+            - Fix Get PRs return 404 on repo name with spaces
+            - Improve refresh of PRs Window
+            Version 2.0:
+            - Global Accounts – Manage all Azure DevOps accounts in one place with status, expiration, and actions (add, remove, refresh, re-login).
+            - Project Setup – Select an account per project with auto-detected organization and connection testing.
+            - Auto Refresh – Tokens automatically refresh via Microsoft Entra ID (OAuth 2.0).
+            - Fallback Login – If refresh fails, users are prompted to re-authenticate.
+            - Token Tracking – Expiration and last refresh times are stored and checked before each operation.
             Version 1.2:
             - Added Changes and Commits tabs to Create Pull Request dialog
             - Shows file changes grouped by directory with change type indicators [A]dded, [M]odified, [D]eleted
