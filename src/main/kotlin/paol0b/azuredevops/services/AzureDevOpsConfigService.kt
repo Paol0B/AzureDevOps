@@ -277,7 +277,16 @@ class AzureDevOpsConfigService(private val project: com.intellij.openapi.project
      */
     fun getApiBaseUrl(): String {
         val config = getConfig()
-        val encodedOrganization = URLEncoder.encode(config.organization, StandardCharsets.UTF_8.toString())
+
+        // Check availability of visualstudio.com domain preference from detector
+        val detector = AzureDevOpsRepositoryDetector.getInstance(project)
+        val info = detector.detectAzureDevOpsInfo()
+        if (info != null && info.useVisualStudioDomain && 
+            info.organization.equals(config.organization, ignoreCase = true)) {
+            return "https://${config.organization}.visualstudio.com"
+        }
+
+        val encodedOrganization = URLEncoder.encode(config.organization, StandardCharsets.UTF_8.toString()).replace("+", "%20")
         return "https://dev.azure.com/$encodedOrganization"
     }
     

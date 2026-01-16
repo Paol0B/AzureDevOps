@@ -19,6 +19,7 @@ repositories {
 dependencies {
     // Gson for JSON parsing
     implementation("com.google.code.gson:gson:2.11.0")
+    testImplementation("junit:junit:4.13.2")
     
     intellijPlatform {
         create("IC", "2025.1.4.1")

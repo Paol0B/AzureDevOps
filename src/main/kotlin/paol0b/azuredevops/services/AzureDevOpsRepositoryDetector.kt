@@ -14,7 +14,8 @@ data class AzureDevOpsRepoInfo(
     val organization: String,
     val project: String,
     val repository: String,
-    val remoteUrl: String
+    val remoteUrl: String,
+    val useVisualStudioDomain: Boolean = false
 ) {
     fun isValid(): Boolean = organization.isNotBlank() && 
                             project.isNotBlank() && 
@@ -38,27 +39,6 @@ class AzureDevOpsRepositoryDetector(private val project: Project) {
     private val CACHE_VALIDITY_MS = 30000L // 30 seconds
 
     companion object {
-        // Pattern for HTTPS URL: https://[username@]dev.azure.com/{organization}/{project}/_git/{repository}
-        // Also supports URL-encoded characters (e.g., Connettivit%C3%A0)
-        private val HTTPS_PATTERN = Pattern.compile(
-            "https://(?:[^@]+@)?dev\\.azure\\.com/([^/]+)/([^/]+)/_git/([^/]+?)(?:\\.git)?/?$"
-        )
-        
-        // Pattern for alternative HTTPS URL: https://[username@]{organization}.visualstudio.com/{project}/_git/{repository}
-        private val VISUALSTUDIO_PATTERN = Pattern.compile(
-            "https://(?:[^@]+@)?([^.]+)\\.visualstudio\\.com/([^/]+)/_git/([^/]+?)(?:\\.git)?/?$"
-        )
-        
-        // Pattern for SSH v3: git@ssh.dev.azure.com:v3/{organization}/{project}/{repository}
-        private val SSH_V3_PATTERN = Pattern.compile(
-            "git@ssh\\.dev\\.azure\\.com:v3/([^/]+)/([^/]+)/([^/]+?)(?:\\.git)?/?$"
-        )
-        
-        // Pattern for legacy SSH: {organization}@vs-ssh.visualstudio.com:v3/{organization}/{project}/{repository}
-        private val SSH_LEGACY_PATTERN = Pattern.compile(
-            "[^@]+@vs-ssh\\.visualstudio\\.com:v3/([^/]+)/([^/]+)/([^/]+?)(?:\\.git)?/?$"
-        )
-
         fun getInstance(project: Project): AzureDevOpsRepositoryDetector {
             return project.getService(AzureDevOpsRepositoryDetector::class.java)
         }
@@ -100,7 +80,7 @@ class AzureDevOpsRepositoryDetector(private val project: Project) {
             for (url in urls) {
                 logger.debug("Checking remote URL: $url")
                 
-                val info = parseAzureDevOpsUrl(url)
+                val info = AzureDevOpsUrlParser.parse(url)
                 if (info != null) {
                     logger.info("Detected Azure DevOps repository: ${info.organization}/${info.project}/${info.repository}")
                     // Update cache
@@ -125,69 +105,6 @@ class AzureDevOpsRepositoryDetector(private val project: Project) {
     fun invalidateCache() {
         cachedInfo = null
         cacheTimestamp = 0
-    }
-
-    /**
-     * Parses the URL to extract organization, project, and repository
-     */
-    private fun parseAzureDevOpsUrl(url: String): AzureDevOpsRepoInfo? {
-        // Try standard HTTPS pattern
-        var matcher = HTTPS_PATTERN.matcher(url)
-        if (matcher.matches()) {
-            return AzureDevOpsRepoInfo(
-                organization = urlDecode(matcher.group(1)),
-                project = urlDecode(matcher.group(2)),
-                repository = urlDecode(matcher.group(3)),
-                remoteUrl = url
-            )
-        }
-
-        // Try VisualStudio.com pattern
-        matcher = VISUALSTUDIO_PATTERN.matcher(url)
-        if (matcher.matches()) {
-            return AzureDevOpsRepoInfo(
-                organization = urlDecode(matcher.group(1)),
-                project = urlDecode(matcher.group(2)),
-                repository = urlDecode(matcher.group(3)),
-                remoteUrl = url
-            )
-        }
-
-        // Try SSH v3 pattern
-        matcher = SSH_V3_PATTERN.matcher(url)
-        if (matcher.matches()) {
-            return AzureDevOpsRepoInfo(
-                organization = urlDecode(matcher.group(1)),
-                project = urlDecode(matcher.group(2)),
-                repository = urlDecode(matcher.group(3)),
-                remoteUrl = url
-            )
-        }
-
-        // Try legacy SSH pattern
-        matcher = SSH_LEGACY_PATTERN.matcher(url)
-        if (matcher.matches()) {
-            return AzureDevOpsRepoInfo(
-                organization = urlDecode(matcher.group(1)),
-                project = urlDecode(matcher.group(2)),
-                repository = urlDecode(matcher.group(3)),
-                remoteUrl = url
-            )
-        }
-
-        return null
-    }
-    
-    /**
-     * Decodes a URL-encoded string (e.g., "Connettivit%C3%A0" -> "Connettività")
-     */
-    private fun urlDecode(value: String): String {
-        return try {
-            URLDecoder.decode(value, StandardCharsets.UTF_8.toString())
-        } catch (e: Exception) {
-            logger.warn("Failed to URL decode: $value", e)
-            value
-        }
     }
 
     /**

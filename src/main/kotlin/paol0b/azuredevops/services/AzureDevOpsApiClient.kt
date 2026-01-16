@@ -43,9 +43,10 @@ The plugin will automatically use your authenticated account for this repository
      */
     private fun buildApiUrl(project: String, repository: String, endpoint: String): String {
         val configService = AzureDevOpsConfigService.getInstance(this.project)
-        val encodedProject = URLEncoder.encode(project, StandardCharsets.UTF_8.toString())
-        val encodedRepository = URLEncoder.encode(repository, StandardCharsets.UTF_8.toString())
-        return "${configService.getApiBaseUrl()}/$encodedProject/_apis/git/repositories/$encodedRepository$endpoint"
+        // URLEncoder encodes spaces as "+", but for URL paths we need "%20"
+        val encodedProject = URLEncoder.encode(project, StandardCharsets.UTF_8.toString()).replace("+", "%20")
+
+        return "${configService.getApiBaseUrl()}/$encodedProject/_apis/git/repositories/$repository$endpoint"
     }
 
     /**
@@ -172,29 +173,6 @@ The plugin will automatically use your authenticated account for this repository
     }
 
     /**
-     * Verifies connection and credentials with Azure DevOps
-     */
-    @Throws(AzureDevOpsApiException::class)
-    fun testConnection(): Boolean {
-        val configService = AzureDevOpsConfigService.getInstance(project)
-        val config = configService.getConfig()
-
-        if (!config.isValid()) {
-            throw AzureDevOpsApiException("Invalid configuration")
-        }
-
-        val url = buildApiUrl(config.project, config.repository, "?api-version=$API_VERSION")
-        
-        return try {
-            executeGet(url, config.personalAccessToken)
-            true
-        } catch (e: Exception) {
-            logger.error("Connection test failed", e)
-            throw AzureDevOpsApiException("Connection test failed: ${e.message}", e)
-        }
-    }
-    
-    /**
      * Searches for an active Pull Request between two specific branches
      * @param sourceBranch Source branch (e.g., "refs/heads/feature")
      * @param targetBranch Target branch (e.g., "refs/heads/main")
@@ -220,7 +198,7 @@ The plugin will automatically use your authenticated account for this repository
         return try {
             val response = executeGet(url, config.personalAccessToken)
             val prList = gson.fromJson(response, PullRequestListResponse::class.java)
-            prList.value?.firstOrNull()
+            prList.value.firstOrNull()
         } catch (e: Exception) {
             logger.error("Failed to search for PR", e)
             null
@@ -542,7 +520,7 @@ The plugin will automatically use your authenticated account for this repository
         val config = configService.getConfig()
         
         // First get the PR to have the last iteration
-        val pr = getPullRequest(pullRequestId)
+        getPullRequest(pullRequestId)
         
         // Now get the changes of the last iteration
         val url = buildApiUrl(
