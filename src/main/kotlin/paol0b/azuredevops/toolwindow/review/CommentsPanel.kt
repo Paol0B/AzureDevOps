@@ -4,6 +4,7 @@ import com.intellij.icons.AllIcons
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.ComboBox
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
@@ -42,8 +43,9 @@ class CommentsPanel(
         emptyText.text = "Filter comments..."
     }
     
-    private val filterComboBox = JComboBox(arrayOf("All", "Active", "Resolved", "Unresolved")).apply {
+    private val filterComboBox = ComboBox(arrayOf("All", "Active", "Resolved", "Unresolved")).apply {
         selectedIndex = 0
+        preferredSize = Dimension(120, 30) // Taller dropdown aligned with text field
     }
     
     private var allThreads: List<CommentThread> = emptyList()
