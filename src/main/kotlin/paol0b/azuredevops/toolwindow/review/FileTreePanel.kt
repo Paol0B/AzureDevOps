@@ -1,6 +1,8 @@
 package paol0b.azuredevops.toolwindow.review
 
+import com.intellij.icons.AllIcons
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.fileTypes.FileTypeManager
 import com.intellij.openapi.project.Project
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
@@ -12,6 +14,7 @@ import paol0b.azuredevops.services.PrReviewStateService
 import java.awt.BorderLayout
 import java.awt.Component
 import java.awt.Dimension
+import java.awt.Font
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import javax.swing.*
@@ -52,6 +55,7 @@ class FileTreePanel(
             isRootVisible = false
             showsRootHandles = true
             cellRenderer = FileTreeCellRenderer()
+            rowHeight = 22 // Slightly taller for better touch target and spacing
             
             // Handle selection
             addTreeSelectionListener { event ->
@@ -103,37 +107,27 @@ class FileTreePanel(
         rootNode.removeAllChildren()
         fileNodeMap.clear()
         
-        // Group files by directory
-        val filesByDirectory = changes.groupBy { change ->
-            val path = change.item?.path ?: ""
-            val lastSlash = path.lastIndexOf('/')
-            if (lastSlash > 0) path.substring(0, lastSlash) else ""
-        }
+        // Sort changes by path for consistent tree building
+        val sortedChanges = changes.sortedBy { it.item?.path ?: "" }
         
-        // Build tree structure
-        filesByDirectory.entries.sortedBy { it.key }.forEach { (directory, files) ->
-            if (directory.isEmpty()) {
-                // Root level files
-                files.forEach { change ->
-                    val fileNode = FileTreeNode(change, pullRequestId, reviewStateService)
-                    val treeNode = DefaultMutableTreeNode(fileNode)
-                    rootNode.add(treeNode)
-                    fileNodeMap[change.item?.path ?: ""] = fileNode
-                }
-            } else {
-                // Create directory node
-                val dirNode = createDirectoryNode(directory)
-                
-                // Add files to directory
-                files.forEach { change ->
-                    val fileNode = FileTreeNode(change, pullRequestId, reviewStateService)
-                    val treeNode = DefaultMutableTreeNode(fileNode)
-                    dirNode.add(treeNode)
-                    fileNodeMap[change.item?.path ?: ""] = fileNode
-                }
-                
-                rootNode.add(dirNode)
-            }
+        sortedChanges.forEach { change ->
+            val fullPath = change.item?.path ?: return@forEach
+            // Azure DevOps paths usually start with /, remove it for processing
+            val cleanPath = if (fullPath.startsWith("/")) fullPath.substring(1) else fullPath
+            
+            if (cleanPath.isEmpty()) return@forEach
+            
+            val parts = cleanPath.split('/')
+            val dirParts = parts.dropLast(1)
+            
+            // Get or create parent folder
+            val parentNode = getOrCreateDirectoryNode(dirParts)
+            
+            // Create file node
+            val fileNode = FileTreeNode(change, pullRequestId, reviewStateService)
+            val treeNode = DefaultMutableTreeNode(fileNode)
+            parentNode.add(treeNode)
+            fileNodeMap[fullPath] = fileNode
         }
         
         treeModel.reload()
@@ -147,31 +141,30 @@ class FileTreePanel(
     }
 
     /**
-     * Create a hierarchical directory node
+     * Get or create directory structure recursively
      */
-    private fun createDirectoryNode(path: String): DefaultMutableTreeNode {
-        val parts = path.split('/')
+    private fun getOrCreateDirectoryNode(parts: List<String>): DefaultMutableTreeNode {
         var currentNode = rootNode
-        var currentPath = ""
         
         for (part in parts) {
-            currentPath = if (currentPath.isEmpty()) part else "$currentPath/$part"
+            if (part.isEmpty()) continue
             
-            // Check if directory node already exists
-            var found = false
+            var foundNode: DefaultMutableTreeNode? = null
             for (i in 0 until currentNode.childCount) {
                 val child = currentNode.getChildAt(i) as DefaultMutableTreeNode
-                if (child.userObject is DirectoryNode && (child.userObject as DirectoryNode).name == part) {
-                    currentNode = child
-                    found = true
+                val userObject = child.userObject
+                if (userObject is DirectoryNode && userObject.name == part) {
+                    foundNode = child
                     break
                 }
             }
             
-            if (!found) {
-                val dirNode = DefaultMutableTreeNode(DirectoryNode(part, currentPath))
-                currentNode.add(dirNode)
-                currentNode = dirNode
+            if (foundNode == null) {
+                val newDir = DefaultMutableTreeNode(DirectoryNode(part))
+                currentNode.add(newDir)
+                currentNode = newDir
+            } else {
+                currentNode = foundNode
             }
         }
         
@@ -255,14 +248,14 @@ class FileTreePanel(
      * Directory node in the tree
      */
     data class DirectoryNode(
-        val name: String,
-        val fullPath: String
+        val name: String
     )
 
     /**
      * Custom cell renderer for file tree
      */
     private inner class FileTreeCellRenderer : DefaultTreeCellRenderer() {
+        
         override fun getTreeCellRendererComponent(
             tree: JTree?,
             value: Any?,
@@ -279,8 +272,8 @@ class FileTreePanel(
             
             when (userObject) {
                 is FileTreeNode -> {
-                    // Render file with checkbox and status badge
-                    val panel = JPanel(BorderLayout()).apply {
+                    // Render file with checkbox and specific icon
+                    val panel = JPanel(BorderLayout(4, 0)).apply {
                         isOpaque = false
                     }
                     
@@ -288,32 +281,38 @@ class FileTreePanel(
                     val checkbox = JCheckBox().apply {
                         isSelected = userObject.isReviewed
                         isOpaque = false
-                        addActionListener {
-                            userObject.toggleReviewed()
-                            treeModel.nodeChanged(node)
+                    }
+                    
+                    // File Label with Icon
+                    val nameLabel = JBLabel(userObject.fileName).apply {
+                        // Get file type icon
+                        val fileType = FileTypeManager.getInstance().getFileTypeByFileName(userObject.fileName)
+                        icon = fileType.icon
+                        
+                        // Status color similar to git status
+                        foreground = when (userObject.changeType.lowercase()) {
+                            "add" -> JBColor(0x2E8B57, 0x629755) // Greenish
+                            "delete" -> JBColor.RED
+                            "rename" -> JBColor.BLUE
+                            else -> if (sel) JBColor.WHITE else JBColor.BLACK
+                        }
+                        
+                        // Font style
+                        if (userObject.changeType.equals("delete", ignoreCase = true)) {
+                            // Strike-through logic could go here, but simple color is safe
                         }
                     }
                     
-                    // File label with change type indicator
-                    val changeIcon = when (userObject.changeType.lowercase()) {
-                        "add" -> "🟢 "
-                        "edit" -> "🟡 "
-                        "delete" -> "🔴 "
-                        "rename" -> "🔵 "
-                        else -> "• "
-                    }
-                    
-                    val label = JBLabel("$changeIcon${userObject.fileName}")
-                    
                     panel.add(checkbox, BorderLayout.WEST)
-                    panel.add(label, BorderLayout.CENTER)
+                    panel.add(nameLabel, BorderLayout.CENTER)
                     
                     return panel
                 }
                 
                 is DirectoryNode -> {
-                    // Render directory
-                    text = "📁 ${userObject.name}"
+                    // Render directory with folder icon
+                    icon = AllIcons.Nodes.Folder
+                    text = userObject.name
                 }
             }
             

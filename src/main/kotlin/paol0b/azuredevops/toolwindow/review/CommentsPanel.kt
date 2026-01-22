@@ -1,5 +1,6 @@
 package paol0b.azuredevops.toolwindow.review
 
+import com.intellij.icons.AllIcons
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
@@ -7,16 +8,16 @@ import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextField
+import com.intellij.util.ui.JBFont
 import com.intellij.util.ui.JBUI
+import com.intellij.util.ui.UIUtil
 import paol0b.azuredevops.model.CommentThread
 import paol0b.azuredevops.model.ThreadStatus
 import paol0b.azuredevops.services.AzureDevOpsApiClient
 import paol0b.azuredevops.services.PullRequestCommentsService
-import java.awt.BorderLayout
-import java.awt.Dimension
-import java.awt.GridBagConstraints
-import java.awt.GridBagLayout
+import java.awt.*
 import javax.swing.*
+import javax.swing.border.CompoundBorder
 
 /**
  * Comments panel for displaying and managing PR comments
@@ -33,7 +34,8 @@ class CommentsPanel(
     
     private val commentsContainer = JPanel().apply {
         layout = BoxLayout(this, BoxLayout.Y_AXIS)
-        border = JBUI.Borders.empty(5)
+        border = JBUI.Borders.empty(10)
+        background = UIUtil.getListBackground()
     }
     
     private val filterField = JBTextField().apply {
@@ -46,7 +48,7 @@ class CommentsPanel(
     
     private var allThreads: List<CommentThread> = emptyList()
     
-    private val refreshButton = JButton("🔄 Refresh").apply {
+    private val refreshButton = JButton(AllIcons.Actions.Refresh).apply {
         toolTipText = "Refresh comments"
         addActionListener { loadComments() }
     }
@@ -60,26 +62,22 @@ class CommentsPanel(
         // Top toolbar with filters
         val toolbar = JPanel(BorderLayout()).apply {
             border = JBUI.Borders.empty(5)
+            background = UIUtil.getPanelBackground()
             
-            val leftPanel = JPanel(BorderLayout()).apply {
-                add(JBLabel("Comments"), BorderLayout.WEST)
-                add(Box.createHorizontalStrut(10), BorderLayout.CENTER)
+            val leftPanel = JPanel(FlowLayout(FlowLayout.LEFT, 5, 0)).apply {
+                add(JBLabel("Review Comments").apply { font = JBFont.h3().asBold() })
             }
             
-            val rightPanel = JPanel().apply {
-                layout = BoxLayout(this, BoxLayout.X_AXIS)
+            val rightPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 5, 0)).apply {
                 add(filterComboBox)
-                add(Box.createHorizontalStrut(5))
                 add(filterField.apply { 
-                    maximumSize = Dimension(200, 30)
-                    preferredSize = Dimension(150, 25)
+                    preferredSize = Dimension(150, 30)
                 })
-                add(Box.createHorizontalStrut(5))
                 add(refreshButton)
             }
             
             add(leftPanel, BorderLayout.WEST)
-            add(rightPanel, BorderLayout.EAST)
+            add(rightPanel, BorderLayout.CENTER)
         }
         
         // Filter listeners
@@ -90,8 +88,8 @@ class CommentsPanel(
         val scrollPane = JBScrollPane(commentsContainer).apply {
             border = JBUI.Borders.empty()
             verticalScrollBarPolicy = JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
-            minimumSize = Dimension(0, 100)
-            preferredSize = Dimension(0, 200)
+            horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
+            viewport.background = UIUtil.getListBackground()
         }
         
         add(toolbar, BorderLayout.NORTH)
@@ -104,9 +102,14 @@ class CommentsPanel(
     fun loadComments() {
         refreshButton.isEnabled = false
         commentsContainer.removeAll()
-        commentsContainer.add(JBLabel("Loading comments...").apply {
-            border = JBUI.Borders.empty(10)
+        commentsContainer.add(Box.createVerticalGlue())
+        commentsContainer.add(JPanel(FlowLayout(FlowLayout.CENTER)).apply {
+            isOpaque = false
+            add(JBLabel("Loading comments...", AllIcons.General.ContextHelp, SwingConstants.CENTER).apply {
+                foreground = JBColor.GRAY
+            })
         })
+        commentsContainer.add(Box.createVerticalGlue())
         commentsContainer.revalidate()
         commentsContainer.repaint()
         
@@ -136,51 +139,64 @@ class CommentsPanel(
         commentsContainer.removeAll()
         
         if (threads.isEmpty()) {
-            commentsContainer.add(JBLabel("No comments found").apply {
-                border = JBUI.Borders.empty(10)
-                foreground = JBColor.GRAY
+            commentsContainer.add(Box.createVerticalGlue())
+            commentsContainer.add(JPanel(FlowLayout(FlowLayout.CENTER)).apply {
+                isOpaque = false
+                add(JBLabel("No comments found", AllIcons.General.Balloon, SwingConstants.CENTER).apply {
+                    foreground = JBColor.GRAY
+                    font = JBFont.h4()
+                })
             })
+            commentsContainer.add(Box.createVerticalGlue())
         } else {
             // Group by file
             val fileThreads = threads.filter { it.threadContext?.filePath != null }
             val generalThreads = threads.filter { it.threadContext?.filePath == null }
-            
-            // Display file comments
-            if (fileThreads.isNotEmpty()) {
-                commentsContainer.add(createSectionLabel("File Comments"))
-                
-                fileThreads.groupBy { it.threadContext?.filePath }.forEach { (filePath, fileThreadsList) ->
-                    val fileName = filePath?.substringAfterLast('/') ?: "Unknown"
-                    commentsContainer.add(createFileHeader(fileName, filePath ?: ""))
-                    
-                    fileThreadsList.forEach { thread ->
-                        commentsContainer.add(createThreadPanel(thread))
-                    }
-                }
-            }
             
             // Display general comments
             if (generalThreads.isNotEmpty()) {
                 commentsContainer.add(createSectionLabel("General Comments"))
                 generalThreads.forEach { thread ->
                     commentsContainer.add(createThreadPanel(thread))
+                    commentsContainer.add(Box.createVerticalStrut(10))
+                }
+            }
+
+            // Display file comments
+            if (fileThreads.isNotEmpty()) {
+                commentsContainer.add(createSectionLabel("File Comments"))
+                
+                val sortedGroups = fileThreads.groupBy { it.threadContext?.filePath }.toSortedMap(compareBy { it ?: "" })
+                
+                sortedGroups.forEach { (filePath, fileThreadsList) ->
+                    val fileName = filePath?.substringAfterLast('/') ?: "Unknown"
+                    val fullPath = filePath ?: ""
+                    
+                    commentsContainer.add(createFileHeader(fileName, fullPath))
+                    commentsContainer.add(Box.createVerticalStrut(5))
+                    
+                    fileThreadsList.sortedBy { it.threadContext?.rightFileStart?.line ?: 0 }.forEach { thread ->
+                        commentsContainer.add(createThreadPanel(thread))
+                        commentsContainer.add(Box.createVerticalStrut(10))
+                    }
                 }
             }
         }
         
         commentsContainer.revalidate()
         commentsContainer.repaint()
-        
-        logger.info("Displayed ${threads.size} comment threads")
     }
 
     /**
      * Create a section label
      */
     private fun createSectionLabel(text: String): JComponent {
-        return JBLabel(text).apply {
-            font = font.deriveFont(font.style or java.awt.Font.BOLD)
-            border = JBUI.Borders.empty(10, 5, 5, 5)
+        return JPanel(FlowLayout(FlowLayout.LEFT)).apply {
+            isOpaque = false
+            add(JBLabel(text).apply {
+                font = JBFont.h4().asBold()
+                foreground = JBColor.GRAY
+            })
         }
     }
 
@@ -189,16 +205,24 @@ class CommentsPanel(
      */
     private fun createFileHeader(fileName: String, filePath: String): JComponent {
         return JPanel(BorderLayout()).apply {
-            border = JBUI.Borders.compound(
-                JBUI.Borders.empty(5, 5, 2, 5),
-                JBUI.Borders.customLine(JBColor.border(), 0, 0, 1, 0)
-            )
-            background = JBColor.background()
+            isOpaque = false
+            border = JBUI.Borders.empty(10, 5, 5, 5)
             
-            add(JBLabel("📄 $fileName").apply {
-                toolTipText = filePath
-                font = font.deriveFont(java.awt.Font.BOLD)
-            }, BorderLayout.WEST)
+            val icon = if (fileName.endsWith(".kt") || fileName.endsWith(".java")) AllIcons.FileTypes.Java else AllIcons.FileTypes.Text
+            
+            val labelPanel = JPanel(FlowLayout(FlowLayout.LEFT)).apply {
+                isOpaque = false
+                add(JBLabel(fileName, icon, SwingConstants.LEFT).apply {
+                    font = JBFont.label().asBold()
+                })
+                add(JBLabel(filePath).apply {
+                    foreground = JBColor.GRAY
+                    font = JBFont.small()
+                })
+            }
+            
+            add(labelPanel, BorderLayout.CENTER)
+            add(JSeparator(), BorderLayout.SOUTH)
         }
     }
 
@@ -206,87 +230,127 @@ class CommentsPanel(
      * Create a comment thread panel
      */
     private fun createThreadPanel(thread: CommentThread): JComponent {
-        val panel = JPanel().apply {
+        val cardPanel = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            border = JBUI.Borders.compound(
-                JBUI.Borders.empty(5, 15, 5, 5),
-                JBUI.Borders.customLine(JBColor.border(), 0, 0, 1, 0)
+            background = UIUtil.getPanelBackground()
+            border = CompoundBorder(
+                JBUI.Borders.customLine(JBColor.border(), 1),
+                JBUI.Borders.empty(10)
             )
-            background = JBColor.background()
         }
         
-        // Status indicator
-        val statusColor = when {
-            thread.isDeleted == true -> JBColor.GRAY
-            thread.status == ThreadStatus.Active -> JBColor.YELLOW
-            thread.status == ThreadStatus.Fixed || thread.status == ThreadStatus.Closed -> JBColor.GREEN
-            else -> JBColor.BLUE
-        }
-        
-        val statusLabel = JBLabel().apply {
-            text = when {
-                thread.isDeleted == true -> "🗑️ Deleted"
-                thread.status == ThreadStatus.Active -> "💬 Active"
-                thread.status == ThreadStatus.Fixed || thread.status == ThreadStatus.Closed -> "✅ Resolved"
-                else -> "💭 ${thread.status?.getDisplayName() ?: "Unknown"}"
+        // Header: Status and Line Info
+        val headerPanel = JPanel(BorderLayout()).apply {
+            isOpaque = false
+            border = JBUI.Borders.emptyBottom(8)
+            
+            // Left: Status Badge
+            val statusColor = when {
+                thread.isDeleted == true -> JBColor.GRAY
+                thread.status == ThreadStatus.Active -> JBColor.ORANGE
+                thread.status == ThreadStatus.Fixed || thread.status == ThreadStatus.Closed -> JBColor.GREEN.darker()
+                else -> JBColor.BLUE
             }
-            foreground = statusColor
-        }
-        
-        // Line reference (if applicable)
-        val lineInfo = thread.threadContext?.let { context ->
-            context.rightFileStart?.let { line ->
-                JBLabel("Line $line").apply {
-                    font = font.deriveFont(java.awt.Font.ITALIC)
-                    foreground = JBColor.GRAY
+            
+            val statusText = when {
+                thread.isDeleted == true -> "Deleted"
+                thread.status == ThreadStatus.Active -> "Active"
+                thread.status == ThreadStatus.Fixed || thread.status == ThreadStatus.Closed -> "Resolved"
+                else -> thread.status?.getDisplayName() ?: "Unknown"
+            }
+            
+            val statusLabel = JBLabel(statusText).apply {
+                foreground = statusColor
+                font = JBFont.small().asBold()
+                icon = if (statusText == "Resolved") AllIcons.RunConfigurations.TestPassed else AllIcons.General.Balloon
+            }
+            
+            // Right: Line Info
+            val lineText = thread.threadContext?.let { context ->
+                 val line = context.rightFileStart?.line ?: context.leftFileStart?.line
+                 if (line != null) "Line $line" else null
+            }
+            
+            val navPanel = JPanel(FlowLayout(FlowLayout.RIGHT)).apply {
+                isOpaque = false
+                if (lineText != null) {
+                    add(JBLabel(lineText).apply {
+                        font = JBFont.small()
+                        foreground = JBColor.GRAY
+                    })
                 }
             }
-        }
-        
-        // Header with status and line info
-        val header = JPanel(BorderLayout()).apply {
+            
             add(statusLabel, BorderLayout.WEST)
-            lineInfo?.let { add(it, BorderLayout.EAST) }
-            border = JBUI.Borders.empty(0, 0, 5, 0)
+            add(navPanel, BorderLayout.EAST)
         }
-        panel.add(header)
         
-        // Comments in the thread
-        thread.comments?.forEachIndexed { index, comment ->
+        cardPanel.add(headerPanel)
+        cardPanel.add(JSeparator())
+        cardPanel.add(Box.createVerticalStrut(8))
+        
+        // Comments
+        val comments = thread.comments ?: emptyList()
+        comments.forEachIndexed { index, comment ->
             val isFirst = index == 0
-            val author = comment.author?.displayName ?: "Unknown"
+            val authorName = comment.author?.displayName ?: "Unknown"
             val content = comment.content ?: ""
-            val date = comment.publishedDate?.substringBefore('T') ?: ""
+            val date = comment.publishedDate?.let { dateStr ->
+                try {
+                    // Try to make it more readable or just use substring
+                     dateStr.replace("T", " ").substringBeforeLast('.')
+                } catch (e: Exception) { dateStr }
+            } ?: ""
             
-            val commentPanel = JPanel().apply {
-                layout = BoxLayout(this, BoxLayout.Y_AXIS)
-                border = JBUI.Borders.empty(if (isFirst) 0 else 5, if (isFirst) 0 else 10, 0, 0)
+            val commentBlock = JPanel(BorderLayout()).apply {
+                isOpaque = false
+                border = JBUI.Borders.empty(5, 0)
             }
             
-            // Author and date
-            val authorLabel = JBLabel("$author • $date").apply {
-                font = font.deriveFont(java.awt.Font.BOLD, 11f)
+            // Author Line
+            val authorPanel = JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
+                isOpaque = false
+                add(JBLabel(authorName, AllIcons.General.User, SwingConstants.LEFT).apply {
+                    font = JBFont.label().asBold()
+                })
+                add(Box.createHorizontalStrut(8))
+                add(JBLabel(date).apply {
+                    font = JBFont.small()
+                    foreground = JBColor.GRAY
+                })
             }
-            commentPanel.add(authorLabel)
             
-            // Comment content
-            val contentLabel = JBLabel("<html>${content.replace("\n", "<br>")}</html>").apply {
-                border = JBUI.Borders.empty(2, 0, 0, 0)
+            // Content
+            val contentArea = JTextArea(content).apply {
+                lineWrap = true
+                wrapStyleWord = true
+                isEditable = false
+                isOpaque = false
+                background = UIUtil.TRANSPARENT_COLOR
+                font = JBFont.regular()
+                border = JBUI.Borders.emptyTop(4)
             }
-            commentPanel.add(contentLabel)
             
-            // Reply indicator
+            commentBlock.add(authorPanel, BorderLayout.NORTH)
+            commentBlock.add(contentArea, BorderLayout.CENTER)
+            
             if (!isFirst) {
-                commentPanel.border = JBUI.Borders.compound(
-                    commentPanel.border,
-                    JBUI.Borders.customLine(JBColor.border(), 0, 2, 0, 0)
-                )
+                // Indent replies
+                val indentedPanel = JPanel(BorderLayout()).apply {
+                    isOpaque = false
+                    border = JBUI.Borders.emptyLeft(15) // Indent
+                    add(commentBlock, BorderLayout.CENTER)
+                }
+                
+                // Add a small separator before reply
+                cardPanel.add(JSeparator())
+                cardPanel.add(indentedPanel)
+            } else {
+                cardPanel.add(commentBlock)
             }
-            
-            panel.add(commentPanel)
         }
         
-        return panel
+        return cardPanel
     }
 
     /**
