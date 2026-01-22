@@ -370,7 +370,7 @@ The plugin will automatically use your authenticated account for this repository
 
             val responseCode = connection.responseCode
             
-            if (responseCode == HttpURLConnection.HTTP_OK) {
+            if (responseCode in 200..299) {
                 return connection.inputStream.bufferedReader().use { it.readText() }
             } else {
                 val errorBody = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
@@ -406,7 +406,7 @@ The plugin will automatically use your authenticated account for this repository
 
             val responseCode = connection.responseCode
             
-            if (responseCode == HttpURLConnection.HTTP_OK || responseCode == HttpURLConnection.HTTP_CREATED) {
+            if (responseCode in 200..299) {
                 return connection.inputStream.bufferedReader().use { it.readText() }
             } else {
                 val errorBody = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
@@ -456,7 +456,7 @@ The plugin will automatically use your authenticated account for this repository
 
             val responseCode = connection.responseCode
             
-            if (responseCode == HttpURLConnection.HTTP_OK || responseCode == HttpURLConnection.HTTP_CREATED) {
+            if (responseCode in 200..299) {
                 return connection.inputStream.bufferedReader().use { it.readText() }
             } else {
                 val errorBody = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
@@ -880,6 +880,59 @@ The plugin will automatically use your authenticated account for this repository
     }
 
     /**
+     * Creates a threaded comment on a specific file and line
+     * @param pullRequestId The PR ID
+     * @param filePath The path of the file (e.g., /src/styles.css)
+     * @param content The comment text
+     * @param line The line number (1-based)
+     * @param isLeft True if commenting on the original file (base), False for the modified file
+     */
+    @Throws(AzureDevOpsApiException::class)
+    fun createThread(
+        pullRequestId: Int,
+        filePath: String,
+        content: String,
+        line: Int,
+        isLeft: Boolean
+    ) {
+        val configService = AzureDevOpsConfigService.getInstance(project)
+        val config = configService.getConfig()
+
+        if (!config.isValid()) {
+            throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
+        }
+
+        val url = buildApiUrl(config.project, config.repository, "/pullRequests/$pullRequestId/threads?api-version=$API_VERSION")
+
+        val position = mapOf("line" to line, "offset" to 1)
+        
+        // Construct threadContext manually to handle the conditional keys
+        val contextMap = mutableMapOf<String, Any>("filePath" to filePath)
+        if (isLeft) {
+            contextMap["leftFileStart"] = position
+            contextMap["leftFileEnd"] = position
+        } else {
+            contextMap["rightFileStart"] = position
+            contextMap["rightFileEnd"] = position
+        }
+
+        val commentData = mapOf(
+            "comments" to listOf(
+                mapOf(
+                    "parentCommentId" to 0,
+                    "content" to content,
+                    "commentType" to 1
+                )
+            ),
+            "status" to 1, // Active
+            "threadContext" to contextMap
+        )
+
+        val jsonBody = gson.toJson(commentData)
+        executePost(url, config.personalAccessToken, jsonBody)
+    }
+
+    /**
      * Alias for getCommentThreads to match the naming convention used in the review tool
      */
     @Throws(AzureDevOpsApiException::class)
@@ -946,7 +999,7 @@ The plugin will automatically use your authenticated account for this repository
 
             val responseCode = connection.responseCode
             
-            if (responseCode == HttpURLConnection.HTTP_OK || responseCode == HttpURLConnection.HTTP_CREATED) {
+            if (responseCode in 200..299) {
                 return connection.inputStream.bufferedReader().use { it.readText() }
             } else {
                 val errorBody = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: ""

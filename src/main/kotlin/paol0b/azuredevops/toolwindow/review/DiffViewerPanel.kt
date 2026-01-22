@@ -5,10 +5,13 @@ import com.intellij.diff.DiffManager
 import com.intellij.diff.DiffRequestPanel
 import com.intellij.diff.contents.DocumentContent
 import com.intellij.diff.requests.SimpleDiffRequest
+import com.intellij.icons.AllIcons
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.actionSystem.*
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.editor.Document
+import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.event.EditorFactoryEvent
 import com.intellij.openapi.editor.event.EditorFactoryListener
@@ -28,6 +31,7 @@ import paol0b.azuredevops.services.AzureDevOpsApiClient
 import java.awt.BorderLayout
 import java.awt.Dimension
 import java.awt.FlowLayout
+import java.awt.Point
 import javax.swing.JButton
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
@@ -74,8 +78,24 @@ class DiffViewerPanel(
                             if (e.mouseEvent.clickCount == 2) {
                                 val selectionModel = editor.selectionModel
                                 if (selectionModel.hasSelection()) {
-                                    showAddCommentPopup(editor, e)
+                                    showAddCommentPopup(editor, e.mouseEvent.point)
                                 }
+                            }
+                        }
+                        
+                        override fun mouseReleased(e: EditorMouseEvent) {
+                            handlePopup(e)
+                        }
+                        
+                        override fun mousePressed(e: EditorMouseEvent) {
+                            handlePopup(e)
+                        }
+                        
+                        private fun handlePopup(e: EditorMouseEvent) {
+                            if (e.mouseEvent.isPopupTrigger) {
+                                // Consuming the event prevents the default context menu
+                                e.consume()
+                                showContextMenu(editor, e)
                             }
                         }
                     })
@@ -83,8 +103,34 @@ class DiffViewerPanel(
             }
         }, this)
     }
+    
+    /**
+     * Show custom context menu for adding comments
+     */
+    private fun showContextMenu(editor: Editor, e: EditorMouseEvent) {
+        val actionGroup = DefaultActionGroup().apply {
+            add(object : AnAction("Add Comment", "Add a comment to this line", AllIcons.General.Add) {
+                override fun actionPerformed(event: AnActionEvent) {
+                    // Update selection if needed (e.g. if right click didn't select)
+                    // Usually Editor handles this, but we can ensure caret is at point
+                    val logicalPosition = editor.xyToLogicalPosition(e.mouseEvent.point)
+                    editor.caretModel.moveToLogicalPosition(logicalPosition)
+                    
+                    // Select the line if no selection
+                    if (!editor.selectionModel.hasSelection()) {
+                        editor.selectionModel.selectLineAtCaret()
+                    }
+                    
+                    showAddCommentPopup(editor, e.mouseEvent.point)
+                }
+            })
+        }
+        
+        val popupMenu = ActionManager.getInstance().createActionPopupMenu("DiffCommentPopup", actionGroup)
+        popupMenu.component.show(e.mouseEvent.component, e.mouseEvent.x, e.mouseEvent.y)
+    }
 
-    private fun showAddCommentPopup(editor: com.intellij.openapi.editor.Editor, e: EditorMouseEvent) {
+    private fun showAddCommentPopup(editor: Editor, point: Point) {
         val selectionStart = editor.selectionModel.selectionStart
         val selectionEnd = editor.selectionModel.selectionEnd
         val isBase = editor.document == baseDocument
@@ -123,27 +169,40 @@ class DiffViewerPanel(
                 val startLine = editor.document.getLineNumber(selectionStart) + 1
                 val endLine = editor.document.getLineNumber(selectionEnd) + 1
                 
-                // TODO: Actual API call to create thread
-                // logger.info("Adding comment to $currentPath (Base: $isBase): $commentText at lines $startLine-$endLine")
-                
                 // Create comment asynchronously
                 ApplicationManager.getApplication().executeOnPooledThread {
                     try {
-                        // For now we just log it as the API might need complex ThreadContext object
-                        // apiClient.createThread(pullRequestId, currentPath, commentText, ...)
-                        logger.info("TODO: Implement API call. $currentPath, $commentText, $startLine-$endLine, isLeft=$isBase")
+                        apiClient.createThread(
+                            pullRequestId, 
+                            currentPath, 
+                            commentText, 
+                            startLine, 
+                            isBase
+                        )
                         
-                         ApplicationManager.getApplication().invokeLater {
+                        logger.info("Comment added to $currentPath line $startLine")
+                        
+                        // Notify success and close popup
+                        ApplicationManager.getApplication().invokeLater {
                              popup.cancel()
-                         }
+                             // TODO: Maybe refresh comments panel or show notification
+                        }
                     } catch (ex: Exception) {
                         logger.error("Failed to add comment", ex)
+                        SwingUtilities.invokeLater {
+                            JBPopupFactory.getInstance()
+                                .createHtmlTextBalloonBuilder("Failed to add comment: ${ex.message}", com.intellij.openapi.ui.MessageType.ERROR, null)
+                                .createBalloon()
+                                .show(RelativePoint(saveButton.parent, Point(0, 0)), com.intellij.openapi.ui.popup.Balloon.Position.above)
+                        }
                     }
                 }
             }
         }
         
-        popup.show(RelativePoint(e.mouseEvent.component, e.mouseEvent.point))
+        // Show at the specified point relative to the editor component
+        val component = editor.contentComponent
+        popup.show(RelativePoint(component, point))
     }
 
     /**
