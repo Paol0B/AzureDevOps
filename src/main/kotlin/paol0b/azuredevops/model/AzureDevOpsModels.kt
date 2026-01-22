@@ -108,7 +108,9 @@ data class PullRequest(
     @SerializedName("lastMergeSourceCommit")
     val lastMergeSourceCommit: CommitRef?,
     @SerializedName("lastMergeTargetCommit")
-    val lastMergeTargetCommit: CommitRef?
+    val lastMergeTargetCommit: CommitRef?,
+    @SerializedName("autoCompleteSetBy")
+    val autoCompleteSetBy: User?
 ) {
     fun getWebUrl(): String {
         return url ?: ""
@@ -120,6 +122,55 @@ data class PullRequest(
     fun isActive(): Boolean = status == PullRequestStatus.Active
     fun isMerged(): Boolean = status == PullRequestStatus.Completed
     fun isAbandoned(): Boolean = status == PullRequestStatus.Abandoned
+    
+    /**
+     * Check if the PR has merge conflicts
+     */
+    fun hasConflicts(): Boolean = mergeStatus == "conflicts"
+    
+    /**
+     * Check if the PR is ready to complete (all checks passed, policies met, approvals received)
+     * This matches when Azure DevOps shows the "Complete" button
+     */
+    fun isReadyToComplete(): Boolean {
+        // Must be active
+        if (!isActive()) return false
+        
+        // Must not have conflicts
+        if (mergeStatus == "conflicts" || mergeStatus == "failure") return false
+        
+        // Must not be rejected by policy
+        if (mergeStatus == "rejectedByPolicy") return false
+        
+        // Check if there are any required reviewers who haven't approved
+        val requiredReviewers = reviewers?.filter { it.isRequired == true } ?: emptyList()
+        if (requiredReviewers.isNotEmpty()) {
+            val hasAllRequiredApprovals = requiredReviewers.all { reviewer ->
+                reviewer.vote == 10 // 10 = approved in Azure DevOps
+            }
+            if (!hasAllRequiredApprovals) return false
+        }
+        
+        // Check if there are any rejections (vote -10 or -5)
+        val hasRejections = reviewers?.any { it.vote == -10 || it.vote == -5 } ?: false
+        if (hasRejections) return false
+        
+        // If merge status is succeeded and no policy violations, it's ready
+        return mergeStatus == "succeeded"
+    }
+    
+    /**
+     * Check if auto-complete is already set
+     */
+    fun hasAutoComplete(): Boolean = autoCompleteSetBy != null
+    
+    /**
+     * Check if the current user is the creator of the PR
+     * @param currentUserId The ID of the current authenticated user
+     */
+    fun isCreatedByUser(currentUserId: String?): Boolean {
+        return currentUserId != null && createdBy?.id == currentUserId
+    }
 }
 
 /**
@@ -198,7 +249,9 @@ data class Repository(
     val id: String?,
     val name: String?,
     @SerializedName("project")
-    val project: Project?
+    val project: Project?,
+    @SerializedName("remoteUrl")
+    val remoteUrl: String?
 )
 
 /**

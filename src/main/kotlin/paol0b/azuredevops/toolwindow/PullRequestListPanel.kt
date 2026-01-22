@@ -1,11 +1,14 @@
 package paol0b.azuredevops.toolwindow
 
 import com.intellij.icons.AllIcons
+import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.JBPopupMenu
 import com.intellij.ui.ColoredTreeCellRenderer
 import com.intellij.ui.JBColor
 import com.intellij.ui.SimpleTextAttributes
@@ -13,6 +16,9 @@ import com.intellij.ui.TreeUIHelper
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.ui.JBUI
+import paol0b.azuredevops.actions.CompletePullRequestAction
+import paol0b.azuredevops.actions.EnterPullRequestBranchAction
+import paol0b.azuredevops.actions.SetAutoCompletePullRequestAction
 import paol0b.azuredevops.model.PullRequest
 import paol0b.azuredevops.model.PullRequestStatus
 import paol0b.azuredevops.services.AzureDevOpsApiClient
@@ -20,6 +26,8 @@ import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Dimension
 import java.awt.Font
+import java.awt.event.MouseAdapter
+import java.awt.event.MouseEvent
 import javax.swing.*
 import javax.swing.event.TreeSelectionListener
 import javax.swing.tree.DefaultMutableTreeNode
@@ -67,6 +75,21 @@ class PullRequestListPanel(
             lastSelectedPrId = pr?.pullRequestId
             
             onSelectionChanged(pr)
+        })
+        
+        // Add context menu for PR items
+        tree.addMouseListener(object : MouseAdapter() {
+            override fun mousePressed(e: MouseEvent) {
+                if (e.isPopupTrigger) {
+                    showContextMenu(e)
+                }
+            }
+
+            override fun mouseReleased(e: MouseEvent) {
+                if (e.isPopupTrigger) {
+                    showContextMenu(e)
+                }
+            }
         })
         
         // Status label with modern design
@@ -274,6 +297,92 @@ class PullRequestListPanel(
         }
     }
 
+    /**
+     * Show context menu for PR items
+     */
+    private fun showContextMenu(e: MouseEvent) {
+        val path = tree.getPathForLocation(e.x, e.y) ?: return
+        val node = path.lastPathComponent as? DefaultMutableTreeNode ?: return
+        val pr = node.userObject as? PullRequest ?: return
+        
+        // Only show menu for active PRs
+        if (!pr.isActive()) {
+            return
+        }
+        
+        // Select the item before showing menu
+        tree.selectionPath = path
+        
+        val popup = JBPopupMenu()
+        var hasItems = false
+        
+        // Add "Enter This Branch" action - always available for active PRs
+        val enterBranchItem = JMenuItem("Enter This Branch")
+        enterBranchItem.addActionListener {
+            EnterPullRequestBranchAction(pr).actionPerformed(
+                createActionEvent(e)
+            )
+        }
+        popup.add(enterBranchItem)
+        hasItems = true
+        
+        // Determine which completion action to show based on PR state
+        val showCompletePR = pr.isReadyToComplete()  // Show Complete if all checks passed and ready
+        val showAutoComplete = !pr.hasAutoComplete() && !pr.isReadyToComplete()  // Show Auto-Complete if not set and not ready
+        
+        if (showCompletePR || showAutoComplete) {
+            popup.addSeparator()
+        }
+        
+        // Add "Complete PR..." action - only if mergeable
+        if (showCompletePR) {
+            val completePrItem = JMenuItem("Complete PR...")
+            completePrItem.addActionListener {
+                CompletePullRequestAction(pr) {
+                    // Refresh the PR list after completion
+                    refreshPullRequests()
+                }.actionPerformed(createActionEvent(e))
+            }
+            popup.add(completePrItem)
+        }
+        
+        // Add "Set Auto-Complete..." action - only if not mergeable and not already set
+        if (showAutoComplete) {
+            val autoCompleteItem = JMenuItem("Set Auto-Complete...")
+            autoCompleteItem.addActionListener {
+                SetAutoCompletePullRequestAction(pr) {
+                    // Refresh the PR list after setting auto-complete
+                    refreshPullRequests()
+                }.actionPerformed(createActionEvent(e))
+            }
+            popup.add(autoCompleteItem)
+        }
+        
+        // Only show menu if there are items
+        if (hasItems) {
+            popup.show(tree, e.x, e.y)
+        }
+    }
+
+    /**
+     * Create an ActionEvent for triggering actions
+     */
+    private fun createActionEvent(mouseEvent: MouseEvent): com.intellij.openapi.actionSystem.AnActionEvent {
+        val dataContext = com.intellij.openapi.actionSystem.DataContext { dataId ->
+            when (dataId) {
+                com.intellij.openapi.actionSystem.CommonDataKeys.PROJECT.name -> project
+                else -> null
+            }
+        }
+        
+        return com.intellij.openapi.actionSystem.AnActionEvent.createFromInputEvent(
+            mouseEvent,
+            com.intellij.openapi.actionSystem.ActionPlaces.POPUP,
+            null,
+            dataContext
+        )
+    }
+
     private fun updateTreeWithError(errorMessage: String) {
         isErrorState = true
         rootNode.removeAllChildren()
@@ -331,6 +440,33 @@ class PullRequestListPanel(
                         append("DRAFT", SimpleTextAttributes(
                             SimpleTextAttributes.STYLE_BOLD,
                             JBColor(Color(255, 165, 0), Color(255, 140, 0))
+                        ))
+                        append("  ", SimpleTextAttributes.REGULAR_ATTRIBUTES)
+                    }
+                    
+                    // Auto-complete badge
+                    if (userObject.hasAutoComplete()) {
+                        append("AUTO-COMPLETE", SimpleTextAttributes(
+                            SimpleTextAttributes.STYLE_BOLD,
+                            JBColor(Color(106, 153, 85), Color(106, 200, 85))
+                        ))
+                        append("  ", SimpleTextAttributes.REGULAR_ATTRIBUTES)
+                    }
+                    
+                    // Ready to complete badge (only when all checks passed)
+                    if (userObject.isReadyToComplete() && !userObject.hasAutoComplete()) {
+                        append("✓ READY", SimpleTextAttributes(
+                            SimpleTextAttributes.STYLE_BOLD,
+                            JBColor(Color(34, 139, 34), Color(50, 205, 50))
+                        ))
+                        append("  ", SimpleTextAttributes.REGULAR_ATTRIBUTES)
+                    }
+                    
+                    // Conflicts badge
+                    if (userObject.hasConflicts()) {
+                        append("⚠ CONFLICTS", SimpleTextAttributes(
+                            SimpleTextAttributes.STYLE_BOLD,
+                            JBColor(Color(220, 50, 50), Color(255, 80, 80))
                         ))
                         append("  ", SimpleTextAttributes.REGULAR_ATTRIBUTES)
                     }

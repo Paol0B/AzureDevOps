@@ -21,6 +21,10 @@ class AzureDevOpsApiClient(private val project: Project) {
 
     private val gson = Gson()
     private val logger = Logger.getInstance(AzureDevOpsApiClient::class.java)
+    
+    // Cache for current user ID to avoid repeated API calls
+    @Volatile
+    private var cachedUserId: String? = null
 
     companion object {
         private const val API_VERSION = "7.0"
@@ -671,6 +675,208 @@ The plugin will automatically use your authenticated account for this repository
             logger.error("Exception message: ${e.message}")
             emptyList()
         }
+    }
+
+    /**
+     * Completes (merges) a Pull Request
+     * API: PATCH https://dev.azure.com/{organization}/{project}/_apis/git/repositories/{repositoryId}/pullrequests/{pullRequestId}?api-version=7.0
+     * 
+     * @param pullRequestId The ID of the Pull Request to complete
+     * @param completionOptions Options for completing the PR (merge strategy, delete source branch, etc.)
+     * @param comment Optional comment to add when completing
+     * @return Updated Pull Request
+     */
+    @Throws(AzureDevOpsApiException::class)
+    fun completePullRequest(
+        pullRequestId: Int,
+        completionOptions: paol0b.azuredevops.model.CompletionOptions,
+        comment: String? = null
+    ): PullRequest {
+        val configService = AzureDevOpsConfigService.getInstance(project)
+        val config = configService.getConfig()
+
+        if (!config.isValid()) {
+            throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
+        }
+
+        val url = buildApiUrl(config.project, config.repository, "/pullrequests/$pullRequestId?api-version=$API_VERSION")
+        
+        logger.info("Completing Pull Request #$pullRequestId with strategy: ${completionOptions.mergeStrategy}")
+
+        return try {
+            // Get the PR to obtain the lastMergeSourceCommit
+            val pr = getPullRequest(pullRequestId)
+            
+            if (pr.lastMergeSourceCommit == null) {
+                throw AzureDevOpsApiException("Cannot complete PR: missing source commit information")
+            }
+
+            val requestBody = paol0b.azuredevops.model.CompletePullRequestRequest(
+                status = "completed",
+                lastMergeSourceCommit = pr.lastMergeSourceCommit,
+                completionOptions = completionOptions
+            )
+
+            val jsonBody = gson.toJson(requestBody)
+            logger.info("Request body: $jsonBody")
+
+            val response = executePatch(url, config.personalAccessToken, jsonBody)
+            val completedPr = gson.fromJson(response, PullRequest::class.java)
+
+            // Add comment if provided
+            if (!comment.isNullOrBlank()) {
+                try {
+                    addPullRequestComment(pullRequestId, comment)
+                } catch (e: Exception) {
+                    logger.warn("Failed to add comment after completing PR", e)
+                }
+            }
+
+            logger.info("Successfully completed Pull Request #$pullRequestId")
+            completedPr
+        } catch (e: Exception) {
+            logger.error("Failed to complete pull request #$pullRequestId", e)
+            throw AzureDevOpsApiException("Error completing Pull Request: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Sets auto-complete on a Pull Request
+     * API: PATCH https://dev.azure.com/{organization}/{project}/_apis/git/repositories/{repositoryId}/pullrequests/{pullRequestId}?api-version=7.0
+     * 
+     * @param pullRequestId The ID of the Pull Request
+     * @param completionOptions Options for when the PR is auto-completed
+     * @param comment Optional comment to add when setting auto-complete
+     * @return Updated Pull Request
+     */
+    @Throws(AzureDevOpsApiException::class)
+    fun setAutoComplete(
+        pullRequestId: Int,
+        completionOptions: paol0b.azuredevops.model.CompletionOptions,
+        comment: String? = null
+    ): PullRequest {
+        val configService = AzureDevOpsConfigService.getInstance(project)
+        val config = configService.getConfig()
+
+        if (!config.isValid()) {
+            throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
+        }
+
+        val url = buildApiUrl(config.project, config.repository, "/pullrequests/$pullRequestId?api-version=$API_VERSION")
+        
+        logger.info("Setting auto-complete on Pull Request #$pullRequestId")
+
+        return try {
+            // Get current user identity
+            val currentUser = getCurrentUser()
+            val userId = currentUser.id ?: throw AzureDevOpsApiException("Unable to determine current user ID")
+            
+            val requestBody = paol0b.azuredevops.model.SetAutoCompleteRequest(
+                autoCompleteSetBy = paol0b.azuredevops.model.AutoCompleteSetBy(id = userId),
+                completionOptions = completionOptions
+            )
+
+            val jsonBody = gson.toJson(requestBody)
+            logger.info("Request body: $jsonBody")
+
+            val response = executePatch(url, config.personalAccessToken, jsonBody)
+            val updatedPr = gson.fromJson(response, PullRequest::class.java)
+
+            // Add comment if provided
+            if (!comment.isNullOrBlank()) {
+                try {
+                    addPullRequestComment(pullRequestId, comment)
+                } catch (e: Exception) {
+                    logger.warn("Failed to add comment after setting auto-complete", e)
+                }
+            }
+
+            logger.info("Successfully set auto-complete on Pull Request #$pullRequestId")
+            updatedPr
+        } catch (e: Exception) {
+            logger.error("Failed to set auto-complete on pull request #$pullRequestId", e)
+            throw AzureDevOpsApiException("Error setting auto-complete: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Gets the current authenticated user
+     * API: GET https://app.vssps.visualstudio.com/_apis/profile/profiles/me?api-version=7.0
+     */
+    @Throws(AzureDevOpsApiException::class)
+    private fun getCurrentUser(): User {
+        val configService = AzureDevOpsConfigService.getInstance(project)
+        val config = configService.getConfig()
+
+        if (!config.isValid()) {
+            throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
+        }
+
+        val url = "https://app.vssps.visualstudio.com/_apis/profile/profiles/me?api-version=$API_VERSION"
+        
+        return try {
+            val response = executeGet(url, config.personalAccessToken)
+            val profileData = gson.fromJson(response, com.google.gson.JsonObject::class.java)
+            
+            val id = profileData.get("id")?.asString ?: throw AzureDevOpsApiException("No user ID in profile")
+            val displayName = profileData.get("displayName")?.asString ?: "Unknown"
+            val emailAddress = profileData.get("emailAddress")?.asString
+            
+            // Cache the user ID
+            cachedUserId = id
+            
+            User(
+                id = id,
+                displayName = displayName,
+                uniqueName = emailAddress,
+                imageUrl = null
+            )
+        } catch (e: Exception) {
+            logger.error("Failed to get current user profile", e)
+            throw AzureDevOpsApiException("Error retrieving user profile: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Gets the current user ID with caching to avoid repeated API calls
+     * Returns null if user cannot be retrieved
+     */
+    fun getCurrentUserIdCached(): String? {
+        // Return cached value if available
+        cachedUserId?.let { return it }
+        
+        return try {
+            getCurrentUser().id
+        } catch (e: Exception) {
+            logger.warn("Could not get current user ID", e)
+            null
+        }
+    }
+
+    /**
+     * Adds a comment to a Pull Request
+     * API: POST https://dev.azure.com/{organization}/{project}/_apis/git/repositories/{repositoryId}/pullRequests/{pullRequestId}/threads?api-version=7.0
+     */
+    @Throws(AzureDevOpsApiException::class)
+    private fun addPullRequestComment(pullRequestId: Int, comment: String) {
+        val configService = AzureDevOpsConfigService.getInstance(project)
+        val config = configService.getConfig()
+
+        if (!config.isValid()) {
+            throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
+        }
+
+        val url = buildApiUrl(config.project, config.repository, "/pullRequests/$pullRequestId/threads?api-version=$API_VERSION")
+        
+        val commentData = mapOf(
+            "comments" to listOf(
+                mapOf("content" to comment, "commentType" to 1)
+            ),
+            "status" to 1
+        )
+
+        val jsonBody = gson.toJson(commentData)
+        executePost(url, config.personalAccessToken, jsonBody)
     }
 }
 
