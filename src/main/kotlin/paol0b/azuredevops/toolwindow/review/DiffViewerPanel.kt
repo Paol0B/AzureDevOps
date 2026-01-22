@@ -3,20 +3,34 @@ package paol0b.azuredevops.toolwindow.review
 import com.intellij.diff.DiffContentFactory
 import com.intellij.diff.DiffManager
 import com.intellij.diff.DiffRequestPanel
+import com.intellij.diff.contents.DocumentContent
 import com.intellij.diff.requests.SimpleDiffRequest
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.editor.Document
+import com.intellij.openapi.editor.EditorFactory
+import com.intellij.openapi.editor.event.EditorFactoryEvent
+import com.intellij.openapi.editor.event.EditorFactoryListener
+import com.intellij.openapi.editor.event.EditorMouseEvent
+import com.intellij.openapi.editor.event.EditorMouseListener
 import com.intellij.openapi.fileTypes.FileTypeManager
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.util.Disposer
+import com.intellij.ui.awt.RelativePoint
 import com.intellij.ui.components.JBLabel
+import com.intellij.ui.components.JBScrollPane
+import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
 import paol0b.azuredevops.model.PullRequestChange
 import paol0b.azuredevops.services.AzureDevOpsApiClient
 import java.awt.BorderLayout
 import java.awt.Dimension
+import java.awt.FlowLayout
+import javax.swing.JButton
 import javax.swing.JPanel
+import javax.swing.SwingUtilities
 
 /**
  * Diff viewer panel with syntax highlighting and inline comments support
@@ -35,6 +49,10 @@ class DiffViewerPanel(
     private var currentChange: PullRequestChange? = null
     private var cachedPullRequest: paol0b.azuredevops.model.PullRequest? = null
     
+    // Track documents to identify editors
+    private var baseDocument: Document? = null
+    private var changesDocument: Document? = null
+    
     private val placeholderLabel = JBLabel("Select a file to view diff").apply {
         horizontalAlignment = JBLabel.CENTER
         border = JBUI.Borders.empty(20)
@@ -44,6 +62,88 @@ class DiffViewerPanel(
         minimumSize = Dimension(400, 0)
         preferredSize = Dimension(600, 0)
         add(placeholderLabel, BorderLayout.CENTER)
+
+        // Listen for editor creation to attach interaction listeners
+        EditorFactory.getInstance().addEditorFactoryListener(object : EditorFactoryListener {
+            override fun editorCreated(event: EditorFactoryEvent) {
+                val editor = event.editor
+                // Check if this editor belongs to our current diff
+                if (editor.document == baseDocument || editor.document == changesDocument) {
+                    editor.addEditorMouseListener(object : EditorMouseListener {
+                        override fun mouseClicked(e: EditorMouseEvent) {
+                            if (e.mouseEvent.clickCount == 2) {
+                                val selectionModel = editor.selectionModel
+                                if (selectionModel.hasSelection()) {
+                                    showAddCommentPopup(editor, e)
+                                }
+                            }
+                        }
+                    })
+                }
+            }
+        }, this)
+    }
+
+    private fun showAddCommentPopup(editor: com.intellij.openapi.editor.Editor, e: EditorMouseEvent) {
+        val selectionStart = editor.selectionModel.selectionStart
+        val selectionEnd = editor.selectionModel.selectionEnd
+        val isBase = editor.document == baseDocument
+        
+        val panel = JPanel(BorderLayout())
+        panel.border = JBUI.Borders.empty(10)
+        
+        val textArea = JBTextArea(5, 30)
+        textArea.lineWrap = true
+        textArea.wrapStyleWord = true
+        panel.add(JBScrollPane(textArea), BorderLayout.CENTER)
+        
+        val buttonsPanel = JPanel(FlowLayout(FlowLayout.RIGHT))
+        val saveButton = JButton("Add Comment")
+        val cancelButton = JButton("Cancel")
+        
+        buttonsPanel.add(cancelButton)
+        buttonsPanel.add(saveButton)
+        panel.add(buttonsPanel, BorderLayout.SOUTH)
+        
+        val popup = JBPopupFactory.getInstance()
+            .createComponentPopupBuilder(panel, textArea)
+            .setTitle("Add Comment")
+            .setMovable(true)
+            .setRequestFocus(true)
+            .createPopup()
+            
+        cancelButton.addActionListener { popup.cancel() }
+        
+        saveButton.addActionListener {
+            val commentText = textArea.text.trim()
+            if (commentText.isNotEmpty()) {
+                val currentPath = currentChange?.item?.path ?: ""
+                
+                // Determine line numbers (1-based for API usually, but need to check API spec)
+                val startLine = editor.document.getLineNumber(selectionStart) + 1
+                val endLine = editor.document.getLineNumber(selectionEnd) + 1
+                
+                // TODO: Actual API call to create thread
+                // logger.info("Adding comment to $currentPath (Base: $isBase): $commentText at lines $startLine-$endLine")
+                
+                // Create comment asynchronously
+                ApplicationManager.getApplication().executeOnPooledThread {
+                    try {
+                        // For now we just log it as the API might need complex ThreadContext object
+                        // apiClient.createThread(pullRequestId, currentPath, commentText, ...)
+                        logger.info("TODO: Implement API call. $currentPath, $commentText, $startLine-$endLine, isLeft=$isBase")
+                        
+                         ApplicationManager.getApplication().invokeLater {
+                             popup.cancel()
+                         }
+                    } catch (ex: Exception) {
+                        logger.error("Failed to add comment", ex)
+                    }
+                }
+            }
+        }
+        
+        popup.show(RelativePoint(e.mouseEvent.component, e.mouseEvent.point))
     }
 
     /**
@@ -166,6 +266,10 @@ class DiffViewerPanel(
         // Create diff contents
         val content1 = diffContentFactory.create(project, oldContent, fileType)
         val content2 = diffContentFactory.create(project, newContent, fileType)
+        
+        // Store documents for editor matching
+        baseDocument = (content1 as? DocumentContent)?.document
+        changesDocument = (content2 as? DocumentContent)?.document
         
         // Get branch names for titles
         val pr = cachedPullRequest

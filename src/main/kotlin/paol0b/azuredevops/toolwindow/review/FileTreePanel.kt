@@ -12,6 +12,8 @@ import paol0b.azuredevops.services.PrReviewStateService
 import java.awt.BorderLayout
 import java.awt.Component
 import java.awt.Dimension
+import java.awt.event.MouseAdapter
+import java.awt.event.MouseEvent
 import javax.swing.*
 import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.DefaultTreeCellRenderer
@@ -61,6 +63,26 @@ class FileTreePanel(
                     fileSelectionListeners.forEach { it(userObject.change) }
                 }
             }
+            
+            // Handle mouse clicks for the checkbox
+            addMouseListener(object : MouseAdapter() {
+                override fun mouseClicked(e: MouseEvent) {
+                    val path = tree.getPathForLocation(e.x, e.y) ?: return
+                    val node = path.lastPathComponent as? DefaultMutableTreeNode
+                    val userObject = node?.userObject as? FileTreeNode ?: return
+                    
+                    // Define checkbox area (roughly first 24 pixels)
+                    val rowBounds = tree.getPathBounds(path) ?: return
+                    val checkboxWidth = 24
+                    
+                    if (e.x >= rowBounds.x && e.x <= rowBounds.x + checkboxWidth) {
+                        userObject.toggleReviewed()
+                        treeModel.nodeChanged(node)
+                        tree.repaint(rowBounds)
+                        e.consume()
+                    }
+                }
+            })
         }
     }
 
