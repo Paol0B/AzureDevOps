@@ -145,6 +145,15 @@
                 icon="AllIcons.Toolwindows.ToolWindowMessages"
                 factoryClass="paol0b.azuredevops.toolwindow.CommentsNavigatorToolWindow"/>
 
+        <!-- PR Review Tool Window (Master-Detail Diff Viewer) -->
+        <toolWindow
+                id="PR Review"
+                anchor="right"
+                icon="AllIcons.Actions.Diff"
+                factoryClass="paol0b.azuredevops.toolwindow.review.PrReviewToolWindowFactory"
+                canCloseContents="false"
+                doNotActivateOnStart="false"/>
+
         <!-- File Decorator for PR Comments -->
         <projectViewNodeDecorator implementation="paol0b.azuredevops.decorators.FileWithCommentsDecorator"/>
 

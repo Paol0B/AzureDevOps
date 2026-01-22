@@ -878,6 +878,84 @@ The plugin will automatically use your authenticated account for this repository
         val jsonBody = gson.toJson(commentData)
         executePost(url, config.personalAccessToken, jsonBody)
     }
+
+    /**
+     * Alias for getCommentThreads to match the naming convention used in the review tool
+     */
+    @Throws(AzureDevOpsApiException::class)
+    fun getPullRequestThreads(pullRequestId: Int): List<CommentThread> {
+        return getCommentThreads(pullRequestId)
+    }
+
+    /**
+     * Vote on a Pull Request
+     * Vote values: 10 = Approved, 5 = Approved with suggestions, 0 = No vote, -5 = Waiting for author, -10 = Rejected
+     * API: PUT https://dev.azure.com/{organization}/{project}/_apis/git/repositories/{repositoryId}/pullRequests/{pullRequestId}/reviewers/{reviewerId}?api-version=7.0
+     */
+    @Throws(AzureDevOpsApiException::class)
+    fun voteOnPullRequest(pullRequestId: Int, vote: Int) {
+        val configService = AzureDevOpsConfigService.getInstance(project)
+        val config = configService.getConfig()
+
+        if (!config.isValid()) {
+            throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
+        }
+
+        // Get current user ID
+        val currentUser = getCurrentUser()
+        val reviewerId = currentUser.id
+
+        val url = buildApiUrl(config.project, config.repository, 
+            "/pullRequests/$pullRequestId/reviewers/$reviewerId?api-version=$API_VERSION")
+        
+        val voteRequest = mapOf("vote" to vote)
+        
+        logger.info("Voting on PR #$pullRequestId with vote: $vote (reviewer: $reviewerId)")
+        
+        try {
+            val response = executePut(url, voteRequest, config.personalAccessToken)
+            logger.info("Vote submitted successfully: $response")
+        } catch (e: Exception) {
+            logger.error("Failed to vote on pull request", e)
+            throw AzureDevOpsApiException("Error while voting on Pull Request: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Executes a PUT request
+     */
+    @Throws(IOException::class, AzureDevOpsApiException::class)
+    private fun executePut(urlString: String, body: Any, token: String): String {
+        val url = java.net.URI(urlString).toURL()
+        val connection = url.openConnection() as HttpURLConnection
+        
+        try {
+            connection.requestMethod = "PUT"
+            connection.setRequestProperty("Authorization", createAuthHeader(token))
+            connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+            connection.setRequestProperty("Accept", "application/json")
+            connection.doOutput = true
+            connection.connectTimeout = 10000
+            connection.readTimeout = 10000
+
+            // Write the body
+            val jsonBody = gson.toJson(body)
+            connection.outputStream.bufferedWriter(StandardCharsets.UTF_8).use { writer ->
+                writer.write(jsonBody)
+            }
+
+            val responseCode = connection.responseCode
+            
+            if (responseCode == HttpURLConnection.HTTP_OK || responseCode == HttpURLConnection.HTTP_CREATED) {
+                return connection.inputStream.bufferedReader().use { it.readText() }
+            } else {
+                val errorBody = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
+                throw handleErrorResponse(responseCode, errorBody)
+            }
+        } finally {
+            connection.disconnect()
+        }
+    }
 }
 
 /**
