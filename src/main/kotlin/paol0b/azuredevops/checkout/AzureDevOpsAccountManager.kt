@@ -152,6 +152,96 @@ class AzureDevOpsAccountManager : PersistentStateComponent<AzureDevOpsAccountMan
             if (expiresIn != null) {
                 account.expiresAt = now + (expiresIn * 1000L)
             }
+            
+            // Update token in git credential helper for all open projects matching this account
+            updateTokenInGitCredentials(account, newToken)
+        }
+    }
+    
+    /**
+     * Updates the token in Git credential helper for all projects that use this account.
+     * This ensures that git operations will use the refreshed token instead of the expired one.
+     */
+    private fun updateTokenInGitCredentials(account: AccountData, newToken: String) {
+        try {
+            // Get all open projects
+            val projectManager = com.intellij.openapi.project.ProjectManager.getInstance()
+            val openProjects = projectManager.openProjects
+            
+            if (openProjects.isEmpty()) {
+                logger.debug("No open projects to update git credentials for account ${account.id}")
+                return
+            }
+            
+            val accountOrg = extractOrganizationFromUrl(account.serverUrl)
+            if (accountOrg == null) {
+                logger.warn("Could not extract organization from account server URL: ${account.serverUrl}")
+                return
+            }
+            
+            // Iterate through all open projects
+            for (project in openProjects) {
+                try {
+                    // Check if this project uses Azure DevOps and matches this account's organization
+                    val detector = paol0b.azuredevops.services.AzureDevOpsRepositoryDetector.getInstance(project)
+                    val repoInfo = detector.detectAzureDevOpsInfo()
+                    
+                    if (repoInfo != null && repoInfo.organization.equals(accountOrg, ignoreCase = true)) {
+                        // This project matches the account's organization
+                        logger.info("Updating git credentials for project: ${project.name}, organization: ${repoInfo.organization}")
+                        
+                        val gitCredHelper = paol0b.azuredevops.services.GitCredentialHelperService.getInstance(project)
+                        val gitService = paol0b.azuredevops.services.GitRepositoryService.getInstance(project)
+                        
+                        val remoteUrl = gitService.getRemoteUrl()
+                        if (remoteUrl != null && gitCredHelper.isCredentialHelperAvailable()) {
+                            // Update the token in git credential helper
+                            val success = gitCredHelper.saveCredentialsToHelper(remoteUrl, "oauth", newToken)
+                            if (success) {
+                                logger.info("Successfully updated git credentials for project: ${project.name}")
+                            } else {
+                                logger.warn("Failed to update git credentials for project: ${project.name}")
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    logger.warn("Error updating git credentials for project: ${project.name}", e)
+                    // Continue with next project
+                }
+            }
+        } catch (e: Exception) {
+            logger.error("Error updating git credentials", e)
+            // Don't fail the token update if git credential update fails
+        }
+    }
+    
+    /**
+     * Extracts organization name from Azure DevOps URL
+     */
+    private fun extractOrganizationFromUrl(url: String): String? {
+        return try {
+            // Handle both dev.azure.com and visualstudio.com formats
+            val uri = java.net.URI(url)
+            
+            // For dev.azure.com: https://dev.azure.com/{organization}
+            if (uri.host?.contains("dev.azure.com") == true) {
+                val path = uri.path.trim('/')
+                return if (path.isNotEmpty()) {
+                    path.split("/").firstOrNull()
+                } else {
+                    null
+                }
+            }
+            
+            // For visualstudio.com: https://{organization}.visualstudio.com
+            if (uri.host?.endsWith(".visualstudio.com") == true) {
+                return uri.host?.substringBefore(".visualstudio.com")
+            }
+            
+            null
+        } catch (e: Exception) {
+            logger.warn("Failed to extract organization from URL: $url", e)
+            null
         }
     }
     
