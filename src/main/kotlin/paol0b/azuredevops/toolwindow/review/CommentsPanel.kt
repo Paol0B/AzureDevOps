@@ -26,7 +26,9 @@ import javax.swing.border.CompoundBorder
  */
 class CommentsPanel(
     private val project: Project,
-    private val pullRequestId: Int
+    private val pullRequestId: Int,
+    private val externalProjectName: String? = null,
+    private val externalRepositoryId: String? = null
 ) : JPanel(BorderLayout()) {
 
     private val logger = Logger.getInstance(CommentsPanel::class.java)
@@ -117,7 +119,7 @@ class CommentsPanel(
         
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
-                val threads = apiClient.getPullRequestThreads(pullRequestId)
+                val threads = apiClient.getCommentThreads(pullRequestId, externalProjectName, externalRepositoryId)
                 allThreads = threads
                 
                 ApplicationManager.getApplication().invokeLater {

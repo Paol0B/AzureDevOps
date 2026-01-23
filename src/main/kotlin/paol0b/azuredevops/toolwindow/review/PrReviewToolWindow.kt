@@ -44,6 +44,26 @@ class PrReviewToolWindow(
         "⏳ Wait for Author",
         "❌ Reject"
     ))
+    private val refreshButton = JButton("🔄").apply {
+        toolTipText = "Refresh Pull Requests"
+        preferredSize = java.awt.Dimension(40, 30)
+    }
+    private val showAllOrgPrsCheckbox = javax.swing.JCheckBox("Show all organization PRs").apply {
+        toolTipText = "Show Pull Requests from all projects in the organization, not just the current project"
+    }
+    
+    // Right panel containing vote status (will be shown/hidden)
+    private lateinit var voteStatusPanel: JPanel
+    
+    // Flag to track if loading is in progress
+    @Volatile
+    private var isLoading = false
+    
+    // Flag to ignore programmatic changes to vote combobox
+    private var ignoringVoteChange = false
+    
+    // Error state placeholder
+    private var errorPlaceholderPanel: JPanel? = null
     
     private val mainContentPanel = JPanel(BorderLayout())
     private val placeholderPanel = JPanel(BorderLayout()).apply {
@@ -78,7 +98,7 @@ class PrReviewToolWindow(
             )
         }
         
-        // Left side: PR selector
+        // Left side: PR selector with refresh button and checkbox
         val leftPanel = JPanel(FlowLayout(FlowLayout.LEFT, 5, 0)).apply {
             add(JBLabel("Pull Request:"))
             add(prSelectorComboBox.apply {
@@ -100,13 +120,28 @@ class PrReviewToolWindow(
                 }
                 addActionListener {
                     val selected = selectedItem as? PullRequestItem
-                    selected?.pullRequest?.let { loadPullRequest(it) }
+                    if (selected?.pullRequest != null) {
+                        loadPullRequest(selected.pullRequest)
+                    } else {
+                        // Empty selection - clear everything
+                        clearPullRequestView()
+                    }
+                }
+            })
+            add(refreshButton.apply {
+                addActionListener {
+                    refreshPullRequestsList()
+                }
+            })
+            add(showAllOrgPrsCheckbox.apply {
+                addActionListener {
+                    refreshPullRequestsList()
                 }
             })
         }
         
-        // Right side: Status dropdown
-        val rightPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 5, 0)).apply {
+        // Right side: Status dropdown (initially hidden)
+        voteStatusPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 5, 0)).apply {
             add(JBLabel("Review Status:"))
             add(statusComboBox.apply {
                 preferredSize = java.awt.Dimension(220, 30)
@@ -114,10 +149,11 @@ class PrReviewToolWindow(
                     handleVoteChange()
                 }
             })
+            isVisible = false // Hidden until a PR is selected
         }
         
         toolbar.add(leftPanel, BorderLayout.WEST)
-        toolbar.add(rightPanel, BorderLayout.EAST)
+        toolbar.add(voteStatusPanel, BorderLayout.EAST)
         
         return toolbar
     }
@@ -126,18 +162,42 @@ class PrReviewToolWindow(
      * Load available pull requests
      */
     private fun loadAvailablePullRequests() {
+        if (isLoading) return
+        isLoading = true
+        
+        val showAllOrg = showAllOrgPrsCheckbox.isSelected
+        
+        // Show loading state
+        ApplicationManager.getApplication().invokeLater {
+            refreshButton.isEnabled = false
+            refreshButton.text = "⏳"
+        }
+        
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
                 // Carica solo le PR attive (esclude quelle chiuse/completate/abbandonate)
-                val prs = apiClient.getPullRequests(status = "active", top = 50)
+                val prs = if (showAllOrg) {
+                    apiClient.getAllOrganizationPullRequests(status = "active", top = 100)
+                } else {
+                    apiClient.getPullRequests(status = "active", top = 50)
+                }
                 
                 ApplicationManager.getApplication().invokeLater {
+                    // Clear any error placeholder
+                    clearErrorState()
+                    
                     prSelectorComboBox.removeAllItems()
                     prSelectorComboBox.addItem(PullRequestItem(null, "-- Select a PR --"))
                     
                     prs.forEach { pr ->
-                        prSelectorComboBox.addItem(PullRequestItem(pr, 
-                            "#${pr.pullRequestId} - ${pr.title} (${pr.createdBy?.displayName ?: "Unknown"})"))
+                        val displayText = if (showAllOrg) {
+                            // Include repository info when showing all org PRs
+                            val repoName = pr.repository?.name ?: "Unknown"
+                            "#${pr.pullRequestId} [$repoName] - ${pr.title} (${pr.createdBy?.displayName ?: "Unknown"})"
+                        } else {
+                            "#${pr.pullRequestId} - ${pr.title} (${pr.createdBy?.displayName ?: "Unknown"})"
+                        }
+                        prSelectorComboBox.addItem(PullRequestItem(pr, displayText))
                     }
                     
                     // Auto-select last reviewed PR if available
@@ -150,19 +210,135 @@ class PrReviewToolWindow(
                             }
                         }
                     }
+                    
+                    // Restore refresh button
+                    refreshButton.isEnabled = true
+                    refreshButton.text = "🔄"
+                    isLoading = false
                 }
             } catch (e: Exception) {
                 logger.error("Failed to load pull requests", e)
                 ApplicationManager.getApplication().invokeLater {
-                    JOptionPane.showMessageDialog(
-                        this,
-                        "Failed to load pull requests: ${e.message}",
-                        "Error",
-                        JOptionPane.ERROR_MESSAGE
-                    )
+                    // Show error state but don't block - allow retry
+                    showErrorState("Failed to load pull requests: ${e.message}")
+                    
+                    // Restore refresh button so user can retry
+                    refreshButton.isEnabled = true
+                    refreshButton.text = "🔄"
+                    isLoading = false
                 }
             }
         }
+    }
+    
+    /**
+     * Refresh the pull requests list (manual refresh)
+     */
+    fun refreshPullRequestsList() {
+        logger.info("Manual refresh of pull requests list")
+        loadAvailablePullRequests()
+    }
+    
+    /**
+     * Show error state in the placeholder area
+     */
+    private fun showErrorState(message: String) {
+        // Remove current placeholder/error panel
+        errorPlaceholderPanel?.let { remove(it) }
+        if (currentPullRequest == null) {
+            remove(placeholderPanel)
+        }
+        
+        // Create error panel with retry button
+        errorPlaceholderPanel = JPanel(BorderLayout()).apply {
+            val errorPanel = JPanel().apply {
+                layout = BoxLayout(this, BoxLayout.Y_AXIS)
+                border = JBUI.Borders.empty(20)
+                
+                add(JBLabel("⚠️ $message").apply {
+                    alignmentX = java.awt.Component.CENTER_ALIGNMENT
+                    border = JBUI.Borders.emptyBottom(10)
+                })
+                
+                add(JButton("🔄 Retry").apply {
+                    alignmentX = java.awt.Component.CENTER_ALIGNMENT
+                    addActionListener {
+                        refreshPullRequestsList()
+                    }
+                })
+            }
+            
+            add(errorPanel, BorderLayout.CENTER)
+        }
+        
+        if (currentPullRequest == null) {
+            add(errorPlaceholderPanel, BorderLayout.CENTER)
+        }
+        
+        revalidate()
+        repaint()
+    }
+    
+    /**
+     * Clear error state and restore normal placeholder
+     */
+    private fun clearErrorState() {
+        errorPlaceholderPanel?.let { 
+            remove(it)
+            errorPlaceholderPanel = null
+        }
+        
+        if (currentPullRequest == null) {
+            // Only add placeholder if no PR is selected
+            val hasPlaceholder = components.any { it == placeholderPanel }
+            if (!hasPlaceholder) {
+                add(placeholderPanel, BorderLayout.CENTER)
+            }
+        }
+        
+        revalidate()
+        repaint()
+    }
+    
+    /**
+     * Clear the PR view when no PR is selected (empty selection)
+     */
+    private fun clearPullRequestView() {
+        // Stop auto-refresh
+        stopAutoRefresh()
+        
+        // Clear state
+        currentPullRequest = null
+        reviewStateService.setCurrentPullRequest(null)
+        
+        // Hide vote status panel
+        voteStatusPanel.isVisible = false
+        
+        // Reset status dropdown (without triggering action listener)
+        ignoringVoteChange = true
+        statusComboBox.selectedIndex = 0
+        ignoringVoteChange = false
+        
+        // Clear and dispose panels
+        fileTreePanel = null
+        diffViewerPanel?.dispose()
+        diffViewerPanel = null
+        commentsPanel = null
+        
+        // Remove main content and show placeholder
+        remove(mainContentPanel)
+        mainContentPanel.removeAll()
+        
+        // Make sure placeholder is showing
+        val hasPlaceholder = components.any { it == placeholderPanel }
+        if (!hasPlaceholder) {
+            add(placeholderPanel, BorderLayout.CENTER)
+        }
+        
+        revalidate()
+        repaint()
+        
+        logger.info("PR view cleared - empty selection")
     }
 
     /**
@@ -185,6 +361,12 @@ class PrReviewToolWindow(
         currentPullRequest = pullRequest
         reviewStateService.setCurrentPullRequest(pullRequest.pullRequestId)
         
+        // Show vote status panel
+        voteStatusPanel.isVisible = true
+        ignoringVoteChange = true
+        statusComboBox.selectedIndex = 0 // Reset to "Select Vote"
+        ignoringVoteChange = false
+        
         // Avvia auto-refresh
         startAutoRefresh()
         
@@ -204,7 +386,11 @@ class PrReviewToolWindow(
         // Load PR data in background
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
-                val changes = apiClient.getPullRequestChanges(pullRequest.pullRequestId)
+                // Use repository info from PR if available (for external PRs)
+                val projectName = pullRequest.repository?.project?.name
+                val repositoryId = pullRequest.repository?.id
+                
+                val changes = apiClient.getPullRequestChanges(pullRequest.pullRequestId, projectName, repositoryId)
                 
                 ApplicationManager.getApplication().invokeLater {
                     setupReviewWorkspace(pullRequest, changes)
@@ -240,9 +426,16 @@ class PrReviewToolWindow(
             }
         }
         
-        diffViewerPanel = DiffViewerPanel(project, pullRequest.pullRequestId)
+        // Get external repository info if available (for cross-repo PRs)
+        val externalProjectName = pullRequest.repository?.project?.name
+        val externalRepositoryId = pullRequest.repository?.id
         
-        commentsPanel = CommentsPanel(project, pullRequest.pullRequestId)
+        logger.info("Setting up review workspace: PR #${pullRequest.pullRequestId}, externalProject=$externalProjectName, externalRepo=$externalRepositoryId")
+        logger.info("  PR repository info: ${pullRequest.repository}")
+        
+        diffViewerPanel = DiffViewerPanel(project, pullRequest.pullRequestId, externalProjectName, externalRepositoryId)
+        
+        commentsPanel = CommentsPanel(project, pullRequest.pullRequestId, externalProjectName, externalRepositoryId)
         
         // Layout: Left (File Tree) | Right (Diff Viewer + Comments)
         val leftRightSplitter = JBSplitter(false, 0.25f).apply {
@@ -267,46 +460,14 @@ class PrReviewToolWindow(
      * Handle vote/status change
      */
     private fun handleVoteChange() {
+        // Ignore programmatic changes
+        if (ignoringVoteChange) return
+        
         val selectedIndex = statusComboBox.selectedIndex
         val pr = currentPullRequest ?: return
         
-        // Se seleziona "Select Vote" (index 0), permetti di resettare/rimuovere il voto
+        // Se seleziona "Select Vote" (index 0), non fare nulla (è lo stato di default)
         if (selectedIndex == 0) {
-            val confirmed = JOptionPane.showConfirmDialog(
-                this,
-                "Remove your vote from this PR?",
-                "Reset Vote",
-                JOptionPane.YES_NO_OPTION,
-                JOptionPane.QUESTION_MESSAGE
-            )
-            
-            if (confirmed == JOptionPane.YES_OPTION) {
-                ApplicationManager.getApplication().executeOnPooledThread {
-                    try {
-                        apiClient.voteOnPullRequest(pr, 0) // 0 = nessun voto
-                        reviewStateService.savePrVote(pr.pullRequestId, 0)
-                        
-                        ApplicationManager.getApplication().invokeLater {
-                            JOptionPane.showMessageDialog(
-                                this,
-                                "Vote removed successfully",
-                                "Success",
-                                JOptionPane.INFORMATION_MESSAGE
-                            )
-                        }
-                    } catch (e: Exception) {
-                        logger.error("Failed to remove vote", e)
-                        ApplicationManager.getApplication().invokeLater {
-                            JOptionPane.showMessageDialog(
-                                this,
-                                "Failed to remove vote: ${e.message}",
-                                "Error",
-                                JOptionPane.ERROR_MESSAGE
-                            )
-                        }
-                    }
-                }
-            }
             return
         }
         
@@ -331,7 +492,9 @@ class PrReviewToolWindow(
         )
         
         if (confirmed != JOptionPane.YES_OPTION) {
+            ignoringVoteChange = true
             statusComboBox.selectedIndex = 0
+            ignoringVoteChange = false
             return
         }
         
@@ -358,7 +521,9 @@ class PrReviewToolWindow(
                         "Error",
                         JOptionPane.ERROR_MESSAGE
                     )
+                    ignoringVoteChange = true
                     statusComboBox.selectedIndex = 0
+                    ignoringVoteChange = false
                 }
             }
         }
@@ -397,10 +562,14 @@ class PrReviewToolWindow(
     private fun refreshCurrentPullRequest() {
         val pr = currentPullRequest ?: return
         
+        // Get repository info from current PR (for external PRs)
+        val projectName = pr.repository?.project?.name
+        val repositoryId = pr.repository?.id
+        
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
-                // Ricarica i dati della PR
-                val updatedPr = apiClient.getPullRequest(pr.pullRequestId)
+                // Ricarica i dati della PR using repository info
+                val updatedPr = apiClient.getPullRequest(pr.pullRequestId, projectName, repositoryId)
                 
                 // Se la PR non è più attiva, ferma il refresh e notifica l'utente
                 if (!updatedPr.isActive()) {
@@ -424,8 +593,8 @@ class PrReviewToolWindow(
                     return@executeOnPooledThread
                 }
                 
-                // Ricarica i cambiamenti
-                val changes = apiClient.getPullRequestChanges(updatedPr.pullRequestId)
+                // Ricarica i cambiamenti using repository info
+                val changes = apiClient.getPullRequestChanges(updatedPr.pullRequestId, projectName, repositoryId)
                 
                 ApplicationManager.getApplication().invokeLater {
                     // Aggiorna il pannello dei file

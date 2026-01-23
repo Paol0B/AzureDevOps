@@ -42,7 +42,9 @@ import javax.swing.SwingUtilities
  */
 class DiffViewerPanel(
     private val project: Project,
-    private val pullRequestId: Int
+    private val pullRequestId: Int,
+    private val externalProjectName: String? = null,
+    private val externalRepositoryId: String? = null
 ) : JPanel(BorderLayout()), Disposable {
 
     private val logger = Logger.getInstance(DiffViewerPanel::class.java)
@@ -66,6 +68,8 @@ class DiffViewerPanel(
         minimumSize = Dimension(400, 0)
         preferredSize = Dimension(600, 0)
         add(placeholderLabel, BorderLayout.CENTER)
+        
+        logger.info("DiffViewerPanel created: pullRequestId=$pullRequestId, externalProject=$externalProjectName, externalRepo=$externalRepositoryId")
 
         // Listen for editor creation to attach interaction listeners
         EditorFactory.getInstance().addEditorFactoryListener(object : EditorFactoryListener {
@@ -247,9 +251,12 @@ class DiffViewerPanel(
         val filePath = change.item?.path ?: ""
         val changeType = change.changeType?.lowercase() ?: "edit"
         
+        logger.info("fetchFileContents: filePath=$filePath, externalProject=$externalProjectName, externalRepo=$externalRepositoryId")
+        
         // Get PR to access commit IDs (cache it)
         if (cachedPullRequest == null) {
-            cachedPullRequest = apiClient.getPullRequest(pullRequestId)
+            logger.info("Fetching PR #$pullRequestId with project=$externalProjectName, repo=$externalRepositoryId")
+            cachedPullRequest = apiClient.getPullRequest(pullRequestId, externalProjectName, externalRepositoryId)
         }
         val pr = cachedPullRequest!!
         
@@ -261,7 +268,7 @@ class DiffViewerPanel(
                 // New file - no old content
                 val newContent = if (sourceCommit != null) {
                     try {
-                        apiClient.getFileContent(sourceCommit, filePath)
+                        apiClient.getFileContent(sourceCommit, filePath, externalProjectName, externalRepositoryId)
                     } catch (e: Exception) {
                         logger.info("Failed to get new content: ${e.message}")
                         ""
@@ -273,7 +280,7 @@ class DiffViewerPanel(
                 // Deleted file - no new content
                 val oldContent = if (targetCommit != null) {
                     try {
-                        apiClient.getFileContent(targetCommit, filePath)
+                        apiClient.getFileContent(targetCommit, filePath, externalProjectName, externalRepositoryId)
                     } catch (e: Exception) {
                         logger.info("Failed to get old content: ${e.message}")
                         ""
@@ -287,7 +294,7 @@ class DiffViewerPanel(
                 
                 val oldContent = if (targetCommit != null) {
                     try {
-                        apiClient.getFileContent(targetCommit, oldPath)
+                        apiClient.getFileContent(targetCommit, oldPath, externalProjectName, externalRepositoryId)
                     } catch (e: Exception) {
                         logger.info("File is new (doesn't exist in base): ${e.message}")
                         ""
@@ -296,7 +303,7 @@ class DiffViewerPanel(
                 
                 val newContent = if (sourceCommit != null) {
                     try {
-                        apiClient.getFileContent(sourceCommit, filePath)
+                        apiClient.getFileContent(sourceCommit, filePath, externalProjectName, externalRepositoryId)
                     } catch (e: Exception) {
                         logger.info("Failed to get new content: ${e.message}")
                         ""

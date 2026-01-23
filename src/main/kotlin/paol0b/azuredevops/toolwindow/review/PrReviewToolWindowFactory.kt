@@ -4,6 +4,7 @@ import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
+import com.intellij.openapi.wm.ex.ToolWindowManagerListener
 
 /**
  * Factory for PR Review Tool Window
@@ -19,6 +20,15 @@ class PrReviewToolWindowFactory : ToolWindowFactory, DumbAware {
             false
         )
         toolWindow.contentManager.addContent(content)
+        
+        // Refresh when tool window becomes visible (e.g., after user authenticates)
+        project.messageBus.connect().subscribe(ToolWindowManagerListener.TOPIC, object : ToolWindowManagerListener {
+            override fun toolWindowShown(shownToolWindow: ToolWindow) {
+                if (shownToolWindow.id == toolWindow.id) {
+                    reviewWindow.refreshPullRequestsList()
+                }
+            }
+        })
         
         // Cleanup when content is removed
         toolWindow.contentManager.addContentManagerListener(object : com.intellij.ui.content.ContentManagerListener {

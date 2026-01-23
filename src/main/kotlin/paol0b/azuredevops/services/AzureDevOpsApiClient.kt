@@ -148,6 +148,42 @@ The plugin will automatically use your authenticated account for this repository
             throw AzureDevOpsApiException("Error while retrieving Pull Requests: ${e.message}", e)
         }
     }
+    
+    /**
+     * Retrieves Pull Requests from all projects in the organization
+     * Uses the organization-level API to get PRs across all repositories
+     * @param status Filter by status (e.g., "active", "completed", "abandoned", "all")
+     * @param top Maximum number of PRs to retrieve
+     * @return List of Pull Requests from all organization projects
+     */
+    @Throws(AzureDevOpsApiException::class)
+    fun getAllOrganizationPullRequests(
+        status: String = "active",
+        top: Int = 100
+    ): List<PullRequest> {
+        val configService = AzureDevOpsConfigService.getInstance(project)
+        val config = configService.getConfig()
+
+        if (!config.isValid()) {
+            throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
+        }
+
+        val statusParam = if (status == "all") "all" else status
+        // Use organization-level API without project/repository scope
+        val encodedOrg = URLEncoder.encode(config.organization, StandardCharsets.UTF_8)
+        val url = "https://dev.azure.com/$encodedOrg/_apis/git/pullrequests?searchCriteria.status=$statusParam&\$top=$top&api-version=$API_VERSION"
+        
+        logger.info("Fetching organization-wide Pull Requests (status: $statusParam, top: $top)")
+        
+        return try {
+            val response = executeGet(url, config.personalAccessToken)
+            val listResponse = gson.fromJson(response, PullRequestListResponse::class.java)
+            listResponse.value
+        } catch (e: Exception) {
+            logger.error("Failed to fetch organization pull requests", e)
+            throw AzureDevOpsApiException("Error while retrieving organization Pull Requests: ${e.message}", e)
+        }
+    }
 
     /**
      * Retrieves a single Pull Request with all details
@@ -172,6 +208,39 @@ The plugin will automatically use your authenticated account for this repository
             gson.fromJson(response, PullRequest::class.java)
         } catch (e: Exception) {
             logger.error("Failed to fetch pull request #$pullRequestId", e)
+            throw AzureDevOpsApiException("Error while retrieving Pull Request: ${e.message}", e)
+        }
+    }
+    
+    /**
+     * Retrieves a single Pull Request with all details from a specific project/repository
+     * Used when accessing PRs from other repositories in the organization
+     * @param pullRequestId PR ID
+     * @param projectName Project name (can be null to use current project)
+     * @param repositoryId Repository ID or name (can be null to use current repository)
+     * @return Complete Pull Request
+     */
+    @Throws(AzureDevOpsApiException::class)
+    fun getPullRequest(pullRequestId: Int, projectName: String?, repositoryId: String?): PullRequest {
+        val configService = AzureDevOpsConfigService.getInstance(project)
+        val config = configService.getConfig()
+
+        if (!config.isValid()) {
+            throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
+        }
+        
+        val effectiveProject = projectName ?: config.project
+        val effectiveRepo = repositoryId ?: config.repository
+
+        val url = buildApiUrl(effectiveProject, effectiveRepo, "/pullrequests/$pullRequestId?api-version=$API_VERSION")
+        
+        logger.info("Fetching Pull Request #$pullRequestId from $effectiveProject/$effectiveRepo")
+        
+        return try {
+            val response = executeGet(url, config.personalAccessToken)
+            gson.fromJson(response, PullRequest::class.java)
+        } catch (e: Exception) {
+            logger.error("Failed to fetch pull request #$pullRequestId from $effectiveProject/$effectiveRepo", e)
             throw AzureDevOpsApiException("Error while retrieving Pull Request: ${e.message}", e)
         }
     }
@@ -251,6 +320,40 @@ The plugin will automatically use your authenticated account for this repository
             threads
         } catch (e: Exception) {
             logger.error("Failed to fetch comment threads", e)
+            throw AzureDevOpsApiException("Error while retrieving comments: ${e.message}", e)
+        }
+    }
+    
+    /**
+     * Retrieves all comment threads for a Pull Request from a specific project/repository
+     * Used when accessing PRs from other repositories in the organization
+     * @param pullRequestId PR ID
+     * @param projectName Project name (can be null to use current project)
+     * @param repositoryId Repository ID or name (can be null to use current repository)
+     * @return List of comment threads
+     */
+    @Throws(AzureDevOpsApiException::class)
+    fun getCommentThreads(pullRequestId: Int, projectName: String?, repositoryId: String?): List<CommentThread> {
+        val configService = AzureDevOpsConfigService.getInstance(project)
+        val config = configService.getConfig()
+
+        if (!config.isValid()) {
+            throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
+        }
+        
+        val effectiveProject = projectName ?: config.project
+        val effectiveRepo = repositoryId ?: config.repository
+
+        val url = buildApiUrl(effectiveProject, effectiveRepo, "/pullRequests/$pullRequestId/threads?api-version=$API_VERSION")
+        
+        logger.info("Fetching comment threads for PR #$pullRequestId from $effectiveProject/$effectiveRepo")
+        
+        return try {
+            val response = executeGet(url, config.personalAccessToken)
+            val listResponse = gson.fromJson(response, CommentThreadListResponse::class.java)
+            listResponse.value.filter { it.isDeleted != true }
+        } catch (e: Exception) {
+            logger.error("Failed to fetch comment threads from external repo", e)
             throw AzureDevOpsApiException("Error while retrieving comments: ${e.message}", e)
         }
     }
@@ -545,6 +648,42 @@ The plugin will automatically use your authenticated account for this repository
             emptyList()
         }
     }
+    
+    /**
+     * Retrieves the changes in a Pull Request from a specific project/repository
+     * Used when accessing PRs from other repositories in the organization
+     * @param pullRequestId PR ID
+     * @param projectName Project name (can be null to use current project)
+     * @param repositoryId Repository ID or name (can be null to use current repository)
+     * @return List of changes
+     */
+    @Throws(AzureDevOpsApiException::class)
+    fun getPullRequestChanges(pullRequestId: Int, projectName: String?, repositoryId: String?): List<PullRequestChange> {
+        val configService = AzureDevOpsConfigService.getInstance(project)
+        val config = configService.getConfig()
+        
+        val effectiveProject = projectName ?: config.project
+        val effectiveRepo = repositoryId ?: config.repository
+        
+        // Now get the changes of the last iteration
+        val url = buildApiUrl(
+            effectiveProject,
+            effectiveRepo,
+            "/pullRequests/$pullRequestId/iterations/1/changes"
+        ) + "?api-version=$API_VERSION"
+        
+        logger.info("Getting PR changes from: $url")
+        
+        val response = executeGet(url, config.personalAccessToken)
+        
+        return try {
+            val changesResponse = gson.fromJson(response, PullRequestChanges::class.java)
+            changesResponse.changeEntries ?: emptyList()
+        } catch (e: JsonSyntaxException) {
+            logger.error("Failed to parse PR changes response", e)
+            emptyList()
+        }
+    }
 
     /**
      * Retrieves the content of a file at a specific commit
@@ -576,6 +715,50 @@ The plugin will automatically use your authenticated account for this repository
         return try {
             val jsonObject = gson.fromJson(response, com.google.gson.JsonObject::class.java)
             // The content is in the "content" field
+            val content = jsonObject.get("content")?.asString ?: ""
+            logger.info("Extracted content: ${content.length} characters")
+            content
+        } catch (e: Exception) {
+            logger.error("Failed to parse file content response", e)
+            logger.error("Response was: $response")
+            ""
+        }
+    }
+    
+    /**
+     * Retrieves the content of a file at a specific commit from a specific project/repository
+     * Used when accessing files from other repositories in the organization
+     * @param commitId SHA of the commit
+     * @param filePath Path of the file (e.g., "/src/main/Program.cs")
+     * @param projectName Project name (can be null to use current project)
+     * @param repositoryId Repository ID or name (can be null to use current repository)
+     * @return Content of the file as a string
+     */
+    @Throws(AzureDevOpsApiException::class)
+    fun getFileContent(commitId: String, filePath: String, projectName: String?, repositoryId: String?): String {
+        val configService = AzureDevOpsConfigService.getInstance(project)
+        val config = configService.getConfig()
+        
+        val effectiveProject = projectName ?: config.project
+        val effectiveRepo = repositoryId ?: config.repository
+        
+        // Encode the path for URL
+        val encodedPath = URLEncoder.encode(filePath, StandardCharsets.UTF_8.toString())
+        
+        // Endpoint to get the file content
+        val url = buildApiUrl(
+            effectiveProject,
+            effectiveRepo,
+            "/items?path=$encodedPath&versionDescriptor.version=$commitId&versionDescriptor.versionType=commit&includeContent=true"
+        ) + "&api-version=$API_VERSION"
+        
+        logger.info("Getting file content from: $url")
+        
+        val response = executeGet(url, config.personalAccessToken)
+        
+        // Parse the JSON response to extract the content
+        return try {
+            val jsonObject = gson.fromJson(response, com.google.gson.JsonObject::class.java)
             val content = jsonObject.get("content")?.asString ?: ""
             logger.info("Extracted content: ${content.length} characters")
             content
@@ -983,6 +1166,10 @@ The plugin will automatically use your authenticated account for this repository
         if (!config.isValid()) {
             throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
         }
+        
+        // Use repository info from PR if available (for cross-repo PRs)
+        val effectiveProject = pullRequest.repository?.project?.name ?: config.project
+        val effectiveRepo = pullRequest.repository?.id ?: config.repository
 
         // Get current user's unique name from profile
         val currentUser = getCurrentUser()
@@ -1005,7 +1192,7 @@ The plugin will automatically use your authenticated account for this repository
             }
             
             // Step 1: Aggiungi l'utente come reviewer senza voto (Azure DevOps non permette di votare quando ci si aggiunge)
-            val addReviewerUrl = buildApiUrl(config.project, config.repository, 
+            val addReviewerUrl = buildApiUrl(effectiveProject, effectiveRepo, 
                 "/pullRequests/${pullRequest.pullRequestId}/reviewers/$currentUserId?api-version=$API_VERSION")
             
             val addReviewerRequest = mapOf(
@@ -1023,7 +1210,7 @@ The plugin will automatically use your authenticated account for this repository
                 val addedReviewerId = reviewerData.get("id")?.asString ?: currentUserId
                 
                 // Step 2: Ora imposta il voto in una seconda chiamata
-                val voteUrl = buildApiUrl(config.project, config.repository, 
+                val voteUrl = buildApiUrl(effectiveProject, effectiveRepo, 
                     "/pullRequests/${pullRequest.pullRequestId}/reviewers/$addedReviewerId?api-version=$API_VERSION")
                 
                 val voteRequest = mapOf("vote" to vote)
@@ -1042,7 +1229,7 @@ The plugin will automatically use your authenticated account for this repository
             "Unable to get reviewer ID for current user"
         )
 
-        val url = buildApiUrl(config.project, config.repository, 
+        val url = buildApiUrl(effectiveProject, effectiveRepo, 
             "/pullRequests/${pullRequest.pullRequestId}/reviewers/$reviewerId?api-version=$API_VERSION")
         
         val voteRequest = mapOf("vote" to vote)
