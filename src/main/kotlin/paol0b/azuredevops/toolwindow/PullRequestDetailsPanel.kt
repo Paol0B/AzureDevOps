@@ -34,7 +34,6 @@ class PullRequestDetailsPanel(private val project: Project) {
     private val createdDateLabel: JBLabel
     private val descriptionArea: JTextArea
     private val reviewersPanel: JPanel
-    private val actionButtonsPanel: JPanel
     private var currentPullRequest: PullRequest? = null
 
     init {
@@ -87,8 +86,6 @@ class PullRequestDetailsPanel(private val project: Project) {
             border = JBUI.Borders.empty(0)
             background = UIUtil.getPanelBackground()
         }
-        
-        actionButtonsPanel = createActionButtonsPanel()
 
         mainPanel = createLayout()
         showEmptyState()
@@ -431,7 +428,6 @@ class PullRequestDetailsPanel(private val project: Project) {
             layout = BorderLayout()
             alignmentX = Component.LEFT_ALIGNMENT
             maximumSize = Dimension(Int.MAX_VALUE, 90)
-            add(actionButtonsPanel, BorderLayout.CENTER)
         }
         scrollPanel.add(actionsCard)
 
@@ -460,65 +456,5 @@ class PullRequestDetailsPanel(private val project: Project) {
             background = UIUtil.getPanelBackground()
             alignmentX = Component.LEFT_ALIGNMENT
         }
-    }
-    
-    /**
-     * Creates the panel with action buttons (Review, Approve, etc.)
-     */
-    private fun createActionButtonsPanel(): JPanel {
-        val panel = JPanel().apply {
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            alignmentX = Component.LEFT_ALIGNMENT
-            background = UIUtil.getPanelBackground()
-        }
-        
-        val headerLabel = JBLabel("Actions:").apply {
-            font = font.deriveFont(Font.BOLD, 13f)
-            border = JBUI.Borders.emptyBottom(10)
-            alignmentX = Component.LEFT_ALIGNMENT
-        }
-        panel.add(headerLabel)
-        
-        val buttonsPanel = JPanel(FlowLayout(FlowLayout.LEFT, 8, 4)).apply {
-            alignmentX = Component.LEFT_ALIGNMENT
-            background = UIUtil.getPanelBackground()
-        }
-        
-        // Review PR button with modern style
-        val reviewButton = JButton("Review Changes", AllIcons.Actions.Diff).apply {
-            toolTipText = "Review all changes in this PR with integrated diff viewer"
-            font = font.deriveFont(Font.BOLD, 12f)
-            addActionListener {
-                logger.info("Review button clicked")
-                if (currentPullRequest == null) {
-                    logger.warn("No PR selected")
-                    return@addActionListener
-                }
-                
-                logger.info("Starting review for PR #${currentPullRequest?.pullRequestId}")
-                currentPullRequest?.let { pr ->
-                    val reviewService = PullRequestReviewService.getInstance(project)
-                    reviewService.startReview(pr)
-                }
-            }
-        }
-        buttonsPanel.add(reviewButton)
-        
-        // Approve button (placeholder for future implementation)
-        val approveButton = JButton("Approve", AllIcons.RunConfigurations.TestPassed).apply {
-            toolTipText = "Approve this Pull Request"
-            isEnabled = false // TODO: Implement approval
-        }
-        buttonsPanel.add(approveButton)
-        
-        // Request Changes button (placeholder)
-        val requestChangesButton = JButton("Request Changes", AllIcons.General.BalloonWarning).apply {
-            toolTipText = "Request changes for this Pull Request"
-            isEnabled = false // TODO: Implement request changes
-        }
-        buttonsPanel.add(requestChangesButton)
-        
-        panel.add(buttonsPanel)
-        return panel
     }
 }

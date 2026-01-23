@@ -801,7 +801,8 @@ The plugin will automatically use your authenticated account for this repository
 
     /**
      * Gets the current authenticated user
-     * API: GET https://app.vssps.visualstudio.com/_apis/profile/profiles/me?api-version=7.0
+     * Uses the connectionData endpoint to get the identity ID that Azure DevOps Git API expects
+     * API: GET https://dev.azure.com/{organization}/_apis/connectionData
      */
     @Throws(AzureDevOpsApiException::class)
     private fun getCurrentUser(): User {
@@ -812,28 +813,39 @@ The plugin will automatically use your authenticated account for this repository
             throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
         }
 
-        val url = "https://app.vssps.visualstudio.com/_apis/profile/profiles/me?api-version=$API_VERSION"
+        // Use connectionData endpoint to get the authenticated user's identity ID
+        // This returns the correct ID that the Git API expects for reviewers
+        val url = "https://dev.azure.com/${URLEncoder.encode(config.organization, StandardCharsets.UTF_8)}/_apis/connectionData"
         
         return try {
             val response = executeGet(url, config.personalAccessToken)
-            val profileData = gson.fromJson(response, com.google.gson.JsonObject::class.java)
+            val connectionData = gson.fromJson(response, com.google.gson.JsonObject::class.java)
             
-            val id = profileData.get("id")?.asString ?: throw AzureDevOpsApiException("No user ID in profile")
-            val displayName = profileData.get("displayName")?.asString ?: "Unknown"
-            val emailAddress = profileData.get("emailAddress")?.asString
+            val authenticatedUser = connectionData.getAsJsonObject("authenticatedUser")
+                ?: throw AzureDevOpsApiException("No authenticatedUser in connectionData")
+            
+            val id = authenticatedUser.get("id")?.asString 
+                ?: throw AzureDevOpsApiException("No user ID in connectionData")
+            val displayName = authenticatedUser.get("providerDisplayName")?.asString ?: "Unknown"
+            
+            // Get uniqueName from properties if available
+            val properties = authenticatedUser.getAsJsonObject("properties")
+            val uniqueName = properties?.getAsJsonObject("Account")?.get("\$value")?.asString
             
             // Cache the user ID
             cachedUserId = id
             
+            logger.info("Current user identity: id=$id, displayName=$displayName, uniqueName=$uniqueName")
+            
             User(
                 id = id,
                 displayName = displayName,
-                uniqueName = emailAddress,
+                uniqueName = uniqueName,
                 imageUrl = null
             )
         } catch (e: Exception) {
-            logger.error("Failed to get current user profile", e)
-            throw AzureDevOpsApiException("Error retrieving user profile: ${e.message}", e)
+            logger.error("Failed to get current user from connectionData", e)
+            throw AzureDevOpsApiException("Error retrieving user identity: ${e.message}", e)
         }
     }
 
@@ -875,8 +887,15 @@ The plugin will automatically use your authenticated account for this repository
             "status" to 1
         )
 
-        val jsonBody = gson.toJson(commentData)
-        executePost(url, config.personalAccessToken, jsonBody)
+        logger.info("Adding general comment to PR #$pullRequestId")
+        
+        try {
+            executePost(url, commentData, config.personalAccessToken)
+            logger.info("Comment added successfully")
+        } catch (e: Exception) {
+            logger.error("Failed to add PR comment", e)
+            throw AzureDevOpsApiException("Error while adding comment: ${e.message}", e)
+        }
     }
 
     /**
@@ -906,7 +925,8 @@ The plugin will automatically use your authenticated account for this repository
 
         val position = mapOf("line" to line, "offset" to 1)
         
-        // Construct threadContext manually to handle the conditional keys
+        // Use pullRequestThreadContext for PR-specific file comments (not threadContext)
+        // This ensures the comment is attached to the specific file and line in the PR
         val contextMap = mutableMapOf<String, Any>("filePath" to filePath)
         if (isLeft) {
             contextMap["leftFileStart"] = position
@@ -925,11 +945,19 @@ The plugin will automatically use your authenticated account for this repository
                 )
             ),
             "status" to 1, // Active
-            "threadContext" to contextMap
+            "pullRequestThreadContext" to contextMap  // Changed from "threadContext" to "pullRequestThreadContext"
         )
 
-        val jsonBody = gson.toJson(commentData)
-        executePost(url, config.personalAccessToken, jsonBody)
+        logger.info("Creating comment thread on $filePath line $line (isLeft: $isLeft) in PR #$pullRequestId")
+        logger.info("Request body: ${gson.toJson(commentData)}")
+        
+        try {
+            executePost(url, commentData, config.personalAccessToken)
+            logger.info("Comment thread created successfully")
+        } catch (e: Exception) {
+            logger.error("Failed to create comment thread", e)
+            throw AzureDevOpsApiException("Error while creating comment thread: ${e.message}", e)
+        }
     }
 
     /**
@@ -944,9 +972,11 @@ The plugin will automatically use your authenticated account for this repository
      * Vote on a Pull Request
      * Vote values: 10 = Approved, 5 = Approved with suggestions, 0 = No vote, -5 = Waiting for author, -10 = Rejected
      * API: PUT https://dev.azure.com/{organization}/{project}/_apis/git/repositories/{repositoryId}/pullRequests/{pullRequestId}/reviewers/{reviewerId}?api-version=7.0
+     * 
+     * Automatically adds the current user as a reviewer if not already present.
      */
     @Throws(AzureDevOpsApiException::class)
-    fun voteOnPullRequest(pullRequestId: Int, vote: Int) {
+    fun voteOnPullRequest(pullRequest: PullRequest, vote: Int) {
         val configService = AzureDevOpsConfigService.getInstance(project)
         val config = configService.getConfig()
 
@@ -954,16 +984,70 @@ The plugin will automatically use your authenticated account for this repository
             throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
         }
 
-        // Get current user ID
+        // Get current user's unique name from profile
         val currentUser = getCurrentUser()
-        val reviewerId = currentUser.id
+        val currentUserUniqueName = currentUser.uniqueName?.lowercase()
+        val currentUserId = currentUser.id
+        
+        // Find the current user in the PR's reviewers list
+        var reviewer = pullRequest.reviewers?.find { reviewer ->
+            reviewer.uniqueName?.lowercase() == currentUserUniqueName ||
+            reviewer.displayName?.lowercase() == currentUser.displayName?.lowercase() ||
+            reviewer.id == currentUserId
+        }
+        
+        // Se l'utente non è un reviewer, aggiungilo automaticamente
+        if (reviewer == null) {
+            logger.info("Current user is not a reviewer, adding automatically...")
+            
+            if (currentUserId == null) {
+                throw AzureDevOpsApiException("Unable to get current user ID")
+            }
+            
+            // Step 1: Aggiungi l'utente come reviewer senza voto (Azure DevOps non permette di votare quando ci si aggiunge)
+            val addReviewerUrl = buildApiUrl(config.project, config.repository, 
+                "/pullRequests/${pullRequest.pullRequestId}/reviewers/$currentUserId?api-version=$API_VERSION")
+            
+            val addReviewerRequest = mapOf(
+                "id" to currentUserId,  // ID dell'utente da aggiungere
+                "vote" to 0,  // No vote quando ci si aggiunge
+                "isRequired" to false
+            )
+            
+            try {
+                val response = executePut(addReviewerUrl, addReviewerRequest, config.personalAccessToken)
+                logger.info("User added as reviewer successfully")
+                
+                // Parse the response to get the actual reviewer ID that was created
+                val reviewerData = gson.fromJson(response, com.google.gson.JsonObject::class.java)
+                val addedReviewerId = reviewerData.get("id")?.asString ?: currentUserId
+                
+                // Step 2: Ora imposta il voto in una seconda chiamata
+                val voteUrl = buildApiUrl(config.project, config.repository, 
+                    "/pullRequests/${pullRequest.pullRequestId}/reviewers/$addedReviewerId?api-version=$API_VERSION")
+                
+                val voteRequest = mapOf("vote" to vote)
+                
+                executePut(voteUrl, voteRequest, config.personalAccessToken)
+                logger.info("Vote submitted successfully after adding as reviewer")
+                return
+            } catch (e: Exception) {
+                logger.error("Failed to add user as reviewer or vote", e)
+                throw AzureDevOpsApiException("Error while adding you as a reviewer and voting: ${e.message}", e)
+            }
+        }
+        
+        // L'utente è già un reviewer, procedi con il voto
+        val reviewerId = reviewer.id ?: throw AzureDevOpsApiException(
+            "Unable to get reviewer ID for current user"
+        )
 
         val url = buildApiUrl(config.project, config.repository, 
-            "/pullRequests/$pullRequestId/reviewers/$reviewerId?api-version=$API_VERSION")
+            "/pullRequests/${pullRequest.pullRequestId}/reviewers/$reviewerId?api-version=$API_VERSION")
         
         val voteRequest = mapOf("vote" to vote)
         
-        logger.info("Voting on PR #$pullRequestId with vote: $vote (reviewer: $reviewerId)")
+        logger.info("Voting on PR #${pullRequest.pullRequestId} with vote: $vote (reviewer: $reviewerId)")
         
         try {
             val response = executePut(url, voteRequest, config.personalAccessToken)

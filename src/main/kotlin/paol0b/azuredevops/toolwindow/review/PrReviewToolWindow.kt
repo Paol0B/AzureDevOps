@@ -31,6 +31,10 @@ class PrReviewToolWindow(
     private var diffViewerPanel: DiffViewerPanel? = null
     private var commentsPanel: CommentsPanel? = null
     
+    // Auto-refresh timer
+    private var refreshTimer: Timer? = null
+    private val REFRESH_INTERVAL = 30000 // 30 secondi
+    
     // UI Components
     private val prSelectorComboBox = ComboBox<PullRequestItem>()
     private val statusComboBox = ComboBox(arrayOf(
@@ -124,6 +128,7 @@ class PrReviewToolWindow(
     private fun loadAvailablePullRequests() {
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
+                // Carica solo le PR attive (esclude quelle chiuse/completate/abbandonate)
                 val prs = apiClient.getPullRequests(status = "active", top = 50)
                 
                 ApplicationManager.getApplication().invokeLater {
@@ -164,8 +169,24 @@ class PrReviewToolWindow(
      * Load a specific pull request for review
      */
     private fun loadPullRequest(pullRequest: PullRequest) {
+        // Verifica che la PR sia attiva
+        if (!pullRequest.isActive()) {
+            JOptionPane.showMessageDialog(
+                this,
+                "This Pull Request is ${pullRequest.status.getDisplayName()}.\n" +
+                "You can only review active Pull Requests.",
+                "PR Not Active",
+                JOptionPane.WARNING_MESSAGE
+            )
+            prSelectorComboBox.selectedIndex = 0 // Torna a "-- Select a PR --"
+            return
+        }
+        
         currentPullRequest = pullRequest
         reviewStateService.setCurrentPullRequest(pullRequest.pullRequestId)
+        
+        // Avvia auto-refresh
+        startAutoRefresh()
         
         // Clear previous content
         remove(placeholderPanel)
@@ -247,9 +268,47 @@ class PrReviewToolWindow(
      */
     private fun handleVoteChange() {
         val selectedIndex = statusComboBox.selectedIndex
-        if (selectedIndex <= 0) return // "Select Vote" option
-        
         val pr = currentPullRequest ?: return
+        
+        // Se seleziona "Select Vote" (index 0), permetti di resettare/rimuovere il voto
+        if (selectedIndex == 0) {
+            val confirmed = JOptionPane.showConfirmDialog(
+                this,
+                "Remove your vote from this PR?",
+                "Reset Vote",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.QUESTION_MESSAGE
+            )
+            
+            if (confirmed == JOptionPane.YES_OPTION) {
+                ApplicationManager.getApplication().executeOnPooledThread {
+                    try {
+                        apiClient.voteOnPullRequest(pr, 0) // 0 = nessun voto
+                        reviewStateService.savePrVote(pr.pullRequestId, 0)
+                        
+                        ApplicationManager.getApplication().invokeLater {
+                            JOptionPane.showMessageDialog(
+                                this,
+                                "Vote removed successfully",
+                                "Success",
+                                JOptionPane.INFORMATION_MESSAGE
+                            )
+                        }
+                    } catch (e: Exception) {
+                        logger.error("Failed to remove vote", e)
+                        ApplicationManager.getApplication().invokeLater {
+                            JOptionPane.showMessageDialog(
+                                this,
+                                "Failed to remove vote: ${e.message}",
+                                "Error",
+                                JOptionPane.ERROR_MESSAGE
+                            )
+                        }
+                    }
+                }
+            }
+            return
+        }
         
         // Map UI selection to Azure DevOps vote values
         // 10 = Approved, 5 = Approved with suggestions, -5 = Waiting for author, -10 = Rejected
@@ -279,7 +338,7 @@ class PrReviewToolWindow(
         // Submit vote in background
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
-                apiClient.voteOnPullRequest(pr.pullRequestId, vote)
+                apiClient.voteOnPullRequest(pr, vote)
                 reviewStateService.savePrVote(pr.pullRequestId, vote)
                 
                 ApplicationManager.getApplication().invokeLater {
@@ -306,9 +365,84 @@ class PrReviewToolWindow(
     }
 
     /**
+     * Start auto-refresh for the current PR
+     */
+    private fun startAutoRefresh() {
+        // Stop existing timer if any
+        stopAutoRefresh()
+        
+        // Create new timer
+        refreshTimer = Timer(REFRESH_INTERVAL) {
+            refreshCurrentPullRequest()
+        }.apply {
+            isRepeats = true
+            start()
+        }
+        
+        logger.info("Auto-refresh started for PR #${currentPullRequest?.pullRequestId}")
+    }
+    
+    /**
+     * Stop auto-refresh timer
+     */
+    private fun stopAutoRefresh() {
+        refreshTimer?.stop()
+        refreshTimer = null
+        logger.info("Auto-refresh stopped")
+    }
+    
+    /**
+     * Refresh the current pull request data
+     */
+    private fun refreshCurrentPullRequest() {
+        val pr = currentPullRequest ?: return
+        
+        ApplicationManager.getApplication().executeOnPooledThread {
+            try {
+                // Ricarica i dati della PR
+                val updatedPr = apiClient.getPullRequest(pr.pullRequestId)
+                
+                // Se la PR non è più attiva, ferma il refresh e notifica l'utente
+                if (!updatedPr.isActive()) {
+                    ApplicationManager.getApplication().invokeLater {
+                        stopAutoRefresh()
+                        JOptionPane.showMessageDialog(
+                            this,
+                            "PR #${updatedPr.pullRequestId} is now ${updatedPr.status.getDisplayName()}.\n" +
+                            "Auto-refresh has been stopped.",
+                            "PR Status Changed",
+                            JOptionPane.INFORMATION_MESSAGE
+                        )
+                        // Torna alla selezione vuota
+                        prSelectorComboBox.selectedIndex = 0
+                        currentPullRequest = null
+                        remove(mainContentPanel)
+                        add(placeholderPanel, BorderLayout.CENTER)
+                        revalidate()
+                        repaint()
+                    }
+                    return@executeOnPooledThread
+                }
+                
+                // Ricarica i cambiamenti
+                val changes = apiClient.getPullRequestChanges(updatedPr.pullRequestId)
+                
+                ApplicationManager.getApplication().invokeLater {
+                    // Aggiorna il pannello dei file
+                    fileTreePanel?.loadFileChanges(changes)
+                    logger.info("Auto-refreshed PR #${updatedPr.pullRequestId}")
+                }
+            } catch (e: Exception) {
+                logger.warn("Failed to auto-refresh PR", e)
+            }
+        }
+    }
+    
+    /**
      * Cleanup resources
      */
     fun dispose() {
+        stopAutoRefresh()
         diffViewerPanel?.dispose()
     }
 
