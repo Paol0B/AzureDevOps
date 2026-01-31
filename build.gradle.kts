@@ -19,6 +19,8 @@ repositories {
 dependencies {
     // Gson for JSON parsing
     implementation("com.google.code.gson:gson:2.11.0")
+    // OkHttp for robust HTTP requests with native PATCH support
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
     testImplementation("junit:junit:4.13.2")
     
     intellijPlatform {

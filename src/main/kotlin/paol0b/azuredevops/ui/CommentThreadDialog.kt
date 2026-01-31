@@ -35,15 +35,22 @@ class CommentThreadDialog(
 
     private val replyTextArea = JBTextArea(4, 60)
     private val commentsPanel = JPanel()
-    private val resolveButton = JButton()
+    private lateinit var commentsScrollPane: JBScrollPane
+    private val statusComboBox = javax.swing.JComboBox<paol0b.azuredevops.model.ThreadStatus>()
     private val statusPanel = JPanel(BorderLayout())
     private val headerPanel = JPanel(BorderLayout())
+    private lateinit var sendButton: JButton
+    private var refreshTimer: Timer? = null
     private var isLoading = false
+    private var isRefreshing = false
+    private var isUpdatingUi = false
+    private var lastThreadHash: Int = 0
 
     init {
         title = "PR #${pullRequest.pullRequestId} - Comment Thread"
         init()
         setSize(700, 500)
+        startAutoRefresh()
     }
 
     override fun createCenterPanel(): JComponent {
@@ -57,12 +64,13 @@ class CommentThreadDialog(
         // Comments list
         commentsPanel.layout = BoxLayout(commentsPanel, BoxLayout.Y_AXIS)
         buildCommentsPanel()
+        lastThreadHash = calculateThreadHash(thread)
         
-        val scrollPane = JBScrollPane(commentsPanel).apply {
+        commentsScrollPane = JBScrollPane(commentsPanel).apply {
             preferredSize = Dimension(660, 300)
             border = JBUI.Borders.customLine(JBUI.CurrentTheme.CustomFrameDecorations.separatorForeground(), 1)
         }
-        panel.add(scrollPane, BorderLayout.CENTER)
+        panel.add(commentsScrollPane, BorderLayout.CENTER)
 
         // Reply section
         val replyPanel = createReplyPanel()
@@ -78,14 +86,22 @@ class CommentThreadDialog(
         
         // Status label with icon
         val statusLabel = JLabel().apply {
-            if (thread.isResolved()) {
-                text = "✓ Resolved"
-                icon = AllIcons.RunConfigurations.TestPassed
-                foreground = JBColor(java.awt.Color(100, 200, 100), java.awt.Color(80, 150, 80))
-            } else {
-                text = "● Active"
-                icon = AllIcons.General.InspectionsWarning
-                foreground = JBColor(java.awt.Color(255, 140, 0), java.awt.Color(255, 160, 50))
+            when {
+                thread.isResolved() -> {
+                    text = "✓ Resolved"
+                    icon = AllIcons.RunConfigurations.TestPassed
+                    foreground = JBColor(java.awt.Color(100, 200, 100), java.awt.Color(80, 150, 80))
+                }
+                thread.status == paol0b.azuredevops.model.ThreadStatus.Pending -> {
+                    text = "◐ Pending"
+                    icon = AllIcons.RunConfigurations.TestState.Run
+                    foreground = JBColor(java.awt.Color(100, 150, 255), java.awt.Color(120, 160, 200))
+                }
+                else -> {
+                    text = "● Active"
+                    icon = AllIcons.General.InspectionsWarning
+                    foreground = JBColor(java.awt.Color(255, 140, 0), java.awt.Color(255, 160, 50))
+                }
             }
             font = font.deriveFont(Font.BOLD, 13f)
         }
@@ -146,6 +162,18 @@ class CommentThreadDialog(
         
         commentsPanel.revalidate()
         commentsPanel.repaint()
+        
+        // Also refresh the scroll pane and scroll to bottom
+        if (::commentsScrollPane.isInitialized) {
+            commentsScrollPane.revalidate()
+            commentsScrollPane.repaint()
+            
+            // Scroll to bottom to show the latest comment
+            javax.swing.SwingUtilities.invokeLater {
+                val verticalBar = commentsScrollPane.verticalScrollBar
+                verticalBar.value = verticalBar.maximum
+            }
+        }
     }
 
     private fun createCommentPanel(comment: Comment): JPanel {
@@ -235,13 +263,48 @@ class CommentThreadDialog(
             layout = BoxLayout(this, BoxLayout.X_AXIS)
         }
         
-        resolveButton.apply {
-            toolTipText = "Toggle between active and resolved status"
-            addActionListener { toggleResolveStatus() }
+        // Status dropdown with all available statuses
+        val statusLabel = JLabel("Status:")
+        statusComboBox.apply {
+            // Add all thread statuses except Unknown
+            paol0b.azuredevops.model.ThreadStatus.entries
+                .filter { it != paol0b.azuredevops.model.ThreadStatus.Unknown }
+                .forEach { addItem(it) }
+            
+            // Set the current thread status as default
+            val currentStatus = thread.status ?: paol0b.azuredevops.model.ThreadStatus.Active
+            selectedItem = currentStatus
+            
+            // Custom renderer to show display names
+            renderer = object : javax.swing.DefaultListCellRenderer() {
+                override fun getListCellRendererComponent(
+                    list: javax.swing.JList<*>?,
+                    value: Any?,
+                    index: Int,
+                    isSelected: Boolean,
+                    cellHasFocus: Boolean
+                ): java.awt.Component {
+                    super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus)
+                    if (value is paol0b.azuredevops.model.ThreadStatus) {
+                        text = value.getDisplayName()
+                    }
+                    return this
+                }
+            }
+            toolTipText = "Select the thread status"
+            
+            // Auto-update when selection changes
+            addItemListener { event ->
+                if (event.stateChange == java.awt.event.ItemEvent.SELECTED) {
+                    val selectedStatus = selectedItem as? paol0b.azuredevops.model.ThreadStatus
+                    if (selectedStatus != null && selectedStatus != thread.status && !isLoading && !isUpdatingUi) {
+                        updateThreadStatus(selectedStatus)
+                    }
+                }
+            }
         }
-        updateResolveButton()
         
-        val sendButton = JButton("Send Reply", AllIcons.Actions.MenuSaveall).apply {
+        sendButton = JButton("Send Reply", AllIcons.Actions.MenuSaveall).apply {
             toolTipText = "Send your reply (or press Ctrl+Enter)"
             addActionListener {
                 val content = replyTextArea.text.trim()
@@ -254,7 +317,9 @@ class CommentThreadDialog(
         }
         
         buttonsPanel.add(Box.createHorizontalGlue())
-        buttonsPanel.add(resolveButton)
+        buttonsPanel.add(statusLabel)
+        buttonsPanel.add(Box.createHorizontalStrut(5))
+        buttonsPanel.add(statusComboBox)
         buttonsPanel.add(Box.createHorizontalStrut(10))
         buttonsPanel.add(sendButton)
         
@@ -268,14 +333,11 @@ class CommentThreadDialog(
         return panel
     }
 
-    private fun updateResolveButton() {
-        if (thread.isResolved()) {
-            resolveButton.text = "Reopen Thread"
-            resolveButton.icon = AllIcons.General.InspectionsWarning
-        } else {
-            resolveButton.text = "Resolve Thread"
-            resolveButton.icon = AllIcons.RunConfigurations.TestPassed
-        }
+    private fun updateStatusComboBox() {
+        isUpdatingUi = true
+        val currentStatus = thread.status ?: paol0b.azuredevops.model.ThreadStatus.Active
+        statusComboBox.selectedItem = currentStatus
+        isUpdatingUi = false
     }
 
     private fun sendReply(content: String) {
@@ -287,6 +349,7 @@ class CommentThreadDialog(
         }
         
         isLoading = true
+        setControlsEnabled(false)
         showStatus("Sending reply...", JBColor.BLUE)
 
         ApplicationManager.getApplication().executeOnPooledThread {
@@ -300,17 +363,16 @@ class CommentThreadDialog(
                 
                 ApplicationManager.getApplication().invokeLater {
                     isLoading = false
+                    setControlsEnabled(true)
                     replyTextArea.text = ""
                     showStatus("✓ Reply sent successfully!", JBColor.GREEN)
 
                     // Update thread and refresh UI to show the new reply immediately
                     if (updatedThread != null) {
-                        thread = updatedThread
-                        buildCommentsPanel()
-                        refreshHeaderPanel()
+                        applyThreadUpdate(updatedThread)
                         
-                        // Trigger background refresh to update other views
-                        paol0b.azuredevops.services.CommentsPollingService.getInstance(project).refreshNow()
+                        // Trigger global refresh to update all views (polling, toolwindow, editor)
+                        triggerGlobalRefresh()
                     }
                     
                     // Auto-hide success message after 3 seconds
@@ -324,6 +386,7 @@ class CommentThreadDialog(
             } catch (e: Exception) {
                 ApplicationManager.getApplication().invokeLater {
                     isLoading = false
+                    setControlsEnabled(true)
                     showStatus("✗ Error: ${e.message}", JBColor.RED)
                     Messages.showErrorDialog(
                         project,
@@ -335,7 +398,7 @@ class CommentThreadDialog(
         }
     }
 
-    private fun toggleResolveStatus() {
+    private fun updateThreadStatus(newStatus: paol0b.azuredevops.model.ThreadStatus) {
         if (isLoading) return
         
         val threadId = thread.id ?: run {
@@ -343,18 +406,18 @@ class CommentThreadDialog(
             return
         }
         
+        // Check if status actually changed
+        if (newStatus == thread.status) {
+            return
+        }
+        
         isLoading = true
-        val action = if (thread.isResolved()) "Reopening" else "Resolving"
-        showStatus("$action...", JBColor.BLUE)
+        setControlsEnabled(false)
+        showStatus("Updating status to '${newStatus.getDisplayName()}'...", JBColor.BLUE)
 
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
                 val apiClient = AzureDevOpsApiClient.getInstance(project)
-                val newStatus = if (thread.isResolved()) {
-                    paol0b.azuredevops.model.ThreadStatus.Active
-                } else {
-                    paol0b.azuredevops.model.ThreadStatus.Fixed
-                }
                 
                 apiClient.updateThreadStatus(pullRequest.pullRequestId, threadId, newStatus)
                 
@@ -364,16 +427,14 @@ class CommentThreadDialog(
                 
                 ApplicationManager.getApplication().invokeLater {
                     isLoading = false
-                    showStatus("✓ Status updated successfully!", JBColor.GREEN)
+                    setControlsEnabled(true)
+                    showStatus("✓ Status updated to '${newStatus.getDisplayName()}'!", JBColor.GREEN)
 
                     if (updatedThread != null) {
-                        thread = updatedThread
-                        updateResolveButton()
-                        buildCommentsPanel()
-                        refreshHeaderPanel()
+                        applyThreadUpdate(updatedThread)
                         
-                        // Trigger background refresh to update other views
-                        paol0b.azuredevops.services.CommentsPollingService.getInstance(project).refreshNow()
+                        // Trigger global refresh to update all views (polling, toolwindow, editor)
+                        triggerGlobalRefresh()
                     }
                     
                     // Auto-hide success message
@@ -387,7 +448,10 @@ class CommentThreadDialog(
             } catch (e: Exception) {
                 ApplicationManager.getApplication().invokeLater {
                     isLoading = false
+                    setControlsEnabled(true)
                     showStatus("✗ Error: ${e.message}", JBColor.RED)
+                    // Reset combobox to current thread status
+                    updateStatusComboBox()
                     Messages.showErrorDialog(
                         project,
                         "Failed to update status:\n${e.message}",
@@ -415,6 +479,88 @@ class CommentThreadDialog(
         statusPanel.removeAll()
     }
 
+    private fun setControlsEnabled(enabled: Boolean) {
+        statusComboBox.isEnabled = enabled
+        sendButton.isEnabled = enabled
+        replyTextArea.isEditable = enabled
+        replyTextArea.isEnabled = enabled
+    }
+
+    private fun startAutoRefresh() {
+        refreshTimer?.stop()
+        refreshTimer = Timer(8000) {
+            refreshThreadFromServer()
+        }.apply {
+            isRepeats = true
+            start()
+        }
+    }
+
+    private fun refreshThreadFromServer() {
+        if (isLoading || isRefreshing) return
+
+        val threadId = thread.id ?: return
+        isRefreshing = true
+
+        ApplicationManager.getApplication().executeOnPooledThread {
+            try {
+                val apiClient = AzureDevOpsApiClient.getInstance(project)
+                val updatedThreads = apiClient.getCommentThreads(pullRequest.pullRequestId)
+                val updatedThread = updatedThreads.firstOrNull { it.id == threadId }
+
+                ApplicationManager.getApplication().invokeLater {
+                    isRefreshing = false
+                    if (updatedThread != null) {
+                        val newHash = calculateThreadHash(updatedThread)
+                        if (newHash != lastThreadHash) {
+                            applyThreadUpdate(updatedThread)
+                        }
+                    }
+                }
+            } catch (_: Exception) {
+                ApplicationManager.getApplication().invokeLater {
+                    isRefreshing = false
+                }
+            }
+        }
+    }
+
+    private fun applyThreadUpdate(updatedThread: CommentThread) {
+        thread = updatedThread
+        lastThreadHash = calculateThreadHash(updatedThread)
+        updateStatusComboBox()
+        buildCommentsPanel()
+        refreshHeaderPanel()
+    }
+
+    private fun calculateThreadHash(updatedThread: CommentThread): Int {
+        var hash = updatedThread.id ?: 0
+        hash = 31 * hash + (updatedThread.status?.hashCode() ?: 0)
+        hash = 31 * hash + (updatedThread.comments?.size ?: 0)
+        hash = 31 * hash + (updatedThread.comments?.firstOrNull()?.content?.hashCode() ?: 0)
+        hash = 31 * hash + (updatedThread.comments?.lastOrNull()?.content?.hashCode() ?: 0)
+        return hash
+    }
+
+    private fun triggerGlobalRefresh() {
+        // Refresh polling service
+        paol0b.azuredevops.services.CommentsPollingService.getInstance(project).refreshNow()
+        
+        // Refresh toolwindow if open
+        val toolWindowManager = com.intellij.openapi.wm.ToolWindowManager.getInstance(project)
+        val toolWindow = toolWindowManager.getToolWindow("PR Comments")
+        if (toolWindow != null && toolWindow.isVisible) {
+            val contentManager = toolWindow.contentManager
+            val content = contentManager.selectedContent
+            if (content != null) {
+                val component = content.component
+                if (component is paol0b.azuredevops.toolwindow.CommentsNavigatorPanel) {
+                    component.forceRefresh()
+                }
+            }
+        }
+    }
+
     private fun formatDate(dateString: String?): String {
         if (dateString == null) return ""
         
@@ -425,5 +571,11 @@ class CommentThreadDialog(
         } catch (e: Exception) {
             dateString.substringBefore('T')
         }
+    }
+
+    override fun dispose() {
+        refreshTimer?.stop()
+        refreshTimer = null
+        super.dispose()
     }
 }

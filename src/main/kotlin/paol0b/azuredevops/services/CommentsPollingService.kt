@@ -87,6 +87,13 @@ class CommentsPollingService(private val project: Project) {
      */
     private fun refreshComments() {
         val pr = currentPullRequest ?: return
+        
+        // Check if comments visibility is enabled globally
+        val visibilityService = CommentsVisibilityService.getInstance(project)
+        if (!visibilityService.isCommentsVisible()) {
+            logger.info("Comments visibility disabled - skipping refresh")
+            return
+        }
 
         logger.info("Refreshing comments for PR #${pr.pullRequestId}")
 

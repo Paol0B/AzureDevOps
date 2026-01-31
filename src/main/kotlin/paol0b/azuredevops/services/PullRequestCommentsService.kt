@@ -36,6 +36,12 @@ class PullRequestCommentsService(private val project: Project) {
             effectColor = JBColor(Color(255, 200, 0), Color(200, 150, 0))
         }
         
+        private val PENDING_COMMENT_ATTRIBUTES = TextAttributes().apply {
+            backgroundColor = JBColor(Color(220, 235, 255), Color(50, 65, 85)) // Light/dark blue
+            effectType = EffectType.BOXED
+            effectColor = JBColor(Color(100, 150, 255), Color(120, 160, 200))
+        }
+        
         private val RESOLVED_COMMENT_ATTRIBUTES = TextAttributes().apply {
             backgroundColor = JBColor(Color(220, 255, 220), Color(50, 80, 50)) // Light/dark green
             effectType = EffectType.BOXED
@@ -44,6 +50,7 @@ class PullRequestCommentsService(private val project: Project) {
         
         // Icons for comments (visible in the gutter)
         private val ACTIVE_COMMENT_ICON: Icon = AllIcons.Toolwindows.ToolWindowMessages
+        private val PENDING_COMMENT_ICON: Icon = AllIcons.RunConfigurations.TestState.Run
         private val RESOLVED_COMMENT_ICON: Icon = AllIcons.RunConfigurations.TestPassed
     }
 
@@ -145,8 +152,12 @@ class PullRequestCommentsService(private val project: Project) {
             val startOffset = document.getLineStartOffset(lineIndex)
             val endOffset = document.getLineEndOffset(lineIndex)
             
-            // Attributes for line highlighting
-            val attributes = if (thread.isResolved()) RESOLVED_COMMENT_ATTRIBUTES else ACTIVE_COMMENT_ATTRIBUTES
+            // Attributes for line highlighting based on thread status
+            val attributes = when {
+                thread.isResolved() -> RESOLVED_COMMENT_ATTRIBUTES
+                thread.status == ThreadStatus.Pending -> PENDING_COMMENT_ATTRIBUTES
+                else -> ACTIVE_COMMENT_ATTRIBUTES
+            }
             
             val highlighter = markupModel.addRangeHighlighter(
                 startOffset,
@@ -157,7 +168,11 @@ class PullRequestCommentsService(private val project: Project) {
             )
             
             // Add icon in the gutter (left margin) like Visual Studio
-            val icon = if (thread.isResolved()) RESOLVED_COMMENT_ICON else ACTIVE_COMMENT_ICON
+            val icon = when {
+                thread.isResolved() -> RESOLVED_COMMENT_ICON
+                thread.status == ThreadStatus.Pending -> PENDING_COMMENT_ICON
+                else -> ACTIVE_COMMENT_ICON
+            }
             highlighter.gutterIconRenderer = CommentGutterIconRenderer(thread, pullRequest, icon, this)
             
             // Tooltip on mouse hover
