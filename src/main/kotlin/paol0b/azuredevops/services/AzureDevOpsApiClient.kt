@@ -5,6 +5,11 @@ import com.google.gson.JsonSyntaxException
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import paol0b.azuredevops.model.*
 import java.io.IOException
 import java.net.HttpURLConnection
@@ -21,6 +26,7 @@ class AzureDevOpsApiClient(private val project: Project) {
 
     private val gson = Gson()
     private val logger = Logger.getInstance(AzureDevOpsApiClient::class.java)
+    private val httpClient = OkHttpClient()
 
     companion object {
         private const val API_VERSION = "7.0"
@@ -283,6 +289,7 @@ The plugin will automatically use your authenticated account for this repository
 
     /**
      * Updates the status of a comment thread (e.g., resolves or reopens)
+     * Uses OkHttp for native PATCH support
      * @param pullRequestId PR ID
      * @param threadId Thread ID
      * @param status New status (e.g., "active", "fixed", "closed")
@@ -297,25 +304,58 @@ The plugin will automatically use your authenticated account for this repository
             throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
         }
 
-        // First get the current thread to include its comments in the update request
-        val threads = getCommentThreads(pullRequestId)
-        val currentThread = threads.firstOrNull { it.id == threadId }
-            ?: throw AzureDevOpsApiException("Thread not found: $threadId")
+        // Create the request with status and empty comments array
+        val request = UpdateThreadStatusRequest(status)
+        val jsonBody = gson.toJson(request)
         
-        // Create the request with status and existing comments (required by API)
-        val request = UpdateThreadStatusRequest(status, currentThread.comments)
-        
-        val url = buildApiUrl(config.project, config.repository, "/pullRequests/$pullRequestId/threads/$threadId?api-version=$API_VERSION")
+        // Build URL without api-version (will be in header)
+        val baseUrl = buildApiUrl(config.project, config.repository, "/pullRequests/$pullRequestId/threads/$threadId?")
         
         logger.info("Updating thread #$threadId status to ${status.getDisplayName()} (API value: ${status.toApiValue()}) in PR #$pullRequestId")
-        logger.info("Request body: ${gson.toJson(request)}")
+        logger.info("PATCH URL: $baseUrl")
+        logger.info("Request body: $jsonBody")
         
         try {
-            val response = executePatch(url, request, config.personalAccessToken)
+            val response = executePatchOkHttp(baseUrl, jsonBody, config.personalAccessToken)
             logger.info("Thread status updated successfully. Response: $response")
         } catch (e: Exception) {
             logger.error("Failed to update thread status", e)
             throw AzureDevOpsApiException("Error while updating thread status: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Executes a PATCH request using OkHttp (native PATCH support)
+     */
+    @Throws(IOException::class, AzureDevOpsApiException::class)
+    private fun executePatchOkHttp(urlString: String, body: String, token: String): String {
+        val mediaType = "application/json; charset=UTF-8".toMediaType()
+        val requestBody = body.toRequestBody(mediaType)
+        
+        // Build URL properly with query parameters using HttpUrl
+        val httpUrl = urlString.toHttpUrl().newBuilder()
+            .addQueryParameter("api-version", "7.1")
+            .build()
+        
+        val request = Request.Builder()
+            .url(httpUrl)
+            .patch(requestBody)
+            .addHeader("Authorization", createAuthHeader(token))
+            .addHeader("Accept", "application/json")
+            .addHeader("Content-Type", "application/json; charset=UTF-8")
+            .build()
+        
+        logger.info("Executing PATCH request to: $httpUrl")
+        
+        return httpClient.newCall(request).execute().use { response ->
+            val responseBody = response.body?.string() ?: ""
+            
+            if (response.isSuccessful) {
+                responseBody
+            } else {
+                logger.warn("PATCH request failed - Status: ${response.code}, Body: $responseBody")
+                throw handleErrorResponse(response.code, responseBody)
+            }
         }
     }
 
