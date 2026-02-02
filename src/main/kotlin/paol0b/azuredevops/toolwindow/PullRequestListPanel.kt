@@ -416,9 +416,8 @@ class PullRequestListPanel(
         // Add "Enter This Branch" action - always available for active PRs
         val enterBranchItem = JMenuItem("Enter This Branch")
         enterBranchItem.addActionListener {
-            EnterPullRequestBranchAction(pr).actionPerformed(
-                createActionEvent(e)
-            )
+            val branchService = paol0b.azuredevops.services.PullRequestBranchService.getInstance(project)
+            branchService.enterPullRequestBranch(pr)
         }
         popup.add(enterBranchItem)
         
@@ -434,10 +433,11 @@ class PullRequestListPanel(
         if (showCompletePR) {
             val completePrItem = JMenuItem("Complete PR...")
             completePrItem.addActionListener {
-                CompletePullRequestAction(pr) {
+                val completePrAction = CompletePullRequestAction(pr) {
                     // Refresh the PR list after completion
                     refreshPullRequests()
-                }.actionPerformed(createActionEvent(e))
+                }
+                completePrAction.performCompletePR(project)
             }
             popup.add(completePrItem)
         }
@@ -446,34 +446,16 @@ class PullRequestListPanel(
         if (showAutoComplete) {
             val autoCompleteItem = JMenuItem("Set Auto-Complete...")
             autoCompleteItem.addActionListener {
-                SetAutoCompletePullRequestAction(pr) {
+                val autoCompleteAction = SetAutoCompletePullRequestAction(pr) {
                     // Refresh the PR list after setting auto-complete
                     refreshPullRequests()
-                }.actionPerformed(createActionEvent(e))
+                }
+                autoCompleteAction.performSetAutoComplete(project)
             }
             popup.add(autoCompleteItem)
         }
         
         popup.show(tree, e.x, e.y)
-    }
-
-    /**
-     * Create an ActionEvent for triggering actions
-     */
-    private fun createActionEvent(mouseEvent: MouseEvent): com.intellij.openapi.actionSystem.AnActionEvent {
-        val dataContext = com.intellij.openapi.actionSystem.DataContext { dataId ->
-            when (dataId) {
-                com.intellij.openapi.actionSystem.CommonDataKeys.PROJECT.name -> project
-                else -> null
-            }
-        }
-        
-        return com.intellij.openapi.actionSystem.AnActionEvent.createFromInputEvent(
-            mouseEvent,
-            com.intellij.openapi.actionSystem.ActionPlaces.POPUP,
-            null,
-            dataContext
-        )
     }
 
     private fun updateTreeWithError(errorMessage: String) {

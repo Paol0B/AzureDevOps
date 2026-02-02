@@ -21,9 +21,10 @@ class SetAutoCompletePullRequestAction(
     private val onCompleted: (() -> Unit)? = null
 ) : AnAction("Set Auto-Complete...", "Set auto-complete options for this Pull Request", null) {
 
-    override fun actionPerformed(e: AnActionEvent) {
-        val project = e.project ?: return
-
+    /**
+     * Perform the set auto-complete action without requiring an AnActionEvent
+     */
+    fun performSetAutoComplete(project: Project) {
         // Get current user ID
         var currentUserId: String? = null
         try {
@@ -87,6 +88,11 @@ class SetAutoCompletePullRequestAction(
                 }
             }
         })
+    }
+
+    override fun actionPerformed(e: AnActionEvent) {
+        val project = e.project ?: return
+        performSetAutoComplete(project)
     }
 
     override fun update(e: AnActionEvent) {

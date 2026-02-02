@@ -50,15 +50,18 @@ class AzureDevOpsAccountsConfigurable : Configurable {
             }
         }
 
+        @Suppress("DEPRECATION")
         val decorator = ToolbarDecorator.createDecorator(accountsTable)
             .setAddAction { addAccount() }
             .setRemoveAction { removeAccount() }
-            .addExtraActions(
+            .addExtraAction(
                 object : AnActionButton("Refresh Token", "Refresh the authentication token for selected account", AllIcons.Actions.Refresh) {
                     override fun actionPerformed(e: AnActionEvent) {
                         refreshToken()
                     }
-                },
+                }
+            )
+            .addExtraAction(
                 object : AnActionButton("Re-login", "Re-authenticate with selected account", AllIcons.Actions.Execute) {
                     override fun actionPerformed(e: AnActionEvent) {
                         reAuthenticate()

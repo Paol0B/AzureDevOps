@@ -39,6 +39,7 @@ class AzureDevOpsCheckoutProvider : CheckoutProvider {
      */
     fun getIcon(): Icon = AzureDevOpsIcons.Logo
 
+    @Deprecated("Scheduled for removal, pending new checkout API")
     override fun doCheckout(project: Project, listener: CheckoutProvider.Listener?) {
         val dialog = AzureDevOpsCloneDialog.create(project) ?: return
         

@@ -25,8 +25,10 @@ class CompletePullRequestAction(
 
     private var cachedProject: Project? = null
 
-    override fun actionPerformed(e: AnActionEvent) {
-        val project = e.project ?: return
+    /**
+     * Perform the complete PR action without requiring an AnActionEvent
+     */
+    fun performCompletePR(project: Project) {
         cachedProject = project
 
         // Get current user ID
@@ -94,12 +96,11 @@ class CompletePullRequestAction(
                                 "Cancel",
                                 Messages.getWarningIcon()
                             )
-                            
+
                             if (result == Messages.YES) {
                                 // Trigger auto-complete action
                                 val autoCompleteAction = SetAutoCompletePullRequestAction(pullRequest, onCompleted)
-                                val actionEvent = createActionEvent()
-                                autoCompleteAction.actionPerformed(actionEvent)
+                                autoCompleteAction.performSetAutoComplete(project)
                             }
                         } else {
                             NotificationGroupManager.getInstance()
@@ -115,6 +116,11 @@ class CompletePullRequestAction(
                 }
             }
         })
+    }
+
+    override fun actionPerformed(e: AnActionEvent) {
+        val project = e.project ?: return
+        performCompletePR(project)
     }
 
     override fun update(e: AnActionEvent) {
@@ -136,22 +142,5 @@ class CompletePullRequestAction(
             message.contains("TF401181") -> "Required reviewers must approve before completion."
             else -> message.take(200) // Limit error message length
         }
-    }
-
-    private fun createActionEvent(): AnActionEvent {
-        val project = cachedProject ?: throw IllegalStateException("Project not available")
-        val dataContext = com.intellij.openapi.actionSystem.DataContext { dataId ->
-            when (dataId) {
-                CommonDataKeys.PROJECT.name -> project
-                else -> null
-            }
-        }
-        
-        return AnActionEvent.createFromInputEvent(
-            null,
-            com.intellij.openapi.actionSystem.ActionPlaces.UNKNOWN,
-            null,
-            dataContext
-        )
     }
 }

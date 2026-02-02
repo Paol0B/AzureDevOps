@@ -215,6 +215,7 @@ class GitRepositoryService(private val project: Project) {
     /**
      * Gets the changes between two branches
      */
+    @Suppress("UnstableApiUsage")
     fun getChangesBetweenBranches(sourceBranch: String, targetBranch: String): List<Change> {
         val repository = getCurrentRepository() ?: return emptyList()
         
