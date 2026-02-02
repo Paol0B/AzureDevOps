@@ -5,6 +5,11 @@ import com.google.gson.JsonSyntaxException
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import paol0b.azuredevops.model.*
 import java.io.IOException
 import java.net.HttpURLConnection
@@ -21,7 +26,8 @@ class AzureDevOpsApiClient(private val project: Project) {
 
     private val gson = Gson()
     private val logger = Logger.getInstance(AzureDevOpsApiClient::class.java)
-    
+    private val httpClient = OkHttpClient()
+
     // Cache for current user ID to avoid repeated API calls
     @Volatile
     private var cachedUserId: String? = null
@@ -148,7 +154,7 @@ The plugin will automatically use your authenticated account for this repository
             throw AzureDevOpsApiException("Error while retrieving Pull Requests: ${e.message}", e)
         }
     }
-    
+
     /**
      * Retrieves Pull Requests from all projects in the organization
      * Uses the organization-level API to get PRs across all repositories
@@ -172,9 +178,9 @@ The plugin will automatically use your authenticated account for this repository
         // Use organization-level API without project/repository scope
         val encodedOrg = URLEncoder.encode(config.organization, StandardCharsets.UTF_8)
         val url = "https://dev.azure.com/$encodedOrg/_apis/git/pullrequests?searchCriteria.status=$statusParam&\$top=$top&api-version=$API_VERSION"
-        
+
         logger.info("Fetching organization-wide Pull Requests (status: $statusParam, top: $top)")
-        
+
         return try {
             val response = executeGet(url, config.personalAccessToken)
             val listResponse = gson.fromJson(response, PullRequestListResponse::class.java)
@@ -211,7 +217,7 @@ The plugin will automatically use your authenticated account for this repository
             throw AzureDevOpsApiException("Error while retrieving Pull Request: ${e.message}", e)
         }
     }
-    
+
     /**
      * Retrieves a single Pull Request with all details from a specific project/repository
      * Used when accessing PRs from other repositories in the organization
@@ -228,14 +234,14 @@ The plugin will automatically use your authenticated account for this repository
         if (!config.isValid()) {
             throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
         }
-        
+
         val effectiveProject = projectName ?: config.project
         val effectiveRepo = repositoryId ?: config.repository
 
         val url = buildApiUrl(effectiveProject, effectiveRepo, "/pullrequests/$pullRequestId?api-version=$API_VERSION")
-        
+
         logger.info("Fetching Pull Request #$pullRequestId from $effectiveProject/$effectiveRepo")
-        
+
         return try {
             val response = executeGet(url, config.personalAccessToken)
             gson.fromJson(response, PullRequest::class.java)
@@ -323,7 +329,7 @@ The plugin will automatically use your authenticated account for this repository
             throw AzureDevOpsApiException("Error while retrieving comments: ${e.message}", e)
         }
     }
-    
+
     /**
      * Retrieves all comment threads for a Pull Request from a specific project/repository
      * Used when accessing PRs from other repositories in the organization
@@ -340,14 +346,14 @@ The plugin will automatically use your authenticated account for this repository
         if (!config.isValid()) {
             throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
         }
-        
+
         val effectiveProject = projectName ?: config.project
         val effectiveRepo = repositoryId ?: config.repository
 
         val url = buildApiUrl(effectiveProject, effectiveRepo, "/pullRequests/$pullRequestId/threads?api-version=$API_VERSION")
-        
+
         logger.info("Fetching comment threads for PR #$pullRequestId from $effectiveProject/$effectiveRepo")
-        
+
         return try {
             val response = executeGet(url, config.personalAccessToken)
             val listResponse = gson.fromJson(response, CommentThreadListResponse::class.java)
@@ -404,25 +410,58 @@ The plugin will automatically use your authenticated account for this repository
             throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
         }
 
-        // First get the current thread to include its comments in the update request
-        val threads = getCommentThreads(pullRequestId)
-        val currentThread = threads.firstOrNull { it.id == threadId }
-            ?: throw AzureDevOpsApiException("Thread not found: $threadId")
+        // Create the request with status and empty comments array
+        val request = UpdateThreadStatusRequest(status)
+        val jsonBody = gson.toJson(request)
         
-        // Create the request with status and existing comments (required by API)
-        val request = UpdateThreadStatusRequest(status, currentThread.comments)
-        
-        val url = buildApiUrl(config.project, config.repository, "/pullRequests/$pullRequestId/threads/$threadId?api-version=$API_VERSION")
+        // Build URL without api-version (will be in header)
+        val baseUrl = buildApiUrl(config.project, config.repository, "/pullRequests/$pullRequestId/threads/$threadId?")
         
         logger.info("Updating thread #$threadId status to ${status.getDisplayName()} (API value: ${status.toApiValue()}) in PR #$pullRequestId")
-        logger.info("Request body: ${gson.toJson(request)}")
+        logger.info("PATCH URL: $baseUrl")
+        logger.info("Request body: $jsonBody")
         
         try {
-            val response = executePatch(url, request, config.personalAccessToken)
+            val response = executePatchOkHttp(baseUrl, jsonBody, config.personalAccessToken)
             logger.info("Thread status updated successfully. Response: $response")
         } catch (e: Exception) {
             logger.error("Failed to update thread status", e)
             throw AzureDevOpsApiException("Error while updating thread status: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Executes a PATCH request using OkHttp (native PATCH support)
+     */
+    @Throws(IOException::class, AzureDevOpsApiException::class)
+    private fun executePatchOkHttp(urlString: String, body: String, token: String): String {
+        val mediaType = "application/json; charset=UTF-8".toMediaType()
+        val requestBody = body.toRequestBody(mediaType)
+
+        // Build URL properly with query parameters using HttpUrl
+        val httpUrl = urlString.toHttpUrl().newBuilder()
+            .addQueryParameter("api-version", "7.1")
+            .build()
+
+        val request = Request.Builder()
+            .url(httpUrl)
+            .patch(requestBody)
+            .addHeader("Authorization", createAuthHeader(token))
+            .addHeader("Accept", "application/json")
+            .addHeader("Content-Type", "application/json; charset=UTF-8")
+            .build()
+
+        logger.info("Executing PATCH request to: $httpUrl")
+
+        return httpClient.newCall(request).execute().use { response ->
+            val responseBody = response.body?.string() ?: ""
+
+            if (response.isSuccessful) {
+                responseBody
+            } else {
+                logger.warn("PATCH request failed - Status: ${response.code}, Body: $responseBody")
+                throw handleErrorResponse(response.code, responseBody)
+            }
         }
     }
 
@@ -473,7 +512,7 @@ The plugin will automatically use your authenticated account for this repository
 
             val responseCode = connection.responseCode
             
-            if (responseCode in 200..299) {
+            if (responseCode == HttpURLConnection.HTTP_OK) {
                 return connection.inputStream.bufferedReader().use { it.readText() }
             } else {
                 val errorBody = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
@@ -509,7 +548,7 @@ The plugin will automatically use your authenticated account for this repository
 
             val responseCode = connection.responseCode
             
-            if (responseCode in 200..299) {
+            if (responseCode == HttpURLConnection.HTTP_OK || responseCode == HttpURLConnection.HTTP_CREATED) {
                 return connection.inputStream.bufferedReader().use { it.readText() }
             } else {
                 val errorBody = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
@@ -559,7 +598,7 @@ The plugin will automatically use your authenticated account for this repository
 
             val responseCode = connection.responseCode
             
-            if (responseCode in 200..299) {
+            if (responseCode == HttpURLConnection.HTTP_OK || responseCode == HttpURLConnection.HTTP_CREATED) {
                 return connection.inputStream.bufferedReader().use { it.readText() }
             } else {
                 val errorBody = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
@@ -635,11 +674,11 @@ The plugin will automatically use your authenticated account for this repository
             config.repository,
             "/pullRequests/$pullRequestId/iterations/1/changes"
         ) + "?api-version=$API_VERSION"
-        
+
         logger.info("Getting PR changes from: $url")
-        
+
         val response = executeGet(url, config.personalAccessToken)
-        
+
         return try {
             val changesResponse = gson.fromJson(response, PullRequestChanges::class.java)
             changesResponse.changeEntries ?: emptyList()
@@ -648,7 +687,7 @@ The plugin will automatically use your authenticated account for this repository
             emptyList()
         }
     }
-    
+
     /**
      * Retrieves the changes in a Pull Request from a specific project/repository
      * Used when accessing PRs from other repositories in the organization
@@ -661,17 +700,17 @@ The plugin will automatically use your authenticated account for this repository
     fun getPullRequestChanges(pullRequestId: Int, projectName: String?, repositoryId: String?): List<PullRequestChange> {
         val configService = AzureDevOpsConfigService.getInstance(project)
         val config = configService.getConfig()
-        
+
         val effectiveProject = projectName ?: config.project
         val effectiveRepo = repositoryId ?: config.repository
-        
+
         // Now get the changes of the last iteration
         val url = buildApiUrl(
             effectiveProject,
             effectiveRepo,
             "/pullRequests/$pullRequestId/iterations/1/changes"
         ) + "?api-version=$API_VERSION"
-        
+
         logger.info("Getting PR changes from: $url")
         
         val response = executeGet(url, config.personalAccessToken)
@@ -724,7 +763,7 @@ The plugin will automatically use your authenticated account for this repository
             ""
         }
     }
-    
+
     /**
      * Retrieves the content of a file at a specific commit from a specific project/repository
      * Used when accessing files from other repositories in the organization
@@ -738,24 +777,24 @@ The plugin will automatically use your authenticated account for this repository
     fun getFileContent(commitId: String, filePath: String, projectName: String?, repositoryId: String?): String {
         val configService = AzureDevOpsConfigService.getInstance(project)
         val config = configService.getConfig()
-        
+
         val effectiveProject = projectName ?: config.project
         val effectiveRepo = repositoryId ?: config.repository
-        
+
         // Encode the path for URL
         val encodedPath = URLEncoder.encode(filePath, StandardCharsets.UTF_8.toString())
-        
+
         // Endpoint to get the file content
         val url = buildApiUrl(
             effectiveProject,
             effectiveRepo,
             "/items?path=$encodedPath&versionDescriptor.version=$commitId&versionDescriptor.versionType=commit&includeContent=true"
         ) + "&api-version=$API_VERSION"
-        
+
         logger.info("Getting file content from: $url")
-        
+
         val response = executeGet(url, config.personalAccessToken)
-        
+
         // Parse the JSON response to extract the content
         return try {
             val jsonObject = gson.fromJson(response, com.google.gson.JsonObject::class.java)
@@ -768,7 +807,7 @@ The plugin will automatically use your authenticated account for this repository
             ""
         }
     }
-    
+
     /**
      * Searches identities (users/groups) to add as reviewers to the PR
      * Strategy: gets users from recent PRs in the repository
@@ -863,7 +902,7 @@ The plugin will automatically use your authenticated account for this repository
     /**
      * Completes (merges) a Pull Request
      * API: PATCH https://dev.azure.com/{organization}/{project}/_apis/git/repositories/{repositoryId}/pullrequests/{pullRequestId}?api-version=7.0
-     * 
+     *
      * @param pullRequestId The ID of the Pull Request to complete
      * @param completionOptions Options for completing the PR (merge strategy, delete source branch, etc.)
      * @param comment Optional comment to add when completing
@@ -883,13 +922,13 @@ The plugin will automatically use your authenticated account for this repository
         }
 
         val url = buildApiUrl(config.project, config.repository, "/pullrequests/$pullRequestId?api-version=$API_VERSION")
-        
+
         logger.info("Completing Pull Request #$pullRequestId with strategy: ${completionOptions.mergeStrategy}")
 
         return try {
             // Get the PR to obtain the lastMergeSourceCommit
             val pr = getPullRequest(pullRequestId)
-            
+
             if (pr.lastMergeSourceCommit == null) {
                 throw AzureDevOpsApiException("Cannot complete PR: missing source commit information")
             }
@@ -926,7 +965,7 @@ The plugin will automatically use your authenticated account for this repository
     /**
      * Sets auto-complete on a Pull Request
      * API: PATCH https://dev.azure.com/{organization}/{project}/_apis/git/repositories/{repositoryId}/pullrequests/{pullRequestId}?api-version=7.0
-     * 
+     *
      * @param pullRequestId The ID of the Pull Request
      * @param completionOptions Options for when the PR is auto-completed
      * @param comment Optional comment to add when setting auto-complete
@@ -946,14 +985,14 @@ The plugin will automatically use your authenticated account for this repository
         }
 
         val url = buildApiUrl(config.project, config.repository, "/pullrequests/$pullRequestId?api-version=$API_VERSION")
-        
+
         logger.info("Setting auto-complete on Pull Request #$pullRequestId")
 
         return try {
             // Get current user identity
             val currentUser = getCurrentUser()
             val userId = currentUser.id ?: throw AzureDevOpsApiException("Unable to determine current user ID")
-            
+
             val requestBody = paol0b.azuredevops.model.SetAutoCompleteRequest(
                 autoCompleteSetBy = paol0b.azuredevops.model.AutoCompleteSetBy(id = userId),
                 completionOptions = completionOptions
@@ -999,27 +1038,27 @@ The plugin will automatically use your authenticated account for this repository
         // Use connectionData endpoint to get the authenticated user's identity ID
         // This returns the correct ID that the Git API expects for reviewers
         val url = "https://dev.azure.com/${URLEncoder.encode(config.organization, StandardCharsets.UTF_8)}/_apis/connectionData"
-        
+
         return try {
             val response = executeGet(url, config.personalAccessToken)
             val connectionData = gson.fromJson(response, com.google.gson.JsonObject::class.java)
-            
+
             val authenticatedUser = connectionData.getAsJsonObject("authenticatedUser")
                 ?: throw AzureDevOpsApiException("No authenticatedUser in connectionData")
-            
-            val id = authenticatedUser.get("id")?.asString 
+
+            val id = authenticatedUser.get("id")?.asString
                 ?: throw AzureDevOpsApiException("No user ID in connectionData")
             val displayName = authenticatedUser.get("providerDisplayName")?.asString ?: "Unknown"
-            
+
             // Get uniqueName from properties if available
             val properties = authenticatedUser.getAsJsonObject("properties")
             val uniqueName = properties?.getAsJsonObject("Account")?.get("\$value")?.asString
-            
+
             // Cache the user ID
             cachedUserId = id
-            
+
             logger.info("Current user identity: id=$id, displayName=$displayName, uniqueName=$uniqueName")
-            
+
             User(
                 id = id,
                 displayName = displayName,
@@ -1039,7 +1078,7 @@ The plugin will automatically use your authenticated account for this repository
     fun getCurrentUserIdCached(): String? {
         // Return cached value if available
         cachedUserId?.let { return it }
-        
+
         return try {
             getCurrentUser().id
         } catch (e: Exception) {
@@ -1062,7 +1101,7 @@ The plugin will automatically use your authenticated account for this repository
         }
 
         val url = buildApiUrl(config.project, config.repository, "/pullRequests/$pullRequestId/threads?api-version=$API_VERSION")
-        
+
         val commentData = mapOf(
             "comments" to listOf(
                 mapOf("content" to comment, "commentType" to 1)
@@ -1071,7 +1110,7 @@ The plugin will automatically use your authenticated account for this repository
         )
 
         logger.info("Adding general comment to PR #$pullRequestId")
-        
+
         try {
             executePost(url, commentData, config.personalAccessToken)
             logger.info("Comment added successfully")
@@ -1107,7 +1146,7 @@ The plugin will automatically use your authenticated account for this repository
         val url = buildApiUrl(config.project, config.repository, "/pullRequests/$pullRequestId/threads?api-version=$API_VERSION")
 
         val position = mapOf("line" to line, "offset" to 1)
-        
+
         // Use pullRequestThreadContext for PR-specific file comments (not threadContext)
         // This ensures the comment is attached to the specific file and line in the PR
         val contextMap = mutableMapOf<String, Any>("filePath" to filePath)
@@ -1133,7 +1172,7 @@ The plugin will automatically use your authenticated account for this repository
 
         logger.info("Creating comment thread on $filePath line $line (isLeft: $isLeft) in PR #$pullRequestId")
         logger.info("Request body: ${gson.toJson(commentData)}")
-        
+
         try {
             executePost(url, commentData, config.personalAccessToken)
             logger.info("Comment thread created successfully")
@@ -1155,7 +1194,7 @@ The plugin will automatically use your authenticated account for this repository
      * Vote on a Pull Request
      * Vote values: 10 = Approved, 5 = Approved with suggestions, 0 = No vote, -5 = Waiting for author, -10 = Rejected
      * API: PUT https://dev.azure.com/{organization}/{project}/_apis/git/repositories/{repositoryId}/pullRequests/{pullRequestId}/reviewers/{reviewerId}?api-version=7.0
-     * 
+     *
      * Automatically adds the current user as a reviewer if not already present.
      */
     @Throws(AzureDevOpsApiException::class)
@@ -1166,7 +1205,7 @@ The plugin will automatically use your authenticated account for this repository
         if (!config.isValid()) {
             throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
         }
-        
+
         // Use repository info from PR if available (for cross-repo PRs)
         val effectiveProject = pullRequest.repository?.project?.name ?: config.project
         val effectiveRepo = pullRequest.repository?.id ?: config.repository
@@ -1175,46 +1214,46 @@ The plugin will automatically use your authenticated account for this repository
         val currentUser = getCurrentUser()
         val currentUserUniqueName = currentUser.uniqueName?.lowercase()
         val currentUserId = currentUser.id
-        
+
         // Find the current user in the PR's reviewers list
         var reviewer = pullRequest.reviewers?.find { reviewer ->
             reviewer.uniqueName?.lowercase() == currentUserUniqueName ||
             reviewer.displayName?.lowercase() == currentUser.displayName?.lowercase() ||
             reviewer.id == currentUserId
         }
-        
+
         // Se l'utente non è un reviewer, aggiungilo automaticamente
         if (reviewer == null) {
             logger.info("Current user is not a reviewer, adding automatically...")
-            
+
             if (currentUserId == null) {
                 throw AzureDevOpsApiException("Unable to get current user ID")
             }
-            
+
             // Step 1: Aggiungi l'utente come reviewer senza voto (Azure DevOps non permette di votare quando ci si aggiunge)
-            val addReviewerUrl = buildApiUrl(effectiveProject, effectiveRepo, 
+            val addReviewerUrl = buildApiUrl(effectiveProject, effectiveRepo,
                 "/pullRequests/${pullRequest.pullRequestId}/reviewers/$currentUserId?api-version=$API_VERSION")
-            
+
             val addReviewerRequest = mapOf(
                 "id" to currentUserId,  // ID dell'utente da aggiungere
                 "vote" to 0,  // No vote quando ci si aggiunge
                 "isRequired" to false
             )
-            
+
             try {
                 val response = executePut(addReviewerUrl, addReviewerRequest, config.personalAccessToken)
                 logger.info("User added as reviewer successfully")
-                
+
                 // Parse the response to get the actual reviewer ID that was created
                 val reviewerData = gson.fromJson(response, com.google.gson.JsonObject::class.java)
                 val addedReviewerId = reviewerData.get("id")?.asString ?: currentUserId
-                
+
                 // Step 2: Ora imposta il voto in una seconda chiamata
-                val voteUrl = buildApiUrl(effectiveProject, effectiveRepo, 
+                val voteUrl = buildApiUrl(effectiveProject, effectiveRepo,
                     "/pullRequests/${pullRequest.pullRequestId}/reviewers/$addedReviewerId?api-version=$API_VERSION")
-                
+
                 val voteRequest = mapOf("vote" to vote)
-                
+
                 executePut(voteUrl, voteRequest, config.personalAccessToken)
                 logger.info("Vote submitted successfully after adding as reviewer")
                 return
@@ -1223,19 +1262,19 @@ The plugin will automatically use your authenticated account for this repository
                 throw AzureDevOpsApiException("Error while adding you as a reviewer and voting: ${e.message}", e)
             }
         }
-        
+
         // L'utente è già un reviewer, procedi con il voto
         val reviewerId = reviewer.id ?: throw AzureDevOpsApiException(
             "Unable to get reviewer ID for current user"
         )
 
-        val url = buildApiUrl(effectiveProject, effectiveRepo, 
+        val url = buildApiUrl(effectiveProject, effectiveRepo,
             "/pullRequests/${pullRequest.pullRequestId}/reviewers/$reviewerId?api-version=$API_VERSION")
-        
+
         val voteRequest = mapOf("vote" to vote)
-        
+
         logger.info("Voting on PR #${pullRequest.pullRequestId} with vote: $vote (reviewer: $reviewerId)")
-        
+
         try {
             val response = executePut(url, voteRequest, config.personalAccessToken)
             logger.info("Vote submitted successfully: $response")
@@ -1252,7 +1291,7 @@ The plugin will automatically use your authenticated account for this repository
     private fun executePut(urlString: String, body: Any, token: String): String {
         val url = java.net.URI(urlString).toURL()
         val connection = url.openConnection() as HttpURLConnection
-        
+
         try {
             connection.requestMethod = "PUT"
             connection.setRequestProperty("Authorization", createAuthHeader(token))
@@ -1269,7 +1308,7 @@ The plugin will automatically use your authenticated account for this repository
             }
 
             val responseCode = connection.responseCode
-            
+
             if (responseCode in 200..299) {
                 return connection.inputStream.bufferedReader().use { it.readText() }
             } else {

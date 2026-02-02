@@ -356,8 +356,17 @@ data class CommentThread(
      */
     fun getRightFileEnd(): Int? = pullRequestThreadContext?.rightFileEnd?.line ?: threadContext?.rightFileEnd?.line
     
-    fun isActive(): Boolean = status == ThreadStatus.Active
-    fun isResolved(): Boolean = status == ThreadStatus.Fixed || status == ThreadStatus.Closed
+    fun isActive(): Boolean = status == ThreadStatus.Active || status == ThreadStatus.Pending
+    fun isResolved(): Boolean = !isActive()
+    
+    /**
+     * Checks if this is a system-generated thread (e.g., from Azure DevOps automation)
+     * System threads typically have commentType = "system" or no human author
+     */
+    fun isSystemGenerated(): Boolean {
+        val firstComment = comments?.firstOrNull() ?: return false
+        return firstComment.commentType == "system" || firstComment.author == null
+    }
 }
 
 /**
@@ -411,16 +420,17 @@ enum class ThreadStatus {
     }
     
     /**
-     * Converts the status to the format required by the Azure DevOps API
+     * Converts the status to the numeric value required by the Azure DevOps API
+     * Used in PATCH requests as the status field
      */
-    fun toApiValue(): String = when(this) {
-        Unknown -> "unknown"
-        Active -> "active"
-        Fixed -> "fixed"
-        WontFix -> "wontFix"
-        Closed -> "closed"
-        ByDesign -> "byDesign"
-        Pending -> "pending"
+    fun toApiValue(): Int = when(this) {
+        Unknown -> 0
+        Active -> 1
+        Fixed -> 2
+        WontFix -> 3
+        Closed -> 4
+        ByDesign -> 5
+        Pending -> 6
     }
 }
 
@@ -456,17 +466,16 @@ data class CreateCommentRequest(
 
 /**
  * Request to update the status of a thread
- * Azure DevOps API requires status field and the comments array
- * The comments array must be included even if just updating status
+ * Azure DevOps API requires status and comments fields
+ * Comments can be an empty array
  */
 data class UpdateThreadStatusRequest(
     @SerializedName("status")
-    val status: String,
-    @SerializedName("comments")
-    val comments: List<Comment>?
+    val status: Int,
 ) {
-    constructor(status: ThreadStatus, comments: List<Comment>?) : this(status.toApiValue(), comments)
+    constructor(status: ThreadStatus) : this(status.toApiValue())
 }
+
 
 /**
  * Response for thread list
