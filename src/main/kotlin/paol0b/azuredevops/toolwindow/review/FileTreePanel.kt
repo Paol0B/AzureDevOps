@@ -44,6 +44,12 @@ class FileTreePanel(
     
     // Listeners for file selection
     private val fileSelectionListeners = mutableListOf<(PullRequestChange) -> Unit>()
+    
+    // Track expanded directories to preserve state during refresh
+    private val expandedDirectories = mutableSetOf<String>()
+    
+    // Cache of last loaded changes for comparison
+    private var cachedChanges: List<PullRequestChange> = emptyList()
 
     init {
         setupTree()
@@ -56,6 +62,31 @@ class FileTreePanel(
             showsRootHandles = true
             cellRenderer = FileTreeCellRenderer()
             rowHeight = 22 // Slightly taller for better touch target and spacing
+            
+            // Add expansion listener to track expanded directories
+            addTreeExpansionListener(object : javax.swing.event.TreeExpansionListener {
+                override fun treeExpanded(event: javax.swing.event.TreeExpansionEvent?) {
+                    event?.path?.lastPathComponent?.let { node ->
+                        if (node is DefaultMutableTreeNode) {
+                            val userObject = node.userObject
+                            if (userObject is DirectoryNode) {
+                                expandedDirectories.add(getDirectoryPath(node))
+                            }
+                        }
+                    }
+                }
+
+                override fun treeCollapsed(event: javax.swing.event.TreeExpansionEvent?) {
+                    event?.path?.lastPathComponent?.let { node ->
+                        if (node is DefaultMutableTreeNode) {
+                            val userObject = node.userObject
+                            if (userObject is DirectoryNode) {
+                                expandedDirectories.remove(getDirectoryPath(node))
+                            }
+                        }
+                    }
+                }
+            })
             
             // Handle selection
             addTreeSelectionListener { event ->
@@ -104,6 +135,15 @@ class FileTreePanel(
      * Load file changes into the tree
      */
     fun loadFileChanges(changes: List<PullRequestChange>) {
+        // Check if data has actually changed
+        if (!hasDataChanged(changes)) {
+            logger.info("File changes data unchanged, skipping tree reload")
+            return
+        }
+        
+        // Save currently selected file path before reload
+        val selectedFilePath = getSelectedFileChange()?.item?.path
+        
         rootNode.removeAllChildren()
         fileNodeMap.clear()
         
@@ -130,11 +170,19 @@ class FileTreePanel(
             fileNodeMap[fullPath] = fileNode
         }
         
+        // Update cache
+        cachedChanges = changes
+        
         treeModel.reload()
         
-        // Expand all directories by default
-        for (i in 0 until tree.rowCount) {
-            tree.expandRow(i)
+        // Restore expansion state
+        restoreExpansionState()
+        
+        // Restore selection if possible
+        if (selectedFilePath != null) {
+            javax.swing.SwingUtilities.invokeLater {
+                selectFile(selectedFilePath)
+            }
         }
         
         logger.info("Loaded ${changes.size} file changes into tree")
@@ -209,7 +257,80 @@ class FileTreePanel(
      * Refresh the tree to update reviewed status
      */
     fun refreshTree() {
+        // Save currently selected file path before reload
+        val selectedFilePath = getSelectedFileChange()?.item?.path
+        
         treeModel.reload()
+        
+        // Restore expansion state
+        restoreExpansionState()
+        
+        // Restore selection if possible
+        if (selectedFilePath != null) {
+            javax.swing.SwingUtilities.invokeLater {
+                selectFile(selectedFilePath)
+            }
+        }
+    }
+    
+    /**
+     * Check if the file changes data has changed compared to cached data
+     */
+    private fun hasDataChanged(newChanges: List<PullRequestChange>): Boolean {
+        // If size is different, data has changed
+        if (cachedChanges.size != newChanges.size) {
+            return true
+        }
+        
+        // Compare each change by path
+        val cachedPaths = cachedChanges.mapNotNull { it.item?.path }.toSet()
+        val newPaths = newChanges.mapNotNull { it.item?.path }.toSet()
+        
+        return cachedPaths != newPaths
+    }
+    
+    /**
+     * Get the full path of a directory node by traversing up the tree
+     */
+    private fun getDirectoryPath(node: DefaultMutableTreeNode): String {
+        val parts = mutableListOf<String>()
+        var current: DefaultMutableTreeNode? = node
+        
+        while (current != null && current != rootNode) {
+            val userObject = current.userObject
+            if (userObject is DirectoryNode) {
+                parts.add(0, userObject.name)
+            }
+            current = current.parent as? DefaultMutableTreeNode
+        }
+        
+        return parts.joinToString("/")
+    }
+    
+    /**
+     * Restore the expansion state of directories after tree reload
+     */
+    private fun restoreExpansionState() {
+        val isFirstLoad = expandedDirectories.isEmpty()
+        
+        for (i in 0 until tree.rowCount) {
+            val path = tree.getPathForRow(i) ?: continue
+            val node = path.lastPathComponent as? DefaultMutableTreeNode ?: continue
+            val userObject = node.userObject
+            
+            if (userObject is DirectoryNode) {
+                val dirPath = getDirectoryPath(node)
+                
+                if (isFirstLoad) {
+                    // On first load, expand all directories
+                    expandedDirectories.add(dirPath)
+                    tree.expandPath(path)
+                } else if (expandedDirectories.contains(dirPath)) {
+                    // Restore previously expanded state
+                    tree.expandPath(path)
+                }
+            }
+        }
     }
 
     /**

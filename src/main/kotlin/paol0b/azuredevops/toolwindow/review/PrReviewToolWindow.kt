@@ -152,7 +152,6 @@ class PrReviewToolWindow(
         
         // Right side: Status dropdown and cross-org button (initially hidden)
         voteStatusPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 5, 0)).apply {
-            add(showAllOrgPrsButton)
             add(JBLabel("Review Status:"))
             add(statusComboBox.apply {
                 preferredSize = java.awt.Dimension(220, 30)
@@ -185,7 +184,7 @@ class PrReviewToolWindow(
         if (!showSelector) return
         if (isLoading) return
         isLoading = true
-        
+
         val showAllOrg = showAllOrgPrsButton.isSelected
         
         // Show loading state
