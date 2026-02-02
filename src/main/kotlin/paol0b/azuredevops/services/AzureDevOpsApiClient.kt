@@ -1079,20 +1079,30 @@ The plugin will automatically use your authenticated account for this repository
     }
 
     /**
-     * Creates a threaded comment on a specific file and line
+     * Creates a threaded comment on a specific file and line range (FILE-SCOPED)
+     * Azure DevOps requires BOTH threadContext and pullRequestThreadContext.
+     *
      * @param pullRequestId The PR ID
      * @param filePath The path of the file (e.g., /src/styles.css)
      * @param content The comment text
-     * @param line The line number (1-based)
+     * @param startLine The starting line number (1-based)
+     * @param endLine The ending line number (1-based), defaults to startLine
      * @param isLeft True if commenting on the original file (base), False for the modified file
+     * @param projectName Optional project name for cross-repository PRs
+     * @param repositoryId Optional repository ID for cross-repository PRs
+     * @param changeTrackingId Optional changeTrackingId from iteration changes
      */
     @Throws(AzureDevOpsApiException::class)
     fun createThread(
         pullRequestId: Int,
         filePath: String,
         content: String,
-        line: Int,
-        isLeft: Boolean
+        startLine: Int,
+        endLine: Int = startLine,
+        isLeft: Boolean,
+        projectName: String? = null,
+        repositoryId: String? = null,
+        changeTrackingId: Int? = null
     ) {
         val configService = AzureDevOpsConfigService.getInstance(project)
         val config = configService.getConfig()
@@ -1101,20 +1111,50 @@ The plugin will automatically use your authenticated account for this repository
             throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
         }
 
-        val url = buildApiUrl(config.project, config.repository, "/pullRequests/$pullRequestId/threads?api-version=$API_VERSION")
-
-        val position = mapOf("line" to line, "offset" to 1)
-
-        // Use pullRequestThreadContext for PR-specific file comments (not threadContext)
-        // This ensures the comment is attached to the specific file and line in the PR
-        val contextMap = mutableMapOf<String, Any>("filePath" to filePath)
-        if (isLeft) {
-            contextMap["leftFileStart"] = position
-            contextMap["leftFileEnd"] = position
-        } else {
-            contextMap["rightFileStart"] = position
-            contextMap["rightFileEnd"] = position
+        if (filePath.isBlank()) {
+            throw AzureDevOpsApiException("File path is required to create a file-scoped comment")
         }
+
+        val normalizedPath = if (filePath.startsWith("/")) filePath else "/$filePath"
+
+        val effectiveProject = projectName ?: config.project
+        val effectiveRepo = repositoryId ?: config.repository
+
+        val url = buildApiUrl(effectiveProject, effectiveRepo, "/pullRequests/$pullRequestId/threads?api-version=$API_VERSION")
+
+        val validStartLine = startLine.coerceAtLeast(1)
+        val validEndLine = endLine.coerceAtLeast(validStartLine)
+
+        // CommentPosition: line (1-based), offset (1-based character position)
+        // Azure DevOps rejects offset=0
+        val startPosition = mapOf("line" to validStartLine, "offset" to 1)
+        val endPosition = mapOf("line" to validEndLine, "offset" to 1)
+
+        // threadContext: file path + line location (required for file-scoped comments)
+        val threadContextMap = mutableMapOf<String, Any>("filePath" to normalizedPath)
+        if (isLeft) {
+            threadContextMap["leftFileStart"] = startPosition
+            threadContextMap["leftFileEnd"] = endPosition
+        } else {
+            threadContextMap["rightFileStart"] = startPosition
+            threadContextMap["rightFileEnd"] = endPosition
+        }
+
+        val latestIterationId = try {
+            getLatestIterationId(pullRequestId, effectiveProject, effectiveRepo)
+        } catch (e: Exception) {
+            logger.warn("Failed to resolve latest iteration id: ${e.message}. Falling back to 1")
+            1
+        }
+
+        // pullRequestThreadContext: iteration tracking (required for file-scoped comments)
+        val pullRequestContextMap = mutableMapOf<String, Any>(
+            "iterationContext" to mapOf(
+                "firstComparingIteration" to 1,
+                "secondComparingIteration" to latestIterationId
+            )
+        )
+        changeTrackingId?.let { pullRequestContextMap["changeTrackingId"] = it }
 
         val commentData = mapOf(
             "comments" to listOf(
@@ -1124,17 +1164,37 @@ The plugin will automatically use your authenticated account for this repository
                     "commentType" to 1
                 )
             ),
-            "status" to 1, // Active
-            "pullRequestThreadContext" to contextMap  // Changed from "threadContext" to "pullRequestThreadContext"
+            "status" to 1,
+            "threadContext" to threadContextMap,
+            "pullRequestThreadContext" to pullRequestContextMap
         )
 
         try {
             executePost(url, commentData, config.personalAccessToken)
-            logger.info("Comment thread created successfully")
+            logger.info("File-scoped comment thread created successfully")
         } catch (e: Exception) {
-            logger.error("Failed to create comment thread", e)
-            throw AzureDevOpsApiException("Error while creating comment thread: ${e.message}", e)
+            logger.error("Failed to create file-scoped comment thread", e)
+            throw AzureDevOpsApiException("Error while creating file-scoped comment thread: ${e.message}", e)
         }
+    }
+
+    /**
+     * Resolve the latest iteration id for a PR
+     */
+    @Throws(AzureDevOpsApiException::class)
+    private fun getLatestIterationId(pullRequestId: Int, projectName: String, repositoryId: String): Int {
+        val configService = AzureDevOpsConfigService.getInstance(project)
+        val config = configService.getConfig()
+
+        if (!config.isValid()) {
+            throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
+        }
+
+        val url = buildApiUrl(projectName, repositoryId, "/pullRequests/$pullRequestId/iterations?api-version=$API_VERSION")
+        val response = executeGet(url, config.personalAccessToken)
+        val listResponse = gson.fromJson(response, PullRequestIterationListResponse::class.java)
+        val iterations = listResponse.value ?: emptyList()
+        return iterations.maxOfOrNull { it.id ?: 0 }?.coerceAtLeast(1) ?: 1
     }
 
     /**

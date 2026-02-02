@@ -515,3 +515,19 @@ data class IdentitySearchResponse(
     val value: List<Identity>?,
     val count: Int?
 )
+
+/**
+ * Pull Request iteration info
+ */
+data class PullRequestIteration(
+    @SerializedName("id")
+    val id: Int?
+)
+
+/**
+ * Response for PR iterations list
+ */
+data class PullRequestIterationListResponse(
+    val value: List<PullRequestIteration>?,
+    val count: Int?
+)

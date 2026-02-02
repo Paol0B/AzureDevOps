@@ -26,6 +26,7 @@ import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
+import paol0b.azuredevops.model.CommentThread
 import paol0b.azuredevops.model.PullRequestChange
 import paol0b.azuredevops.services.AzureDevOpsApiClient
 import java.awt.BorderLayout
@@ -34,7 +35,6 @@ import java.awt.FlowLayout
 import java.awt.Point
 import javax.swing.JButton
 import javax.swing.JPanel
-import javax.swing.SwingUtilities
 
 /**
  * Diff viewer panel with syntax highlighting and inline comments support
@@ -59,6 +59,19 @@ class DiffViewerPanel(
     private var baseDocument: Document? = null
     private var changesDocument: Document? = null
     
+    // Track editors for inline comments
+    private var baseEditor: Editor? = null
+    private var changesEditor: Editor? = null
+    
+    // Cache for comment threads
+    private var cachedThreads: List<CommentThread> = emptyList()
+    
+    // Track active inlays for cleanup
+    private val activeInlays = mutableListOf<com.intellij.openapi.editor.Inlay<*>>()
+    
+    // Track active highlighters for cleanup
+    private val activeHighlighters = mutableListOf<com.intellij.openapi.editor.markup.RangeHighlighter>()
+    
     private val placeholderLabel = JBLabel("Select a file to view diff").apply {
         horizontalAlignment = JBLabel.CENTER
         border = JBUI.Borders.empty(20)
@@ -77,6 +90,18 @@ class DiffViewerPanel(
                 val editor = event.editor
                 // Check if this editor belongs to our current diff
                 if (editor.document == baseDocument || editor.document == changesDocument) {
+                    // Store editor reference
+                    if (editor.document == baseDocument) {
+                        baseEditor = editor
+                    } else {
+                        changesEditor = editor
+                    }
+                    
+                    // Add inline comments after editors are ready
+                    ApplicationManager.getApplication().invokeLater {
+                        addInlineCommentsToEditor(editor)
+                    }
+                    
                     editor.addEditorMouseListener(object : EditorMouseListener {
                         override fun mouseClicked(e: EditorMouseEvent) {
                             if (e.mouseEvent.clickCount == 2) {
@@ -167,33 +192,57 @@ class DiffViewerPanel(
         saveButton.addActionListener {
             val commentText = textArea.text.trim()
             if (commentText.isNotEmpty()) {
-                val currentPath = currentChange?.item?.path ?: ""
+                // Validate we have a proper file path - this is required for file-specific comments
+                val currentPath = currentChange?.item?.path
+                if (currentPath.isNullOrBlank()) {
+                    JBPopupFactory.getInstance()
+                        .createHtmlTextBalloonBuilder("Cannot add comment: No file is currently selected", com.intellij.openapi.ui.MessageType.ERROR, null)
+                        .createBalloon()
+                        .show(RelativePoint(saveButton.parent, Point(0, 0)), com.intellij.openapi.ui.popup.Balloon.Position.above)
+                    return@addActionListener
+                }
                 
-                // Determine line numbers (1-based for API usually, but need to check API spec)
-                val startLine = editor.document.getLineNumber(selectionStart) + 1
-                val endLine = editor.document.getLineNumber(selectionEnd) + 1
+                // Calculate line numbers from selection offsets
+                // Convert 0-based document line numbers to 1-based API line numbers
+                val startLineNumber = editor.document.getLineNumber(selectionStart) + 1
+                val endLineNumber = editor.document.getLineNumber(selectionEnd) + 1
+                
+                // Ensure valid line range (end >= start)
+                val startLine = minOf(startLineNumber, endLineNumber)
+                val endLine = maxOf(startLineNumber, endLineNumber)
+                
+                // Disable button to prevent double submission
+                saveButton.isEnabled = false
+                saveButton.text = "Adding..."
                 
                 // Create comment asynchronously
                 ApplicationManager.getApplication().executeOnPooledThread {
                     try {
                         apiClient.createThread(
-                            pullRequestId, 
-                            currentPath, 
-                            commentText, 
-                            startLine, 
-                            isBase
+                            pullRequestId = pullRequestId, 
+                            filePath = currentPath, 
+                            content = commentText, 
+                            startLine = startLine,
+                            endLine = endLine,
+                            isLeft = isBase,
+                            projectName = externalProjectName,
+                            repositoryId = externalRepositoryId,
+                            changeTrackingId = currentChange?.changeTrackingId
                         )
                         
-                        logger.info("Comment added to $currentPath line $startLine")
+                        logger.info("Comment added to $currentPath lines $startLine-$endLine (isLeft: $isBase)")
                         
-                        // Notify success and close popup
+                        // Notify success and close popup, then refresh comments
                         ApplicationManager.getApplication().invokeLater {
                              popup.cancel()
-                             // TODO: Maybe refresh comments panel or show notification
+                             // Refresh inline comments to show the new one
+                             refreshInlineComments()
                         }
                     } catch (ex: Exception) {
                         logger.error("Failed to add comment", ex)
-                        SwingUtilities.invokeLater {
+                        ApplicationManager.getApplication().invokeLater {
+                            saveButton.isEnabled = true
+                            saveButton.text = "Add Comment"
                             JBPopupFactory.getInstance()
                                 .createHtmlTextBalloonBuilder("Failed to add comment: ${ex.message}", com.intellij.openapi.ui.MessageType.ERROR, null)
                                 .createBalloon()
@@ -213,15 +262,16 @@ class DiffViewerPanel(
      * Load and display diff for a file change
      */
     fun loadDiff(change: PullRequestChange) {
-        currentChange = change
-        
         val filePath = change.item?.path ?: run {
             showError("Invalid file path")
             return
         }
         
-        // Clear previous diff panel
+        // Clear previous diff panel FIRST (this resets currentChange)
         clearDiff()
+        
+        // Set currentChange AFTER clearDiff() to preserve it
+        currentChange = change
         
         // Show loading state
         showLoading(filePath)
@@ -230,6 +280,10 @@ class DiffViewerPanel(
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
                 val (oldContent, newContent) = fetchFileContents(change)
+                
+                // Also fetch comment threads for this file
+                val threads = fetchCommentThreads(filePath)
+                cachedThreads = threads
                 
                 // Update UI on EDT
                 ApplicationManager.getApplication().invokeLater {
@@ -241,6 +295,22 @@ class DiffViewerPanel(
                     showError("Failed to load diff: ${e.message}")
                 }
             }
+        }
+    }
+    
+    /**
+     * Fetch comment threads for a specific file
+     */
+    private fun fetchCommentThreads(filePath: String): List<CommentThread> {
+        return try {
+            val allThreads = apiClient.getCommentThreads(pullRequestId, externalProjectName, externalRepositoryId)
+            // Filter threads for this specific file
+            allThreads.filter { thread ->
+                thread.getFilePath() == filePath && thread.isDeleted != true
+            }
+        } catch (e: Exception) {
+            logger.warn("Failed to fetch comment threads for $filePath: ${e.message}")
+            emptyList()
         }
     }
 
@@ -396,6 +466,11 @@ class DiffViewerPanel(
      * Clear the current diff
      */
     fun clearDiff() {
+        clearInlays()
+        baseEditor = null
+        changesEditor = null
+        cachedThreads = emptyList()
+        
         currentDiffPanel?.let { panel ->
             Disposer.dispose(panel)
             currentDiffPanel = null
@@ -417,6 +492,180 @@ class DiffViewerPanel(
      * Cleanup resources (implementation of Disposable interface)
      */
     override fun dispose() {
+        clearInlays()
         clearDiff()
+    }
+    
+    /**
+     * Add inline comments to a specific editor
+     */
+    private fun addInlineCommentsToEditor(editor: Editor) {
+        val isBase = editor.document == baseDocument
+        val filePath = currentChange?.item?.path ?: return
+        
+        // Filter threads for this side of the diff
+        val relevantThreads = cachedThreads.filter { thread ->
+            val ctx = thread.pullRequestThreadContext ?: thread.threadContext
+            val isLeftSide = ctx?.leftFileStart != null && ctx.rightFileStart == null
+            isLeftSide == isBase
+        }
+        
+        logger.info("Adding ${relevantThreads.size} inline comments to ${if (isBase) "base" else "changes"} editor for $filePath")
+        
+        relevantThreads.forEach { thread ->
+            addGutterIconForThread(editor, thread)
+        }
+    }
+    
+    /**
+     * Add a gutter icon and highlighter for a comment thread
+     */
+    private fun addGutterIconForThread(editor: Editor, thread: CommentThread) {
+        val ctx = thread.pullRequestThreadContext ?: thread.threadContext ?: return
+        val startLine = ctx.rightFileStart?.line ?: ctx.leftFileStart?.line ?: return
+        val endLine = ctx.rightFileEnd?.line ?: ctx.leftFileEnd?.line ?: startLine
+        
+        // Convert to 0-based line numbers
+        val startLine0 = (startLine - 1).coerceIn(0, editor.document.lineCount - 1)
+        val endLine0 = (endLine - 1).coerceIn(0, editor.document.lineCount - 1)
+        
+        if (startLine0 >= editor.document.lineCount) {
+            logger.warn("Line $startLine out of bounds for thread ${thread.id}")
+            return
+        }
+        
+        val startOffset = editor.document.getLineStartOffset(startLine0)
+        val endOffset = editor.document.getLineEndOffset(endLine0)
+        
+        val markupModel = editor.markupModel
+        
+        // Create line highlighter with background color
+        val highlightColor = if (thread.isActive()) {
+            com.intellij.ui.JBColor(java.awt.Color(255, 248, 200, 60), java.awt.Color(80, 70, 30, 60))
+        } else {
+            com.intellij.ui.JBColor(java.awt.Color(200, 255, 200, 60), java.awt.Color(30, 60, 30, 60))
+        }
+        
+        val textAttributes = com.intellij.openapi.editor.markup.TextAttributes().apply {
+            backgroundColor = highlightColor
+        }
+        
+        val highlighter = markupModel.addRangeHighlighter(
+            startOffset,
+            endOffset,
+            com.intellij.openapi.editor.markup.HighlighterLayer.SELECTION - 1,
+            textAttributes,
+            com.intellij.openapi.editor.markup.HighlighterTargetArea.LINES_IN_RANGE
+        )
+        
+        // Add gutter icon
+        val icon = if (thread.isActive()) AllIcons.General.Balloon else AllIcons.General.InspectionsOK
+        val commentCount = thread.comments?.size ?: 0
+        val authorName = thread.comments?.firstOrNull()?.author?.displayName ?: "Unknown"
+        val tooltip = "$authorName ($commentCount ${if (commentCount == 1) "comment" else "comments"})"
+        
+        highlighter.gutterIconRenderer = object : com.intellij.openapi.editor.markup.GutterIconRenderer() {
+            override fun getIcon() = icon
+            override fun getTooltipText() = tooltip
+            override fun isNavigateAction() = true
+            override fun getAlignment() = Alignment.LEFT
+            
+            override fun getClickAction(): AnAction {
+                return object : AnAction() {
+                    override fun actionPerformed(e: AnActionEvent) {
+                        showCommentPopup(editor, thread, startLine0)
+                    }
+                }
+            }
+            
+            override fun equals(other: Any?): Boolean {
+                if (other !is com.intellij.openapi.editor.markup.GutterIconRenderer) return false
+                return thread.id == (other as? com.intellij.openapi.editor.markup.GutterIconRenderer)?.hashCode()
+            }
+            
+            override fun hashCode() = thread.id ?: 0
+        }
+        
+        // Track for cleanup
+        activeHighlighters.add(highlighter)
+        
+        logger.info("Added gutter icon for thread ${thread.id} at lines $startLine-$endLine")
+    }
+    
+    /**
+     * Show interactive comment popup for a thread
+     */
+    private fun showCommentPopup(editor: Editor, thread: CommentThread, lineIndex: Int) {
+        val commentComponent = InlineCommentComponent(
+            thread = thread,
+            apiClient = apiClient,
+            pullRequestId = pullRequestId,
+            projectName = externalProjectName,
+            repositoryId = externalRepositoryId,
+            onStatusChanged = { refreshInlineComments() },
+            onReplyAdded = { refreshInlineComments() }
+        )
+        
+        // Set preferred size
+        commentComponent.preferredSize = Dimension(450, commentComponent.preferredSize.height.coerceAtLeast(120))
+        
+        val popup = JBPopupFactory.getInstance()
+            .createComponentPopupBuilder(commentComponent, commentComponent)
+            .setTitle("Comment Thread #${thread.id}")
+            .setMovable(true)
+            .setResizable(true)
+            .setRequestFocus(true)
+            .setCancelOnClickOutside(true)
+            .setCancelOnOtherWindowOpen(false)
+            .createPopup()
+        
+        // Calculate position - show below the line
+        val lineY = editor.logicalPositionToXY(com.intellij.openapi.editor.LogicalPosition(lineIndex + 1, 0))
+        val editorLocation = editor.contentComponent.locationOnScreen
+        val point = Point(editorLocation.x + 50, editorLocation.y + lineY.y)
+        
+        popup.showInScreenCoordinates(editor.contentComponent, point)
+    }
+    
+    /**
+     * Refresh inline comments (reload from API and update display)
+     */
+    fun refreshInlineComments() {
+        val filePath = currentChange?.item?.path ?: return
+        
+        ApplicationManager.getApplication().executeOnPooledThread {
+            try {
+                val threads = fetchCommentThreads(filePath)
+                cachedThreads = threads
+                
+                ApplicationManager.getApplication().invokeLater {
+                    clearInlays()
+                    baseEditor?.let { addInlineCommentsToEditor(it) }
+                    changesEditor?.let { addInlineCommentsToEditor(it) }
+                }
+            } catch (e: Exception) {
+                logger.error("Failed to refresh comments", e)
+            }
+        }
+    }
+    
+    /**
+     * Clear all active inlays and highlighters
+     */
+    private fun clearInlays() {
+        activeInlays.forEach { inlay ->
+            if (inlay.isValid) {
+                Disposer.dispose(inlay)
+            }
+        }
+        activeInlays.clear()
+        
+        // Clear highlighters - need to remove from markup model
+        activeHighlighters.forEach { highlighter ->
+            if (highlighter.isValid) {
+                highlighter.dispose()
+            }
+        }
+        activeHighlighters.clear()
     }
 }

@@ -8,6 +8,9 @@ import com.google.gson.annotations.SerializedName
 data class PullRequestChange(
     @SerializedName("changeId")
     val changeId: Int?,
+
+    @SerializedName("changeTrackingId")
+    val changeTrackingId: Int?,
     
     @SerializedName("changeType")
     val changeType: String?, // "add", "edit", "delete", "rename"
