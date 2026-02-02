@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "paol0b"
-version = "2.1"
+version = "2.2"
 
 repositories {
     mavenCentral()
@@ -39,6 +39,9 @@ intellijPlatform {
         }
 
         changeNotes = """
+            Version 2.2:
+            - Fix comment change status
+            - CommentToolWindow improvements
             Version 2.1:
             - Fix Get PRs return 404 on repo name with spaces
             - Improve refresh of PRs Window
