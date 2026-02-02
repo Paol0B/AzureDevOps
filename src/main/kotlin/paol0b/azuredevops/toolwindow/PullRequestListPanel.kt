@@ -34,6 +34,11 @@ import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.DefaultTreeModel
 
 /**
+ * Wrapper class to represent a project node in the tree
+ */
+data class ProjectNode(val name: String, val prCount: Int)
+
+/**
  * Panel that shows the list of Pull Requests with improved UI
  */
 class PullRequestListPanel(
@@ -46,10 +51,12 @@ class PullRequestListPanel(
     private val treeModel: DefaultTreeModel
     private val rootNode: DefaultMutableTreeNode
     private var currentFilter = "active"
+    private var showAllOrganizationPrs = false
     private val statusLabel: JLabel
     private var lastSelectedPrId: Int? = null  // Backup of last selected PR ID
     private var cachedPullRequests: List<PullRequest> = emptyList()  // Cache for comparison
     private var isErrorState: Boolean = false  // Track if the tree is currently showing an error
+    private val expandedNodes = mutableSetOf<String>()  // Track expanded project nodes
 
     init {
         rootNode = DefaultMutableTreeNode("Pull Requests")
@@ -58,13 +65,18 @@ class PullRequestListPanel(
             isRootVisible = false
             showsRootHandles = true
             cellRenderer = PullRequestCellRenderer()
-            border = JBUI.Borders.empty(8, 12)
+            border = JBUI.Borders.empty(10, 16)
             rowHeight = 0 // Auto-calculate based on content
-            toggleClickCount = 0 // Disable expand on double-click
+            
+            // Better visual spacing and design
+            putClientProperty("JTree.lineStyle", "Horizontal")
         }
 
         // Setup UI helper for the tree with improved search
         TreeUIHelper.getInstance().installTreeSpeedSearch(tree)
+        
+        // Add listener to track expand/collapse - add it ONCE here, not on every refresh
+        addTreeExpandListener()
 
         // Listener for selection with visual feedback
         tree.addTreeSelectionListener(TreeSelectionListener {
@@ -91,7 +103,7 @@ class PullRequestListPanel(
                 }
             }
         })
-        
+
         // Status label with modern design
         statusLabel = JLabel("Ready").apply {
             border = JBUI.Borders.empty(8, 12)
@@ -112,6 +124,25 @@ class PullRequestListPanel(
 
     fun getComponent(): JPanel = panel
 
+    /**
+     * Set the cross-org mode
+     */
+    fun setShowAllOrganizationPrs(enabled: Boolean) {
+        if (showAllOrganizationPrs != enabled) {
+            showAllOrganizationPrs = enabled
+            // Only clear expanded state when disabling cross-repo (projects disappear)
+            if (!enabled) {
+                expandedNodes.clear()
+            }
+            refreshPullRequests()
+        }
+    }
+    
+    /**
+     * Get current cross-org mode state
+     */
+    fun getShowAllOrganizationPrs(): Boolean = showAllOrganizationPrs
+
     fun refreshPullRequests() {
         statusLabel.text = "Loading Pull Requests..."
         statusLabel.icon = AllIcons.Process.Step_1
@@ -128,7 +159,11 @@ class PullRequestListPanel(
                 indicator.isIndeterminate = true
                 try {
                     val apiClient = AzureDevOpsApiClient.getInstance(project)
-                    val pullRequests = apiClient.getPullRequests(status = currentFilter)
+                    val pullRequests = if (showAllOrganizationPrs) {
+                        apiClient.getAllOrganizationPullRequests(status = currentFilter, top = 100)
+                    } else {
+                        apiClient.getPullRequests(status = currentFilter)
+                    }
 
                     ApplicationManager.getApplication().invokeLater {
                         // Only update UI if data has changed or if recovering from an error
@@ -166,9 +201,17 @@ class PullRequestListPanel(
     }
 
     fun setFilterStatus(status: String) {
-        currentFilter = status
-        refreshPullRequests()
+        if (currentFilter != status) {
+            currentFilter = status
+            // Don't clear expanded state when changing filter - keep user's preferences
+            refreshPullRequests()
+        }
     }
+    
+    /**
+     * Get current filter status
+     */
+    fun getFilterStatus(): String = currentFilter
 
     fun getSelectedPullRequest(): PullRequest? {
         val selectedNode = tree.lastSelectedPathComponent as? DefaultMutableTreeNode
@@ -183,53 +226,90 @@ class PullRequestListPanel(
             val emptyNode = DefaultMutableTreeNode("No Pull Requests")
             rootNode.add(emptyNode)
         } else {
-            // Group by status
-            val active = pullRequests.filter { it.status == PullRequestStatus.Active }
-            val completed = pullRequests.filter { it.status == PullRequestStatus.Completed }
-            val abandoned = pullRequests.filter { it.status == PullRequestStatus.Abandoned }
-
-            if (active.isNotEmpty()) {
-                val activeFolder = DefaultMutableTreeNode("Active (${active.size})")
-                active.forEach { pr ->
-                    activeFolder.add(DefaultMutableTreeNode(pr))
+            if (showAllOrganizationPrs) {
+                // Group by Project - clean structure without intermediate status nodes
+                val byProject = pullRequests.groupBy { it.repository?.project?.name ?: "Unknown Project" }
+                
+                for ((projectName, prsInProject) in byProject.toSortedMap()) {
+                    // Create a wrapper object to distinguish project nodes
+                    val projectNode = DefaultMutableTreeNode(ProjectNode(projectName, prsInProject.size))
+                    
+                    // Add PRs directly under project
+                    prsInProject.sortedByDescending { it.pullRequestId }.forEach { pr ->
+                        projectNode.add(DefaultMutableTreeNode(pr))
+                    }
+                    
+                    rootNode.add(projectNode)
                 }
-                rootNode.add(activeFolder)
-            }
-
-            if (completed.isNotEmpty() && currentFilter == "all") {
-                val completedFolder = DefaultMutableTreeNode("Completed (${completed.size})")
-                completed.forEach { pr ->
-                    completedFolder.add(DefaultMutableTreeNode(pr))
+            } else {
+                // No cross-repo: show PRs directly
+                pullRequests.sortedByDescending { it.pullRequestId }.forEach { pr ->
+                    rootNode.add(DefaultMutableTreeNode(pr))
                 }
-                rootNode.add(completedFolder)
-            }
-
-            if (abandoned.isNotEmpty() && currentFilter == "all") {
-                val abandonedFolder = DefaultMutableTreeNode("Abandoned (${abandoned.size})")
-                abandoned.forEach { pr ->
-                    abandonedFolder.add(DefaultMutableTreeNode(pr))
-                }
-                rootNode.add(abandonedFolder)
             }
         }
 
         treeModel.reload()
         
-        // Expand all nodes first
+        // Apply saved expansion state
+        val isFirstLoad = expandedNodes.isEmpty() && showAllOrganizationPrs
+        
         for (i in 0 until tree.rowCount) {
-            tree.expandRow(i)
+            val path = tree.getPathForRow(i) ?: continue
+            val node = path.lastPathComponent as? DefaultMutableTreeNode ?: continue
+            val userObject = node.userObject
+            
+            // For project nodes, apply saved expansion state
+            if (userObject is ProjectNode) {
+                if (isFirstLoad) {
+                    // On first load, expand all projects for better UX
+                    expandedNodes.add(userObject.name)
+                    tree.expandPath(path)
+                } else if (expandedNodes.contains(userObject.name)) {
+                    // Only expand nodes that are in the saved state
+                    // Don't force collapse others - let them keep their current state
+                    tree.expandPath(path)
+                }
+            }
         }
         
         // Restore selection after tree is fully expanded and rendered
         if (previouslySelectedPrId != null) {
-            // Use invokeLater with a small delay to ensure tree is fully rendered
             javax.swing.SwingUtilities.invokeLater {
-                // Double-check tree is ready
                 javax.swing.SwingUtilities.invokeLater {
                     restoreSelection(previouslySelectedPrId)
                 }
             }
         }
+    }
+    
+    /**
+     * Add listener to track when nodes are expanded/collapsed
+     */
+    private fun addTreeExpandListener() {
+        tree.addTreeExpansionListener(object : javax.swing.event.TreeExpansionListener {
+            override fun treeExpanded(event: javax.swing.event.TreeExpansionEvent?) {
+                event?.path?.lastPathComponent?.let { node ->
+                    if (node is DefaultMutableTreeNode) {
+                        val userObject = node.userObject
+                        if (userObject is ProjectNode) {
+                            expandedNodes.add(userObject.name)
+                        }
+                    }
+                }
+            }
+
+            override fun treeCollapsed(event: javax.swing.event.TreeExpansionEvent?) {
+                event?.path?.lastPathComponent?.let { node ->
+                    if (node is DefaultMutableTreeNode) {
+                        val userObject = node.userObject
+                        if (userObject is ProjectNode) {
+                            expandedNodes.remove(userObject.name)
+                        }
+                    }
+                }
+            }
+        })
     }
     
     /**
@@ -280,21 +360,29 @@ class PullRequestListPanel(
      * Restores the selection of a PR after refresh
      */
     private fun restoreSelection(prId: Int) {
-        // Search for the node corresponding to the PR
-        for (i in 0 until rootNode.childCount) {
-            val folderNode = rootNode.getChildAt(i) as? DefaultMutableTreeNode ?: continue
-            for (j in 0 until folderNode.childCount) {
-                val prNode = folderNode.getChildAt(j) as? DefaultMutableTreeNode ?: continue
-                val pr = prNode.userObject as? PullRequest ?: continue
-                if (pr.pullRequestId == prId) {
-                    // Select this node
-                    val path = javax.swing.tree.TreePath(prNode.path)
+        // Search for the node corresponding to the PR in the new structure
+        fun searchInNode(parentNode: DefaultMutableTreeNode): Boolean {
+            for (i in 0 until parentNode.childCount) {
+                val childNode = parentNode.getChildAt(i) as? DefaultMutableTreeNode ?: continue
+                val userObject = childNode.userObject
+                
+                if (userObject is PullRequest && userObject.pullRequestId == prId) {
+                    // Found it!
+                    val path = javax.swing.tree.TreePath(childNode.path)
                     tree.selectionPath = path
                     tree.scrollPathToVisible(path)
-                    return
+                    return true
+                }
+                
+                // Recursively search in children (for project nodes)
+                if (searchInNode(childNode)) {
+                    return true
                 }
             }
+            return false
         }
+        
+        searchInNode(rootNode)
     }
 
     /**
@@ -314,7 +402,16 @@ class PullRequestListPanel(
         tree.selectionPath = path
         
         val popup = JBPopupMenu()
-        var hasItems = false
+
+        // Open PR review in editor tab
+        val openReviewItem = JMenuItem("Open Review in Tab")
+        openReviewItem.addActionListener {
+            paol0b.azuredevops.services.PrReviewTabService.getInstance(project)
+                .openReviewTab(pr)
+        }
+        popup.add(openReviewItem)
+
+        popup.addSeparator()
         
         // Add "Enter This Branch" action - always available for active PRs
         val enterBranchItem = JMenuItem("Enter This Branch")
@@ -324,7 +421,6 @@ class PullRequestListPanel(
             )
         }
         popup.add(enterBranchItem)
-        hasItems = true
         
         // Determine which completion action to show based on PR state
         val showCompletePR = pr.isReadyToComplete()  // Show Complete if all checks passed and ready
@@ -358,10 +454,7 @@ class PullRequestListPanel(
             popup.add(autoCompleteItem)
         }
         
-        // Only show menu if there are items
-        if (hasItems) {
-            popup.show(tree, e.x, e.y)
-        }
+        popup.show(tree, e.x, e.y)
     }
 
     /**
@@ -394,7 +487,7 @@ class PullRequestListPanel(
     /**
      * Custom renderer for PRs in the tree with improved design
      */
-    private class PullRequestCellRenderer : ColoredTreeCellRenderer() {
+    private inner class PullRequestCellRenderer : ColoredTreeCellRenderer() {
         override fun customizeCellRenderer(
             tree: JTree,
             value: Any?,
@@ -408,8 +501,32 @@ class PullRequestListPanel(
             val userObject = node.userObject
 
             when (userObject) {
+                is ProjectNode -> {
+                    // ===== PROJECT NODE - Premium Design =====
+                    // Project icon (same as in project tree)
+                    icon = AllIcons.Nodes.Project
+                    
+                    // Project name with bold, large styling
+                    append(userObject.name, SimpleTextAttributes(
+                        SimpleTextAttributes.STYLE_BOLD,
+                        JBColor(Color(0, 95, 184), Color(100, 180, 255))
+                    ))
+                    
+                    // PR count badge with modern styling
+                    append("  ", SimpleTextAttributes.REGULAR_ATTRIBUTES)
+                    append("${userObject.prCount}", SimpleTextAttributes(
+                        SimpleTextAttributes.STYLE_BOLD,
+                        JBColor(Color(255, 255, 255), Color(45, 45, 45))
+                    ))
+                    append(" PR${if (userObject.prCount != 1) "s" else ""}", SimpleTextAttributes(
+                        SimpleTextAttributes.STYLE_PLAIN,
+                        JBColor.GRAY
+                    ))
+                }
+                
                 is PullRequest -> {
-                    // Modern icon based on status with better visuals
+                    // ===== PULL REQUEST NODE =====
+                    // Icon based on status with better visuals
                     icon = when (userObject.status) {
                         PullRequestStatus.Active -> {
                             if (userObject.isDraft == true) AllIcons.Vcs.Patch_applied 
@@ -435,7 +552,7 @@ class PullRequestListPanel(
                     append("#${userObject.pullRequestId}", idColor)
                     append("  ", SimpleTextAttributes.REGULAR_ATTRIBUTES)
                     
-                    // Draft badge with modern styling
+                    // Status badges
                     if (userObject.isDraft == true) {
                         append("DRAFT", SimpleTextAttributes(
                             SimpleTextAttributes.STYLE_BOLD,
@@ -444,7 +561,6 @@ class PullRequestListPanel(
                         append("  ", SimpleTextAttributes.REGULAR_ATTRIBUTES)
                     }
                     
-                    // Auto-complete badge
                     if (userObject.hasAutoComplete()) {
                         append("AUTO-COMPLETE", SimpleTextAttributes(
                             SimpleTextAttributes.STYLE_BOLD,
@@ -453,7 +569,6 @@ class PullRequestListPanel(
                         append("  ", SimpleTextAttributes.REGULAR_ATTRIBUTES)
                     }
                     
-                    // Ready to complete badge (only when all checks passed)
                     if (userObject.isReadyToComplete() && !userObject.hasAutoComplete()) {
                         append("✓ READY", SimpleTextAttributes(
                             SimpleTextAttributes.STYLE_BOLD,
@@ -462,7 +577,6 @@ class PullRequestListPanel(
                         append("  ", SimpleTextAttributes.REGULAR_ATTRIBUTES)
                     }
                     
-                    // Conflicts badge
                     if (userObject.hasConflicts()) {
                         append("⚠ CONFLICTS", SimpleTextAttributes(
                             SimpleTextAttributes.STYLE_BOLD,
@@ -471,7 +585,7 @@ class PullRequestListPanel(
                         append("  ", SimpleTextAttributes.REGULAR_ATTRIBUTES)
                     }
 
-                    // PR title with better typography
+                    // PR title
                     val titleAttrs = if (userObject.status == PullRequestStatus.Active) {
                         SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES
                     } else {
@@ -479,7 +593,17 @@ class PullRequestListPanel(
                     }
                     append(userObject.title, titleAttrs)
 
-                    // Branch info with modern arrow and colors
+                    // Repository name (only in cross-repo mode)
+                    if (showAllOrganizationPrs) {
+                        val repoName = userObject.repository?.name ?: "Unknown"
+                        append("  ", SimpleTextAttributes.REGULAR_ATTRIBUTES)
+                        append("[${repoName}]", SimpleTextAttributes(
+                            SimpleTextAttributes.STYLE_ITALIC,
+                            JBColor(Color(128, 128, 128), Color(128, 128, 128))
+                        ))
+                    }
+
+                    // Branch info on second line
                     append("\n    ", SimpleTextAttributes.REGULAR_ATTRIBUTES)
                     append("${userObject.getSourceBranchName()}", SimpleTextAttributes(
                         SimpleTextAttributes.STYLE_PLAIN,
@@ -494,7 +618,7 @@ class PullRequestListPanel(
                         JBColor(Color(70, 130, 180), Color(135, 206, 250))
                     ))
                     
-                    // Author info with modern styling
+                    // Author info
                     userObject.createdBy?.displayName?.let { author ->
                         append("  •  ", SimpleTextAttributes.GRAYED_SMALL_ATTRIBUTES)
                         append(author, SimpleTextAttributes(
@@ -503,35 +627,11 @@ class PullRequestListPanel(
                         ))
                     }
                 }
+                
                 is String -> {
-                    // Modern folder nodes with better visual hierarchy
-                    when {
-                        userObject.startsWith("Active") -> {
-                            icon = AllIcons.Actions.Commit
-                            append(userObject, SimpleTextAttributes(
-                                SimpleTextAttributes.STYLE_BOLD,
-                                JBColor(Color(34, 139, 34), Color(40, 167, 69))
-                            ))
-                        }
-                        userObject.startsWith("Completed") -> {
-                            icon = AllIcons.RunConfigurations.TestPassed
-                            append(userObject, SimpleTextAttributes(
-                                SimpleTextAttributes.STYLE_BOLD,
-                                JBColor(Color(106, 153, 85), Color(106, 153, 85))
-                            ))
-                        }
-                        userObject.startsWith("Abandoned") -> {
-                            icon = AllIcons.RunConfigurations.TestFailed
-                            append(userObject, SimpleTextAttributes(
-                                SimpleTextAttributes.STYLE_BOLD,
-                                JBColor(Color(220, 53, 69), Color(200, 35, 51))
-                            ))
-                        }
-                        else -> {
-                            icon = AllIcons.General.Information
-                            append(userObject, SimpleTextAttributes.GRAYED_ITALIC_ATTRIBUTES)
-                        }
-                    }
+                    // Fallback for other string nodes (like "No Pull Requests", errors, etc.)
+                    icon = AllIcons.General.Information
+                    append(userObject, SimpleTextAttributes.GRAYED_ITALIC_ATTRIBUTES)
                 }
             }
         }

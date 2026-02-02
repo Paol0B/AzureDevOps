@@ -7,6 +7,7 @@ import com.intellij.openapi.ui.ComboBox
 import com.intellij.ui.JBSplitter
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
+import com.intellij.icons.AllIcons
 import paol0b.azuredevops.model.PullRequest
 import paol0b.azuredevops.services.AzureDevOpsApiClient
 import paol0b.azuredevops.services.PrReviewStateService
@@ -19,7 +20,8 @@ import javax.swing.*
  * Master-detail diff viewer with file tree, diff panel, and comments
  */
 class PrReviewToolWindow(
-    private val project: Project
+    private val project: Project,
+    private val showSelector: Boolean = true
 ) : JPanel(BorderLayout()) {
 
     private val logger = Logger.getInstance(PrReviewToolWindow::class.java)
@@ -30,6 +32,8 @@ class PrReviewToolWindow(
     private var fileTreePanel: FileTreePanel? = null
     private var diffViewerPanel: DiffViewerPanel? = null
     private var commentsPanel: CommentsPanel? = null
+
+    private var leftToolbarPanel: JPanel? = null
     
     // Auto-refresh timer
     private var refreshTimer: Timer? = null
@@ -48,8 +52,16 @@ class PrReviewToolWindow(
         toolTipText = "Refresh Pull Requests"
         preferredSize = java.awt.Dimension(40, 30)
     }
-    private val showAllOrgPrsCheckbox = javax.swing.JCheckBox("Show all organization PRs").apply {
-        toolTipText = "Show Pull Requests from all projects in the organization, not just the current project"
+    private val showAllOrgPrsButton = JButton().apply {
+        icon = AllIcons.Nodes.Folder
+        toolTipText = "Show Pull Requests from all projects in the organization"
+        isSelected = false
+        preferredSize = java.awt.Dimension(40, 30)
+        addActionListener {
+            isSelected = !isSelected
+            updateCrossOrgButtonState()
+            refreshPullRequestsList()
+        }
     }
     
     // Right panel containing vote status (will be shown/hidden)
@@ -75,7 +87,9 @@ class PrReviewToolWindow(
 
     init {
         setupUI()
-        loadAvailablePullRequests()
+        if (showSelector) {
+            loadAvailablePullRequests()
+        }
     }
 
     private fun setupUI() {
@@ -98,7 +112,7 @@ class PrReviewToolWindow(
             )
         }
         
-        // Left side: PR selector with refresh button and checkbox
+        // Left side: PR selector with refresh button
         val leftPanel = JPanel(FlowLayout(FlowLayout.LEFT, 5, 0)).apply {
             add(JBLabel("Pull Request:"))
             add(prSelectorComboBox.apply {
@@ -133,27 +147,33 @@ class PrReviewToolWindow(
                     refreshPullRequestsList()
                 }
             })
-            add(showAllOrgPrsCheckbox.apply {
-                addActionListener {
-                    refreshPullRequestsList()
-                }
-            })
         }
+        leftToolbarPanel = leftPanel
         
-        // Right side: Status dropdown (initially hidden)
+        // Right side: Status dropdown and cross-org button (initially hidden)
         voteStatusPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 5, 0)).apply {
+            add(showAllOrgPrsButton)
             add(JBLabel("Review Status:"))
             add(statusComboBox.apply {
                 preferredSize = java.awt.Dimension(220, 30)
                 addActionListener {
                     handleVoteChange()
                 }
+                toolTipText = "Submit your review: Approve, Approve with Suggestions, Wait for Author, or Reject"
+            })
+            add(JBLabel("(Draft - Voting Disabled)").apply {
+                name = "draftVoteLabel"
+                isVisible = false
             })
             isVisible = false // Hidden until a PR is selected
         }
         
         toolbar.add(leftPanel, BorderLayout.WEST)
         toolbar.add(voteStatusPanel, BorderLayout.EAST)
+        
+        if (!showSelector) {
+            leftPanel.isVisible = false
+        }
         
         return toolbar
     }
@@ -162,10 +182,11 @@ class PrReviewToolWindow(
      * Load available pull requests
      */
     private fun loadAvailablePullRequests() {
+        if (!showSelector) return
         if (isLoading) return
         isLoading = true
         
-        val showAllOrg = showAllOrgPrsCheckbox.isSelected
+        val showAllOrg = showAllOrgPrsButton.isSelected
         
         // Show loading state
         ApplicationManager.getApplication().invokeLater {
@@ -235,8 +256,26 @@ class PrReviewToolWindow(
      * Refresh the pull requests list (manual refresh)
      */
     fun refreshPullRequestsList() {
+        if (!showSelector) return
         logger.info("Manual refresh of pull requests list")
         loadAvailablePullRequests()
+    }
+    
+    /**
+     * Update the visual state of the cross-org button
+     */
+    private fun updateCrossOrgButtonState() {
+        if (showAllOrgPrsButton.isSelected) {
+            // Button is enabled - add visual highlight
+            showAllOrgPrsButton.toolTipText = "✓ Showing Pull Requests from all organization projects"
+        } else {
+            // Button is disabled - normal state
+            showAllOrgPrsButton.toolTipText = "Show Pull Requests from all projects in the organization"
+        }
+    }
+
+    fun openPullRequest(pullRequest: PullRequest) {
+        loadPullRequest(pullRequest)
     }
     
     /**
@@ -344,7 +383,7 @@ class PrReviewToolWindow(
     /**
      * Load a specific pull request for review
      */
-    private fun loadPullRequest(pullRequest: PullRequest) {
+    fun loadPullRequest(pullRequest: PullRequest) {
         // Verifica che la PR sia attiva
         if (!pullRequest.isActive()) {
             JOptionPane.showMessageDialog(
@@ -366,6 +405,19 @@ class PrReviewToolWindow(
         ignoringVoteChange = true
         statusComboBox.selectedIndex = 0 // Reset to "Select Vote"
         ignoringVoteChange = false
+        
+        // Handle draft PR voting restriction
+        if (pullRequest.isDraft == true) {
+            statusComboBox.isEnabled = false
+            statusComboBox.toolTipText = "Voting is disabled for draft Pull Requests. Publish the PR to enable voting."
+            val draftLabel = voteStatusPanel.components.find { it.name == "draftVoteLabel" }
+            draftLabel?.isVisible = true
+        } else {
+            statusComboBox.isEnabled = true
+            statusComboBox.toolTipText = "Submit your review: Approve, Approve with Suggestions, Wait for Author, or Reject"
+            val draftLabel = voteStatusPanel.components.find { it.name == "draftVoteLabel" }
+            draftLabel?.isVisible = false
+        }
         
         // Avvia auto-refresh
         startAutoRefresh()
@@ -465,6 +517,20 @@ class PrReviewToolWindow(
         
         val selectedIndex = statusComboBox.selectedIndex
         val pr = currentPullRequest ?: return
+        
+        // Check if PR is a draft - cannot vote on draft PRs
+        if (pr.isDraft == true) {
+            JOptionPane.showMessageDialog(
+                this,
+                "You cannot vote on draft Pull Requests.\nPublish the PR first to enable voting.",
+                "Draft PR - Voting Disabled",
+                JOptionPane.INFORMATION_MESSAGE
+            )
+            ignoringVoteChange = true
+            statusComboBox.selectedIndex = 0
+            ignoringVoteChange = false
+            return
+        }
         
         // Se seleziona "Select Vote" (index 0), non fare nulla (è lo stato di default)
         if (selectedIndex == 0) {
