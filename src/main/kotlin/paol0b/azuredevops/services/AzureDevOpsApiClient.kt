@@ -1128,9 +1128,6 @@ The plugin will automatically use your authenticated account for this repository
             "pullRequestThreadContext" to contextMap  // Changed from "threadContext" to "pullRequestThreadContext"
         )
 
-        logger.info("Creating comment thread on $filePath line $line (isLeft: $isLeft) in PR #$pullRequestId")
-        logger.info("Request body: ${gson.toJson(commentData)}")
-
         try {
             executePost(url, commentData, config.personalAccessToken)
             logger.info("Comment thread created successfully")
