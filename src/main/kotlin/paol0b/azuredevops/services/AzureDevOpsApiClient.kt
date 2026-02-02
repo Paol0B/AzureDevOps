@@ -60,6 +60,16 @@ The plugin will automatically use your authenticated account for this repository
     }
 
     /**
+     * Helper function to build organization-level API URLs
+     * Used for endpoints that don't require project/repository scope
+     */
+    private fun buildOrgApiUrl(endpoint: String): String {
+        val configService = AzureDevOpsConfigService.getInstance(project)
+        val encodedOrg = URLEncoder.encode(configService.getConfig().organization, StandardCharsets.UTF_8)
+        return "https://dev.azure.com/$encodedOrg/_apis$endpoint"
+    }
+
+    /**
      * Creates a Pull Request on Azure DevOps
      * @param sourceBranch Source branch (e.g., "refs/heads/feature/xyz")
      * @param targetBranch Target branch (e.g., "refs/heads/main")
@@ -175,9 +185,7 @@ The plugin will automatically use your authenticated account for this repository
         }
 
         val statusParam = if (status == "all") "all" else status
-        // Use organization-level API without project/repository scope
-        val encodedOrg = URLEncoder.encode(config.organization, StandardCharsets.UTF_8)
-        val url = "https://dev.azure.com/$encodedOrg/_apis/git/pullrequests?searchCriteria.status=$statusParam&\$top=$top&api-version=$API_VERSION"
+        val url = buildOrgApiUrl("/git/pullrequests?searchCriteria.status=$statusParam&\$top=$top&api-version=$API_VERSION")
 
         logger.info("Fetching organization-wide Pull Requests (status: $statusParam, top: $top)")
 
@@ -560,56 +568,6 @@ The plugin will automatically use your authenticated account for this repository
     }
 
     /**
-     * Executes a PATCH request
-     * Uses reflection to enable PATCH in HttpURLConnection
-     */
-    @Throws(IOException::class, AzureDevOpsApiException::class)
-    private fun executePatch(urlString: String, body: Any, token: String): String {
-        val url = java.net.URI(urlString).toURL()
-        val connection = url.openConnection() as HttpURLConnection
-        
-        try {
-            // Workaround for PATCH: use reflection to set the method
-            // HttpURLConnection does not support PATCH by default
-            try {
-                val methodField = HttpURLConnection::class.java.getDeclaredField("method")
-                methodField.isAccessible = true
-                methodField.set(connection, "PATCH")
-            } catch (e: Exception) {
-                logger.warn("Failed to set PATCH method via reflection, trying setRequestMethod", e)
-                // Fallback: still try (works on some JVMs)
-                connection.requestMethod = "PATCH"
-            }
-            
-            connection.setRequestProperty("Authorization", createAuthHeader(token))
-            connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8")
-            connection.setRequestProperty("Accept", "application/json")
-            connection.doOutput = true
-            connection.connectTimeout = 10000
-            connection.readTimeout = 10000
-
-            // Write the body
-            val jsonBody = gson.toJson(body)
-            logger.info("PATCH request body: $jsonBody")
-            
-            connection.outputStream.bufferedWriter(StandardCharsets.UTF_8).use { writer ->
-                writer.write(jsonBody)
-            }
-
-            val responseCode = connection.responseCode
-            
-            if (responseCode == HttpURLConnection.HTTP_OK || responseCode == HttpURLConnection.HTTP_CREATED) {
-                return connection.inputStream.bufferedReader().use { it.readText() }
-            } else {
-                val errorBody = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
-                throw handleErrorResponse(responseCode, errorBody)
-            }
-        } finally {
-            connection.disconnect()
-        }
-    }
-
-    /**
      * Creates the Basic Auth header with the PAT
      */
     private fun createAuthHeader(token: String): String {
@@ -942,7 +900,7 @@ The plugin will automatically use your authenticated account for this repository
             val jsonBody = gson.toJson(requestBody)
             logger.info("Request body: $jsonBody")
 
-            val response = executePatch(url, config.personalAccessToken, jsonBody)
+            val response = executePatchOkHttp(url, jsonBody, config.personalAccessToken)
             val completedPr = gson.fromJson(response, PullRequest::class.java)
 
             // Add comment if provided
@@ -1001,7 +959,7 @@ The plugin will automatically use your authenticated account for this repository
             val jsonBody = gson.toJson(requestBody)
             logger.info("Request body: $jsonBody")
 
-            val response = executePatch(url, config.personalAccessToken, jsonBody)
+            val response = executePatchOkHttp(url, jsonBody, config.personalAccessToken)
             val updatedPr = gson.fromJson(response, PullRequest::class.java)
 
             // Add comment if provided
@@ -1037,7 +995,7 @@ The plugin will automatically use your authenticated account for this repository
 
         // Use connectionData endpoint to get the authenticated user's identity ID
         // This returns the correct ID that the Git API expects for reviewers
-        val url = "https://dev.azure.com/${URLEncoder.encode(config.organization, StandardCharsets.UTF_8)}/_apis/connectionData"
+        val url = buildOrgApiUrl("/connectionData")
 
         return try {
             val response = executeGet(url, config.personalAccessToken)
