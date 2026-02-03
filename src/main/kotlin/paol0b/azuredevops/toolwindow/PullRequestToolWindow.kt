@@ -198,7 +198,6 @@ class PullRequestToolWindow(private val project: Project) {
             val filterPanel = JPanel().apply {
                 layout = BoxLayout(this, BoxLayout.X_AXIS)
                 add(Box.createHorizontalStrut(10))
-                add(JLabel("Filter:"))
                 add(Box.createHorizontalStrut(5))
                 add(filterComboBox)
                 add(Box.createHorizontalStrut(10))
