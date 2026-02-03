@@ -6,9 +6,10 @@ import com.intellij.ide.BrowserUtil
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
-import java.net.URI
-import java.net.URLEncoder
-import java.nio.charset.StandardCharsets
+import okhttp3.FormBody
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.util.Base64
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -33,6 +34,7 @@ import java.util.concurrent.TimeUnit
 class AzureDevOpsOAuthService {
 
     private val logger = Logger.getInstance(AzureDevOpsOAuthService::class.java)
+    private val httpClient = OkHttpClient()
     
     // Microsoft Entra ID Device Code Flow endpoints
     private val DEVICE_CODE_URL = "https://login.microsoftonline.com/organizations/oauth2/v2.0/devicecode"
@@ -119,30 +121,30 @@ class AzureDevOpsOAuthService {
     fun refreshAccessToken(refreshToken: String, organizationUrl: String): OAuthResult? {
         return try {
             logger.info("Attempting to refresh access token")
-            val connection = URI.create(TOKEN_URL).toURL().openConnection() as java.net.HttpURLConnection
             
-            connection.requestMethod = "POST"
-            connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
-            connection.doOutput = true
+            val formBody = FormBody.Builder()
+                .add("client_id", CLIENT_ID)
+                .add("grant_type", "refresh_token")
+                .add("refresh_token", refreshToken)
+                .add("scope", SCOPES)
+                .build()
+            
+            val request = Request.Builder()
+                .url(TOKEN_URL)
+                .post(formBody)
+                .addHeader("Content-Type", "application/x-www-form-urlencoded")
+                .build()
 
-            val postData = "client_id=${URLEncoder.encode(CLIENT_ID, StandardCharsets.UTF_8)}" +
-                    "&grant_type=refresh_token" +
-                    "&refresh_token=${URLEncoder.encode(refreshToken, StandardCharsets.UTF_8)}" +
-                    "&scope=${URLEncoder.encode(SCOPES, StandardCharsets.UTF_8)}"
-
-            connection.outputStream.use { os ->
-                os.write(postData.toByteArray(StandardCharsets.UTF_8))
-            }
-
-            val responseCode = connection.responseCode
-            if (responseCode == 200) {
-                val response = connection.inputStream.bufferedReader().use { it.readText() }
-                logger.info("Successfully refreshed access token")
-                return parseTokenResponse(response, organizationUrl)
-            } else {
-                val error = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
-                logger.error("Failed to refresh token: HTTP $responseCode - $error")
-                null
+            httpClient.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val responseBody = response.body?.string() ?: ""
+                    logger.info("Successfully refreshed access token")
+                    return parseTokenResponse(responseBody, organizationUrl)
+                } else {
+                    val error = response.body?.string() ?: ""
+                    logger.error("Failed to refresh token: HTTP ${response.code} - $error")
+                    null
+                }
             }
         } catch (e: Exception) {
             logger.error("Failed to refresh access token", e)
@@ -177,28 +179,26 @@ class AzureDevOpsOAuthService {
      */
     private fun requestDeviceCode(): DeviceCodeResponse? {
         return try {
-            val connection = URI.create(DEVICE_CODE_URL).toURL().openConnection() as java.net.HttpURLConnection
+            val formBody = FormBody.Builder()
+                .add("client_id", CLIENT_ID)
+                .add("scope", SCOPES)
+                .build()
             
-            connection.requestMethod = "POST"
-            connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
-            connection.doOutput = true
+            val request = Request.Builder()
+                .url(DEVICE_CODE_URL)
+                .post(formBody)
+                .addHeader("Content-Type", "application/x-www-form-urlencoded")
+                .build()
 
-            // Request device code with Azure DevOps scopes
-            val postData = "client_id=${URLEncoder.encode(CLIENT_ID, StandardCharsets.UTF_8)}" +
-                    "&scope=${URLEncoder.encode(SCOPES, StandardCharsets.UTF_8)}"
-
-            connection.outputStream.use { os ->
-                os.write(postData.toByteArray(StandardCharsets.UTF_8))
-            }
-
-            val responseCode = connection.responseCode
-            if (responseCode == 200) {
-                val response = connection.inputStream.bufferedReader().use { it.readText() }
-                parseDeviceCodeResponse(response)
-            } else {
-                val error = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
-                logger.error("Failed to request device code: HTTP $responseCode - $error")
-                null
+            httpClient.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val responseBody = response.body?.string() ?: ""
+                    parseDeviceCodeResponse(responseBody)
+                } else {
+                    val error = response.body?.string() ?: ""
+                    logger.error("Failed to request device code: HTTP ${response.code} - $error")
+                    null
+                }
             }
         } catch (e: Exception) {
             logger.error("Failed to request device code", e)
@@ -240,58 +240,57 @@ class AzureDevOpsOAuthService {
         
         while (System.currentTimeMillis() - startTime < timeout) {
             try {
-                val connection = URI.create(TOKEN_URL).toURL().openConnection() as java.net.HttpURLConnection
+                val formBody = FormBody.Builder()
+                    .add("client_id", CLIENT_ID)
+                    .add("grant_type", "urn:ietf:params:oauth:grant-type:device_code")
+                    .add("device_code", deviceCodeResponse.deviceCode)
+                    .build()
                 
-                connection.requestMethod = "POST"
-                connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
-                connection.doOutput = true
+                val request = Request.Builder()
+                    .url(TOKEN_URL)
+                    .post(formBody)
+                    .addHeader("Content-Type", "application/x-www-form-urlencoded")
+                    .build()
 
-                val postData = "client_id=${URLEncoder.encode(CLIENT_ID, StandardCharsets.UTF_8)}" +
-                        "&grant_type=urn:ietf:params:oauth:grant-type:device_code" +
-                        "&device_code=${URLEncoder.encode(deviceCodeResponse.deviceCode, StandardCharsets.UTF_8)}"
-
-                connection.outputStream.use { os ->
-                    os.write(postData.toByteArray(StandardCharsets.UTF_8))
-                }
-
-                val responseCode = connection.responseCode
-                when (responseCode) {
-                    200 -> {
-                        // Success! We got the token
-                        val response = connection.inputStream.bufferedReader().use { it.readText() }
-                        logger.info("Successfully obtained access token")
-                        return parseTokenResponse(response, organizationUrl)
-                    }
-                    400 -> {
-                        // Check error type
-                        val errorResponse = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
-                        val gson = Gson()
-                        val errorJson = gson.fromJson(errorResponse, JsonObject::class.java)
-                        val error = errorJson?.get("error")?.asString
-                        
-                        when (error) {
-                            "authorization_pending" -> {
-                                // User hasn't completed authentication yet, continue polling
-                                logger.debug("Authorization pending, will retry...")
-                            }
-                            "authorization_declined" -> {
-                                logger.warn("User declined authorization")
-                                return null
-                            }
-                            "expired_token" -> {
-                                logger.error("Device code expired")
-                                return null
-                            }
-                            else -> {
-                                logger.error("Token request error: $error - $errorResponse")
-                                return null
+                httpClient.newCall(request).execute().use { response ->
+                    when {
+                        response.isSuccessful -> {
+                            // Success! We got the token
+                            val responseBody = response.body?.string() ?: ""
+                            logger.info("Successfully obtained access token")
+                            return parseTokenResponse(responseBody, organizationUrl)
+                        }
+                        response.code == 400 -> {
+                            // Check error type
+                            val errorResponse = response.body?.string() ?: ""
+                            val gson = Gson()
+                            val errorJson = gson.fromJson(errorResponse, JsonObject::class.java)
+                            val error = errorJson?.get("error")?.asString
+                            
+                            when (error) {
+                                "authorization_pending" -> {
+                                    // User hasn't completed authentication yet, continue polling
+                                    logger.debug("Authorization pending, will retry...")
+                                }
+                                "authorization_declined" -> {
+                                    logger.warn("User declined authorization")
+                                    return null
+                                }
+                                "expired_token" -> {
+                                    logger.error("Device code expired")
+                                    return null
+                                }
+                                else -> {
+                                    logger.error("Token request error: $error - $errorResponse")
+                                    return null
+                                }
                             }
                         }
-                    }
-                    else -> {
-                        val error = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
-                        logger.error("Unexpected response: HTTP $responseCode - $error")
-                        return null
+                        else -> {
+                            val error = response.body?.string() ?: ""
+                            logger.error("Unexpected response: HTTP ${response.code} - $error")
+                            return null
+                        }
                     }
                 }
                 
@@ -356,22 +355,20 @@ class AzureDevOpsOAuthService {
     private fun testConnection(serverUrl: String, token: String): Boolean {
         return try {
             val url = "$serverUrl/_apis/projects?api-version=7.0"
-            val connection = URI.create(url).toURL().openConnection() as java.net.HttpURLConnection
             
-            try {
-                connection.requestMethod = "GET"
-                val credentials = ":$token"
-                val encodedCredentials = java.util.Base64.getEncoder()
-                    .encodeToString(credentials.toByteArray(StandardCharsets.UTF_8))
-                connection.setRequestProperty("Authorization", "Basic $encodedCredentials")
-                connection.setRequestProperty("Accept", "application/json")
-                connection.connectTimeout = 10000
-                connection.readTimeout = 10000
+            val credentials = ":$token"
+            val encodedCredentials = Base64.getEncoder()
+                .encodeToString(credentials.toByteArray(Charsets.UTF_8))
+            
+            val request = Request.Builder()
+                .url(url)
+                .get()
+                .addHeader("Authorization", "Basic $encodedCredentials")
+                .addHeader("Accept", "application/json")
+                .build()
 
-                val responseCode = connection.responseCode
-                responseCode == java.net.HttpURLConnection.HTTP_OK
-            } finally {
-                connection.disconnect()
+            httpClient.newCall(request).execute().use { response ->
+                response.isSuccessful
             }
         } catch (e: Exception) {
             logger.error("Connection test failed", e)

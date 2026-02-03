@@ -9,10 +9,9 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import paol0b.azuredevops.services.AzureDevOpsConfigService
 import paol0b.azuredevops.services.GitRepositoryService
-import java.net.URLEncoder
-import java.nio.charset.StandardCharsets
 
 /**
  * Action to open the current Azure DevOps repository in the browser
@@ -63,8 +62,8 @@ class OpenRepositoryInBrowserAction : AnAction() {
     }
 
     /**
-     * Builds the Azure DevOps repository URL
-     * Format: https://dev.azure.com/{org}/{project}/_git/{repo}
+     * Builds the Azure DevOps repository URL using OkHttp's HttpUrl.Builder
+     * Format: {baseUrl}/{project}/_git/{repo}
      */
     private fun buildRepositoryUrl(project: Project): String {
         val configService = AzureDevOpsConfigService.getInstance(project)
@@ -74,11 +73,13 @@ class OpenRepositoryInBrowserAction : AnAction() {
             throw IllegalStateException("Azure DevOps repository information is not available")
         }
 
-        // Use the base URL from config service which handles domain selection (dev.azure.com vs visualstudio.com)
         val baseUrl = configService.getApiBaseUrl()
-        val encodedProject = URLEncoder.encode(config.project, StandardCharsets.UTF_8.toString()).replace("+", "%20")
-        val encodedRepo = URLEncoder.encode(config.repository, StandardCharsets.UTF_8.toString()).replace("+", "%20")
 
-        return "$baseUrl/$encodedProject/_git/$encodedRepo"
+        return baseUrl.toHttpUrl().newBuilder()
+            .addPathSegment(config.project)
+            .addPathSegment("_git")
+            .addPathSegment(config.repository)
+            .build()
+            .toString()
     }
 }

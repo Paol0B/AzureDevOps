@@ -217,28 +217,26 @@ class AzureDevOpsAccountManager : PersistentStateComponent<AzureDevOpsAccountMan
     
     /**
      * Extracts organization name from Azure DevOps URL
+     * Supports cloud (dev.azure.com, visualstudio.com) and on-premise instances
      */
     private fun extractOrganizationFromUrl(url: String): String? {
         return try {
-            // Handle both dev.azure.com and visualstudio.com formats
             val uri = java.net.URI(url)
             
-            // For dev.azure.com: https://dev.azure.com/{organization}
-            if (uri.host?.contains("dev.azure.com") == true) {
-                val path = uri.path.trim('/')
-                return if (path.isNotEmpty()) {
-                    path.split("/").firstOrNull()
-                } else {
-                    null
-                }
-            }
-            
-            // For visualstudio.com: https://{organization}.visualstudio.com
+            // Special case: visualstudio.com uses subdomain format
+            // https://{organization}.visualstudio.com
             if (uri.host?.endsWith(".visualstudio.com") == true) {
                 return uri.host?.substringBefore(".visualstudio.com")
             }
             
-            null
+            // Standard format (cloud and on-premise): https://{host}/{organization}
+            // Examples: https://dev.azure.com/{organization}, https://devops.company.com/{organization}
+            val path = uri.path.trim('/')
+            return if (path.isNotEmpty()) {
+                path.split("/").firstOrNull()
+            } else {
+                null
+            }
         } catch (e: Exception) {
             logger.warn("Failed to extract organization from URL: $url", e)
             null

@@ -11,13 +11,15 @@ import java.util.regex.Pattern
  * Information detected from an Azure DevOps repository
  */
 data class AzureDevOpsRepoInfo(
+    val baseUrl: String,
     val organization: String,
     val project: String,
     val repository: String,
     val remoteUrl: String,
     val useVisualStudioDomain: Boolean = false
 ) {
-    fun isValid(): Boolean = organization.isNotBlank() && 
+    fun isValid(): Boolean = baseUrl.isNotBlank() &&
+                            organization.isNotBlank() && 
                             project.isNotBlank() && 
                             repository.isNotBlank()
 }

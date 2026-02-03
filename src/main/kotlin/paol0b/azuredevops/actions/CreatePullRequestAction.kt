@@ -11,6 +11,7 @@ import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import paol0b.azuredevops.model.Identity
 import paol0b.azuredevops.model.PullRequestResponse
 import paol0b.azuredevops.services.AzureDevOpsApiClient
@@ -20,8 +21,6 @@ import paol0b.azuredevops.services.GitRepositoryService
 import paol0b.azuredevops.ui.CreatePullRequestDialog
 import java.awt.Desktop
 import java.net.URI
-import java.net.URLEncoder
-import java.nio.charset.StandardCharsets
 
 /**
  * Action to create a Pull Request on Azure DevOps
@@ -270,7 +269,7 @@ class CreatePullRequestAction : AnAction() {
     }
 
     /**
-     * Builds the Pull Request URL
+     * Builds the Pull Request web URL using OkHttp's HttpUrl.Builder
      */
     private fun getPullRequestUrl(project: Project, prId: Int): String? {
         val configService = AzureDevOpsConfigService.getInstance(project)
@@ -278,13 +277,16 @@ class CreatePullRequestAction : AnAction() {
 
         if (!config.isValid()) return null
 
-        // URL encode components to handle special characters (spaces, accents, etc.)
-        val encodedOrg = URLEncoder.encode(config.organization, StandardCharsets.UTF_8.toString())
-        val encodedProject = URLEncoder.encode(config.project, StandardCharsets.UTF_8.toString())
-        val encodedRepo = URLEncoder.encode(config.repository, StandardCharsets.UTF_8.toString())
-
-        // URL format: https://dev.azure.com/{org}/{project}/_git/{repo}/pullrequest/{prId}
-        return "https://dev.azure.com/$encodedOrg/$encodedProject/_git/$encodedRepo/pullrequest/$prId"
+        val baseUrl = configService.getApiBaseUrl()
+        
+        return baseUrl.toHttpUrl().newBuilder()
+            .addPathSegment(config.project)
+            .addPathSegment("_git")
+            .addPathSegment(config.repository)
+            .addPathSegment("pullrequest")
+            .addPathSegment(prId.toString())
+            .build()
+            .toString()
     }
 
     /**

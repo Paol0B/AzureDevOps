@@ -10,8 +10,6 @@ import com.intellij.util.xmlb.XmlSerializerUtil
 import paol0b.azuredevops.checkout.AzureDevOpsAccountManager
 import paol0b.azuredevops.checkout.AzureDevOpsOAuthService
 import paol0b.azuredevops.model.AzureDevOpsConfig
-import java.net.URLEncoder
-import java.nio.charset.StandardCharsets
 
 /**
  * Service to manage Azure DevOps configuration.
@@ -38,6 +36,7 @@ class AzureDevOpsConfigService(private val project: com.intellij.openapi.project
 
     data class State(
         // Keep these fields for backward compatibility and optional manual override
+        var manualBaseUrl: String = "",
         var manualOrganization: String = "",
         var manualProject: String = "",
         var manualRepository: String = ""
@@ -59,11 +58,13 @@ class AzureDevOpsConfigService(private val project: com.intellij.openapi.project
         val repoInfo = detector.detectAzureDevOpsInfo()
         
         // Use auto-detected values, or manual ones if set (override)
+        val baseUrl = myState.manualBaseUrl.ifBlank { repoInfo?.baseUrl ?: "" }
         val organization = myState.manualOrganization.ifBlank { repoInfo?.organization ?: "" }
         val project = myState.manualProject.ifBlank { repoInfo?.project ?: "" }
         val repository = myState.manualRepository.ifBlank { repoInfo?.repository ?: "" }
         
         return AzureDevOpsConfig.create(
+            baseUrl = baseUrl,
             organization = organization,
             project = project,
             repository = repository,
@@ -75,6 +76,7 @@ class AzureDevOpsConfigService(private val project: com.intellij.openapi.project
      * Saves the complete configuration (optional for manual override)
      */
     fun saveConfig(config: AzureDevOpsConfig) {
+        myState.manualBaseUrl = config.baseUrl
         myState.manualOrganization = config.organization
         myState.manualProject = config.project
         myState.manualRepository = config.repository
@@ -125,18 +127,20 @@ class AzureDevOpsConfigService(private val project: com.intellij.openapi.project
             val detector = AzureDevOpsRepositoryDetector.getInstance(project)
             val repoInfo = detector.detectAzureDevOpsInfo() ?: return null
             
-            // Get the organization from the repository
-            val organization = repoInfo.organization
-            if (organization.isBlank()) return null
+            // Get the base URL and organization from the repository
+            val baseUrl = repoInfo.baseUrl
+            if (baseUrl.isBlank()) return null
             
-            // Check all OAuth accounts for a matching organization
+            // Check all OAuth accounts for a matching base URL
             val accountManager = AzureDevOpsAccountManager.getInstance()
             val accounts = accountManager.getAccounts()
             
             for (account in accounts) {
-                // Extract organization from account server URL
-                val accountOrg = extractOrganizationFromUrl(account.serverUrl)
-                if (accountOrg.equals(organization, ignoreCase = true)) {
+                // Normalize URLs for comparison
+                val accountBaseUrl = account.serverUrl.trimEnd('/')
+                val repoBaseUrl = baseUrl.trimEnd('/')
+                
+                if (accountBaseUrl.equals(repoBaseUrl, ignoreCase = true)) {
                     // Found matching account
                     val authState = accountManager.getAccountAuthState(account.id)
                     
@@ -176,23 +180,6 @@ class AzureDevOpsConfigService(private val project: com.intellij.openapi.project
         }
         
         return null
-    }
-    
-    /**
-     * Extracts organization name from Azure DevOps URL
-     */
-    private fun extractOrganizationFromUrl(url: String): String? {
-        return try {
-            val uri = java.net.URI(url)
-            val path = uri.path.trim('/')
-            if (path.isNotEmpty()) {
-                path.split("/").firstOrNull()
-            } else {
-                null
-            }
-        } catch (e: Exception) {
-            null
-        }
     }
     
     /**
@@ -273,21 +260,10 @@ class AzureDevOpsConfigService(private val project: com.intellij.openapi.project
     }
 
     /**
-     * Gets the base URL for Azure DevOps APIs
+     * Gets the base URL for Azure DevOps APIs (normalized without trailing slash)
      */
     fun getApiBaseUrl(): String {
-        val config = getConfig()
-
-        // Check availability of visualstudio.com domain preference from detector
-        val detector = AzureDevOpsRepositoryDetector.getInstance(project)
-        val info = detector.detectAzureDevOpsInfo()
-        if (info != null && info.useVisualStudioDomain && 
-            info.organization.equals(config.organization, ignoreCase = true)) {
-            return "https://${config.organization}.visualstudio.com"
-        }
-
-        val encodedOrganization = URLEncoder.encode(config.organization, StandardCharsets.UTF_8.toString()).replace("+", "%20")
-        return "https://dev.azure.com/$encodedOrganization"
+        return getConfig().getNormalizedBaseUrl()
     }
     
     /**
@@ -299,7 +275,8 @@ class AzureDevOpsConfigService(private val project: com.intellij.openapi.project
         
         // If not auto-detected, check if there is a valid manual config
         if (!autoDetected) {
-            return myState.manualOrganization.isNotBlank() &&
+            return myState.manualBaseUrl.isNotBlank() &&
+                   myState.manualOrganization.isNotBlank() &&
                    myState.manualProject.isNotBlank() &&
                    myState.manualRepository.isNotBlank()
         }

@@ -27,13 +27,31 @@ class GitCredentialHelperService(private val project: Project) {
      */
     fun getCredentialsFromHelper(url: String): String? {
         return try {
-            // Try first with the specific protocol
+            // Try first with the specific repository URL
             getCredentialForUrl(url) ?:
-            // If it doesn't work, try with generic Azure DevOps URLs
-            getCredentialForUrl("https://dev.azure.com") ?:
-            getCredentialForUrl("https://ssh.dev.azure.com")
+            // If it doesn't work, try with the base URL from config
+            tryBaseUrlCredentials()
         } catch (e: Exception) {
             logger.warn("Failed to retrieve credentials from Git credential helper", e)
+            null
+        }
+    }
+    
+    /**
+     * Tries to get credentials using the base URL from the project configuration
+     */
+    private fun tryBaseUrlCredentials(): String? {
+        return try {
+            val configService = AzureDevOpsConfigService.getInstance(project)
+            val config = configService.getConfig()
+            
+            if (config.baseUrl.isNotBlank()) {
+                getCredentialForUrl(config.baseUrl)
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            logger.warn("Failed to get credentials using base URL", e)
             null
         }
     }

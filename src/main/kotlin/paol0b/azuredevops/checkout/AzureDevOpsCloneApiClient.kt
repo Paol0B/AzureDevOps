@@ -3,8 +3,9 @@ package paol0b.azuredevops.checkout
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.intellij.openapi.diagnostic.Logger
-import java.net.HttpURLConnection
-import java.net.URI
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.util.Base64
 
 /**
  * API client for fetching projects and repositories from Azure DevOps
@@ -16,6 +17,7 @@ class AzureDevOpsCloneApiClient(
 ) {
     private val logger = Logger.getInstance(AzureDevOpsCloneApiClient::class.java)
     private val gson = Gson()
+    private val httpClient = OkHttpClient()
 
     data class Project(
         val id: String,
@@ -85,28 +87,23 @@ class AzureDevOpsCloneApiClient(
     }
 
     private fun executeGet(urlString: String): String {
-        val connection = URI(urlString).toURL().openConnection() as HttpURLConnection
+        val credentials = ":$token"
+        val encodedCredentials = Base64.getEncoder()
+            .encodeToString(credentials.toByteArray(Charsets.UTF_8))
         
-        try {
-            connection.requestMethod = "GET"
-            val credentials = ":$token"
-            val encodedCredentials = java.util.Base64.getEncoder()
-                .encodeToString(credentials.toByteArray(java.nio.charset.StandardCharsets.UTF_8))
-            connection.setRequestProperty("Authorization", "Basic $encodedCredentials")
-            connection.setRequestProperty("Accept", "application/json")
-            connection.connectTimeout = 30000
-            connection.readTimeout = 30000
+        val request = Request.Builder()
+            .url(urlString)
+            .get()
+            .addHeader("Authorization", "Basic $encodedCredentials")
+            .addHeader("Accept", "application/json")
+            .build()
 
-            val responseCode = connection.responseCode
-            
-            if (responseCode != HttpURLConnection.HTTP_OK) {
-                val errorBody = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
-                throw Exception("HTTP error $responseCode: $errorBody")
+        return httpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                val errorBody = response.body?.string() ?: ""
+                throw Exception("HTTP error ${response.code}: $errorBody")
             }
-
-            return connection.inputStream.bufferedReader().use { it.readText() }
-        } finally {
-            connection.disconnect()
+            response.body?.string() ?: ""
         }
     }
 }

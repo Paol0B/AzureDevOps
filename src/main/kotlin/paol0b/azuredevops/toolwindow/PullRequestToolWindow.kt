@@ -15,9 +15,8 @@ import paol0b.azuredevops.services.AzureDevOpsApiClient
 import paol0b.azuredevops.services.AzureDevOpsConfigService
 import paol0b.azuredevops.services.GitRepositoryService
 import paol0b.azuredevops.services.PullRequestCommentsService
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import java.awt.BorderLayout
-import java.net.URLEncoder
-import java.nio.charset.StandardCharsets
 import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.JButton
@@ -291,6 +290,7 @@ class PullRequestToolWindow(private val project: Project) {
     /**
      * Generates the web URL for a Pull Request (not the API URL)
      * Supports cross-repository PRs by using the PR's repository information
+     * Uses OkHttp's HttpUrl.Builder for proper URL encoding
      */
     private fun getPullRequestWebUrl(pr: PullRequest): String? {
         // For cross-repository support, use the PR's repository information
@@ -298,9 +298,15 @@ class PullRequestToolWindow(private val project: Project) {
             if (repo.name != null && repo.project?.name != null) {
                 val configService = AzureDevOpsConfigService.getInstance(project)
                 val baseUrl = configService.getApiBaseUrl()
-                val encodedProject = URLEncoder.encode(repo.project.name, StandardCharsets.UTF_8.toString()).replace("+", "%20")
-                val encodedRepo = URLEncoder.encode(repo.name, StandardCharsets.UTF_8.toString()).replace("+", "%20")
-                return "$baseUrl/$encodedProject/_git/$encodedRepo/pullrequest/${pr.pullRequestId}"
+                
+                return baseUrl.toHttpUrl().newBuilder()
+                    .addPathSegment(repo.project.name)
+                    .addPathSegment("_git")
+                    .addPathSegment(repo.name)
+                    .addPathSegment("pullrequest")
+                    .addPathSegment(pr.pullRequestId.toString())
+                    .build()
+                    .toString()
             }
         }
 
@@ -311,10 +317,15 @@ class PullRequestToolWindow(private val project: Project) {
         if (!config.isValid()) return null
 
         val baseUrl = configService.getApiBaseUrl()
-        val encodedProject = URLEncoder.encode(config.project, StandardCharsets.UTF_8.toString()).replace("+", "%20")
-        val encodedRepo = URLEncoder.encode(config.repository, StandardCharsets.UTF_8.toString()).replace("+", "%20")
-
-        return "$baseUrl/$encodedProject/_git/$encodedRepo/pullrequest/${pr.pullRequestId}"
+        
+        return baseUrl.toHttpUrl().newBuilder()
+            .addPathSegment(config.project)
+            .addPathSegment("_git")
+            .addPathSegment(config.repository)
+            .addPathSegment("pullrequest")
+            .addPathSegment(pr.pullRequestId.toString())
+            .build()
+            .toString()
     }
 
     private fun openInBrowser(url: String) {

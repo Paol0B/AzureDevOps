@@ -7,6 +7,9 @@ import com.intellij.openapi.ui.Messages
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.FormBuilder
 import com.intellij.util.ui.JBUI
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import paol0b.azuredevops.checkout.AzureDevOpsAccount
 import paol0b.azuredevops.checkout.AzureDevOpsAccountManager
 import paol0b.azuredevops.model.AzureDevOpsConfig
@@ -15,8 +18,7 @@ import paol0b.azuredevops.services.AzureDevOpsConfigService
 import paol0b.azuredevops.services.AzureDevOpsRepositoryDetector
 import java.awt.BorderLayout
 import java.awt.event.ItemEvent
-import java.net.URLEncoder
-import java.nio.charset.StandardCharsets
+import java.util.Base64
 import javax.swing.*
 
 /**
@@ -208,10 +210,15 @@ class AzureDevOpsProjectConfigurable(private val project: Project) : Configurabl
         }
 
         try {
-            val encodedOrg = URLEncoder.encode(repoInfo.organization, StandardCharsets.UTF_8.toString())
-            val encodedProject = URLEncoder.encode(repoInfo.project, StandardCharsets.UTF_8.toString())
-            val encodedRepo = URLEncoder.encode(repoInfo.repository, StandardCharsets.UTF_8.toString())
-            val url = "https://dev.azure.com/$encodedOrg/$encodedProject/_apis/git/repositories/$encodedRepo?api-version=7.0"
+            val url = repoInfo.baseUrl.toHttpUrl().newBuilder()
+                .addPathSegment(repoInfo.project)
+                .addPathSegment("_apis")
+                .addPathSegment("git")
+                .addPathSegment("repositories")
+                .addPathSegment(repoInfo.repository)
+                .addQueryParameter("api-version", "7.0")
+                .build()
+                .toString()
             
             testConnectionDirectly(url, token)
             
@@ -233,32 +240,30 @@ class AzureDevOpsProjectConfigurable(private val project: Project) : Configurabl
     }
 
     private fun testConnectionDirectly(url: String, token: String) {
-        val connection = java.net.URI(url).toURL().openConnection() as java.net.HttpURLConnection
+        val httpClient = OkHttpClient()
         
-        try {
-            connection.requestMethod = "GET"
-            val credentials = ":$token"
-            val encodedCredentials = java.util.Base64.getEncoder().encodeToString(
-                credentials.toByteArray(java.nio.charset.StandardCharsets.UTF_8)
-            )
-            connection.setRequestProperty("Authorization", "Basic $encodedCredentials")
-            connection.setRequestProperty("Accept", "application/json")
-            connection.connectTimeout = 10000
-            connection.readTimeout = 10000
+        val credentials = ":$token"
+        val encodedCredentials = Base64.getEncoder().encodeToString(
+            credentials.toByteArray(Charsets.UTF_8)
+        )
+        
+        val request = Request.Builder()
+            .url(url)
+            .get()
+            .addHeader("Authorization", "Basic $encodedCredentials")
+            .addHeader("Accept", "application/json")
+            .build()
 
-            val responseCode = connection.responseCode
-            
-            if (responseCode != java.net.HttpURLConnection.HTTP_OK) {
-                val errorBody = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
-                throw Exception(when (responseCode) {
+        httpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                val errorBody = response.body?.string() ?: ""
+                throw Exception(when (response.code) {
                     401 -> "Authentication failed. Check the token (401)"
                     403 -> "Insufficient permissions (403)"
                     404 -> "Repository not found (404)"
-                    else -> "HTTP Error $responseCode: $errorBody"
+                    else -> "HTTP Error ${response.code}: $errorBody"
                 })
             }
-        } finally {
-            connection.disconnect()
         }
     }
 

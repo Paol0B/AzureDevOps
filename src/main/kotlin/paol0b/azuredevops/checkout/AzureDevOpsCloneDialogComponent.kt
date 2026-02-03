@@ -31,12 +31,12 @@ import git4idea.commands.Git
 import git4idea.commands.GitCommand
 import git4idea.commands.GitLineHandler
 import paol0b.azuredevops.AzureDevOpsIcons
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import java.awt.BorderLayout
 import java.awt.FlowLayout
 import java.io.File
 import java.net.URI
 import java.net.URLDecoder
-import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import javax.swing.*
 import javax.swing.event.DocumentEvent
@@ -571,6 +571,7 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
 
     private fun normalizeAzureDevOpsUrl(url: String): String {
         return try {
+            // Decode URL completely (handle multiple encodings)
             var decodedUrl = url
             var previousUrl: String
 
@@ -579,19 +580,9 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
                 decodedUrl = URLDecoder.decode(previousUrl, StandardCharsets.UTF_8)
             } while (decodedUrl != previousUrl)
 
-            val uri = URI(decodedUrl)
-            val scheme = uri.scheme ?: "https"
-            val host = uri.host ?: return url
-
-            val path = uri.path ?: return url
-
-            val segments = path.split("/").filter { it.isNotEmpty() }
-            val encodedPath = segments.joinToString("/") { segment ->
-                URLEncoder.encode(segment, StandardCharsets.UTF_8)
-                    .replace("+", "%20")
-            }
-
-            "$scheme://$host/$encodedPath"
+            // Parse and rebuild using HttpUrl.Builder for proper encoding
+            val parsedUrl = decodedUrl.toHttpUrl()
+            parsedUrl.newBuilder().build().toString()
         } catch (e: Exception) {
             url
         }

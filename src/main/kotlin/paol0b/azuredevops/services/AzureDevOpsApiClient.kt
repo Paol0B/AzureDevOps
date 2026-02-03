@@ -9,11 +9,11 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import paol0b.azuredevops.model.*
 import java.io.IOException
 import java.net.HttpURLConnection
-import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.util.Base64
 
@@ -48,25 +48,87 @@ The plugin will automatically use your authenticated account for this repository
     }
     
     /**
-     * Helper function to build API URLs with proper URL encoding for project and repository names
-     * This handles special characters like accented letters (à, è, ì, etc.) and spaces
+     * Builds an API URL using OkHttps HttpUrl.Builder for proper encoding
+     * This automatically handles special characters, spaces, and accents
+     * @param pathSegments Path segments to append (will be URL-encoded automatically)
+     * @param queryParams Optional query parameters (will be URL-encoded automatically)
+     * @return Complete HttpUrl ready for API calls
+     */
+    private fun buildHttpUrl(
+        pathSegments: List<String>,
+        queryParams: Map<String, String> = emptyMap()
+    ): HttpUrl {
+        val configService = AzureDevOpsConfigService.getInstance(project)
+        val config = configService.getConfig()
+        val baseUrl = config.getNormalizedBaseUrl()
+        
+        val builder = baseUrl.toHttpUrl().newBuilder()
+        
+        // Add path segments (automatically URL-encoded)
+        pathSegments.forEach { segment ->
+            builder.addPathSegment(segment)
+        }
+        
+        // Add query parameters (automatically URL-encoded)
+        queryParams.forEach { (key, value) ->
+            builder.addQueryParameter(key, value)
+        }
+        
+        // Always add API version
+        builder.addQueryParameter("api-version", API_VERSION)
+        
+        return builder.build()
+    }
+    
+    /**
+     * Legacy wrapper - builds a git repository API URL string
+     * Maintained for backward compatibility during refactoring
      */
     private fun buildApiUrl(project: String, repository: String, endpoint: String): String {
-        val configService = AzureDevOpsConfigService.getInstance(this.project)
-        // URLEncoder encodes spaces as "+", but for URL paths we need "%20"
-        val encodedProject = URLEncoder.encode(project, StandardCharsets.UTF_8.toString()).replace("+", "%20")
-
-        return "${configService.getApiBaseUrl()}/$encodedProject/_apis/git/repositories/$repository$endpoint"
+        // Parse endpoint to extract path and query params
+        val parts = endpoint.split("?", limit = 2)
+        val path = parts[0]
+        val queryString = if (parts.size > 1) parts[1] else ""
+        
+        val pathSegments = mutableListOf(project, "_apis", "git", "repositories", repository)
+        path.split("/").filter { it.isNotEmpty() }.forEach { pathSegments.add(it) }
+        
+        val queryParams = mutableMapOf<String, String>()
+        if (queryString.isNotEmpty()) {
+            queryString.split("&").forEach { param ->
+                val kv = param.split("=", limit = 2)
+                if (kv.size == 2 && kv[0] != "api-version") { // Skip api-version, we add it automatically
+                    queryParams[kv[0]] = kv[1]
+                }
+            }
+        }
+        
+        return buildHttpUrl(pathSegments, queryParams).toString()
     }
-
+    
     /**
-     * Helper function to build organization-level API URLs
-     * Used for endpoints that don't require project/repository scope
+     * Builds an organization-level API URL string
+     * Legacy wrapper for backward compatibility
      */
     private fun buildOrgApiUrl(endpoint: String): String {
-        val configService = AzureDevOpsConfigService.getInstance(project)
-        val encodedOrg = URLEncoder.encode(configService.getConfig().organization, StandardCharsets.UTF_8)
-        return "https://dev.azure.com/$encodedOrg/_apis$endpoint"
+        val parts = endpoint.split("?", limit = 2)
+        val path = parts[0]
+        val queryString = if (parts.size > 1) parts[1] else ""
+        
+        val pathSegments = mutableListOf("_apis")
+        path.split("/").filter { it.isNotEmpty() }.forEach { pathSegments.add(it) }
+        
+        val queryParams = mutableMapOf<String, String>()
+        if (queryString.isNotEmpty()) {
+            queryString.split("&").forEach { param ->
+                val kv = param.split("=", limit = 2)
+                if (kv.size == 2 && kv[0] != "api-version") {
+                    queryParams[kv[0]] = kv[1]
+                }
+            }
+        }
+        
+        return buildHttpUrl(pathSegments, queryParams).toString()
     }
 
     /**
@@ -430,7 +492,7 @@ The plugin will automatically use your authenticated account for this repository
         logger.info("Request body: $jsonBody")
         
         try {
-            val response = executePatchOkHttp(baseUrl, jsonBody, config.personalAccessToken)
+            val response = executePatch(baseUrl, jsonBody, config.personalAccessToken)
             logger.info("Thread status updated successfully. Response: $response")
         } catch (e: Exception) {
             logger.error("Failed to update thread status", e)
@@ -439,10 +501,10 @@ The plugin will automatically use your authenticated account for this repository
     }
 
     /**
-     * Executes a PATCH request using OkHttp (native PATCH support)
+     * Executes a PATCH request using OkHttp
      */
     @Throws(IOException::class, AzureDevOpsApiException::class)
-    private fun executePatchOkHttp(urlString: String, body: String, token: String): String {
+    private fun executePatch(urlString: String, body: String, token: String): String {
         val mediaType = "application/json; charset=UTF-8".toMediaType()
         val requestBody = body.toRequestBody(mediaType)
 
@@ -504,66 +566,53 @@ The plugin will automatically use your authenticated account for this repository
     }
 
     /**
-     * Executes a GET request
+     * Executes a GET request using OkHttp
      */
     @Throws(IOException::class, AzureDevOpsApiException::class)
     private fun executeGet(urlString: String, token: String): String {
-        val url = java.net.URI(urlString).toURL()
-        val connection = url.openConnection() as HttpURLConnection
-        
-        try {
-            connection.requestMethod = "GET"
-            connection.setRequestProperty("Authorization", createAuthHeader(token))
-            connection.setRequestProperty("Accept", "application/json")
-            connection.connectTimeout = 10000
-            connection.readTimeout = 10000
+        val request = Request.Builder()
+            .url(urlString)
+            .get()
+            .addHeader("Authorization", createAuthHeader(token))
+            .addHeader("Accept", "application/json")
+            .build()
 
-            val responseCode = connection.responseCode
+        return httpClient.newCall(request).execute().use { response ->
+            val responseBody = response.body?.string() ?: ""
             
-            if (responseCode == HttpURLConnection.HTTP_OK) {
-                return connection.inputStream.bufferedReader().use { it.readText() }
+            if (response.isSuccessful) {
+                responseBody
             } else {
-                val errorBody = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
-                throw handleErrorResponse(responseCode, errorBody)
+                throw handleErrorResponse(response.code, responseBody)
             }
-        } finally {
-            connection.disconnect()
         }
     }
 
     /**
-     * Executes a POST request
+     * Executes a POST request using OkHttp
      */
     @Throws(IOException::class, AzureDevOpsApiException::class)
     private fun executePost(urlString: String, body: Any, token: String): String {
-        val url = java.net.URI(urlString).toURL()
-        val connection = url.openConnection() as HttpURLConnection
-        
-        try {
-            connection.requestMethod = "POST"
-            connection.setRequestProperty("Authorization", createAuthHeader(token))
-            connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8")
-            connection.setRequestProperty("Accept", "application/json")
-            connection.doOutput = true
-            connection.connectTimeout = 10000
-            connection.readTimeout = 10000
+        val mediaType = "application/json; charset=UTF-8".toMediaType()
+        val jsonBody = gson.toJson(body)
+        val requestBody = jsonBody.toRequestBody(mediaType)
 
-            // Write the body
-            val jsonBody = gson.toJson(body)
-            connection.outputStream.bufferedWriter(StandardCharsets.UTF_8).use { writer ->
-                writer.write(jsonBody)
-            }
+        val request = Request.Builder()
+            .url(urlString)
+            .post(requestBody)
+            .addHeader("Authorization", createAuthHeader(token))
+            .addHeader("Content-Type", "application/json; charset=UTF-8")
+            .addHeader("Accept", "application/json")
+            .build()
 
-            val responseCode = connection.responseCode
+        return httpClient.newCall(request).execute().use { response ->
+            val responseBody = response.body?.string() ?: ""
             
-            if (responseCode == HttpURLConnection.HTTP_OK || responseCode == HttpURLConnection.HTTP_CREATED) {
-                return connection.inputStream.bufferedReader().use { it.readText() }
+            if (response.isSuccessful) {
+                responseBody
             } else {
-                val errorBody = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
-                throw handleErrorResponse(responseCode, errorBody)
+                throw handleErrorResponse(response.code, responseBody)
             }
-        } finally {
-            connection.disconnect()
         }
     }
 
@@ -693,20 +742,20 @@ The plugin will automatically use your authenticated account for this repository
         val configService = AzureDevOpsConfigService.getInstance(project)
         val config = configService.getConfig()
         
-        // Encode the path for URL
-        val encodedPath = URLEncoder.encode(filePath, StandardCharsets.UTF_8.toString())
-        
-        // Endpoint to get the file content
-        // includeContent=true returns the content in the "content" field
-        val url = buildApiUrl(
-            config.project,
-            config.repository,
-            "/items?path=$encodedPath&versionDescriptor.version=$commitId&versionDescriptor.versionType=commit&includeContent=true"
-        ) + "&api-version=$API_VERSION"
+        // Build URL with query parameters (automatically encoded by HttpUrl.Builder)
+        val url = buildHttpUrl(
+            pathSegments = listOf(config.project, "_apis", "git", "repositories", config.repository, "items"),
+            queryParams = mapOf(
+                "path" to filePath,
+                "versionDescriptor.version" to commitId,
+                "versionDescriptor.versionType" to "commit",
+                "includeContent" to "true"
+            )
+        )
         
         logger.info("Getting file content from: $url")
         
-        val response = executeGet(url, config.personalAccessToken)
+        val response = executeGet(url.toString(), config.personalAccessToken)
         
         // Parse the JSON response to extract the content
         return try {
@@ -739,19 +788,20 @@ The plugin will automatically use your authenticated account for this repository
         val effectiveProject = projectName ?: config.project
         val effectiveRepo = repositoryId ?: config.repository
 
-        // Encode the path for URL
-        val encodedPath = URLEncoder.encode(filePath, StandardCharsets.UTF_8.toString())
-
-        // Endpoint to get the file content
-        val url = buildApiUrl(
-            effectiveProject,
-            effectiveRepo,
-            "/items?path=$encodedPath&versionDescriptor.version=$commitId&versionDescriptor.versionType=commit&includeContent=true"
-        ) + "&api-version=$API_VERSION"
+        // Build URL with query parameters (automatically encoded by HttpUrl.Builder)
+        val url = buildHttpUrl(
+            pathSegments = listOf(effectiveProject, "_apis", "git", "repositories", effectiveRepo, "items"),
+            queryParams = mapOf(
+                "path" to filePath,
+                "versionDescriptor.version" to commitId,
+                "versionDescriptor.versionType" to "commit",
+                "includeContent" to "true"
+            )
+        )
 
         logger.info("Getting file content from: $url")
 
-        val response = executeGet(url, config.personalAccessToken)
+        val response = executeGet(url.toString(), config.personalAccessToken)
 
         // Parse the JSON response to extract the content
         return try {
@@ -900,7 +950,7 @@ The plugin will automatically use your authenticated account for this repository
             val jsonBody = gson.toJson(requestBody)
             logger.info("Request body: $jsonBody")
 
-            val response = executePatchOkHttp(url, jsonBody, config.personalAccessToken)
+            val response = executePatch(url, jsonBody, config.personalAccessToken)
             val completedPr = gson.fromJson(response, PullRequest::class.java)
 
             // Add comment if provided
@@ -959,7 +1009,7 @@ The plugin will automatically use your authenticated account for this repository
             val jsonBody = gson.toJson(requestBody)
             logger.info("Request body: $jsonBody")
 
-            val response = executePatchOkHttp(url, jsonBody, config.personalAccessToken)
+            val response = executePatch(url, jsonBody, config.personalAccessToken)
             val updatedPr = gson.fromJson(response, PullRequest::class.java)
 
             // Add comment if provided
@@ -1299,39 +1349,32 @@ The plugin will automatically use your authenticated account for this repository
         }
     }
 
+
     /**
-     * Executes a PUT request
+     * Executes a PUT request using OkHttp
      */
     @Throws(IOException::class, AzureDevOpsApiException::class)
     private fun executePut(urlString: String, body: Any, token: String): String {
-        val url = java.net.URI(urlString).toURL()
-        val connection = url.openConnection() as HttpURLConnection
+        val mediaType = "application/json; charset=UTF-8".toMediaType()
+        val jsonBody = gson.toJson(body)
+        val requestBody = jsonBody.toRequestBody(mediaType)
 
-        try {
-            connection.requestMethod = "PUT"
-            connection.setRequestProperty("Authorization", createAuthHeader(token))
-            connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8")
-            connection.setRequestProperty("Accept", "application/json")
-            connection.doOutput = true
-            connection.connectTimeout = 10000
-            connection.readTimeout = 10000
+        val request = Request.Builder()
+            .url(urlString)
+            .put(requestBody)
+            .addHeader("Authorization", createAuthHeader(token))
+            .addHeader("Content-Type", "application/json; charset=UTF-8")
+            .addHeader("Accept", "application/json")
+            .build()
 
-            // Write the body
-            val jsonBody = gson.toJson(body)
-            connection.outputStream.bufferedWriter(StandardCharsets.UTF_8).use { writer ->
-                writer.write(jsonBody)
-            }
-
-            val responseCode = connection.responseCode
-
-            if (responseCode in 200..299) {
-                return connection.inputStream.bufferedReader().use { it.readText() }
+        return httpClient.newCall(request).execute().use { response ->
+            val responseBody = response.body?.string() ?: ""
+            
+            if (response.isSuccessful) {
+                responseBody
             } else {
-                val errorBody = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
-                throw handleErrorResponse(responseCode, errorBody)
+                throw handleErrorResponse(response.code, responseBody)
             }
-        } finally {
-            connection.disconnect()
         }
     }
 }

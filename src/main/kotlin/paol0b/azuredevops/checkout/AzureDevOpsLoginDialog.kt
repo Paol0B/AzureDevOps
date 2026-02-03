@@ -27,7 +27,7 @@ import javax.swing.*
  */
 class AzureDevOpsLoginDialog(private val project: Project?) : DialogWrapper(project, true) {
 
-    private val serverUrlField = JBTextField("https://dev.azure.com/", 60)
+    private val serverUrlField = JBTextField("", 60)
     private val tokenField = JBPasswordField()
     private val oauthButton = JButton("Sign in with Browser (OAuth)")
     // private val usePATCheckbox = JCheckBox("Use Personal Access Token instead", false)
@@ -115,12 +115,13 @@ class AzureDevOpsLoginDialog(private val project: Project?) : DialogWrapper(proj
                 val urlFieldPanel = JPanel(BorderLayout()).apply {
                     add(serverUrlField, BorderLayout.CENTER)
                     serverUrlField.apply {
-                        putClientProperty("JTextField.placeholderText", "https://dev.azure.com/YourOrganization")
+                        putClientProperty("JTextField.placeholderText", "https://dev.azure.com/organization or https://devops.company.com")
                     }
                 }
                 
                 val examplesLabel = JBLabel("<html><div style='font-size: 11px; color: gray; margin-top: 5px;'>" +
-                        "Examples: dev.azure.com/contoso or contoso.visualstudio.com</div></html>").apply {
+                        "Cloud: dev.azure.com/contoso or contoso.visualstudio.com<br>" +
+                        "On-Premise: tfs.company.com or devops.company.local</div></html>").apply {
                     foreground = UIUtil.getLabelInfoForeground()
                 }
                 
@@ -313,10 +314,10 @@ class AzureDevOpsLoginDialog(private val project: Project?) : DialogWrapper(proj
     private fun isValidAzureDevOpsUrl(url: String): Boolean {
         return try {
             val uri = java.net.URI(url)
-            val host = uri.host?.lowercase() ?: ""
-            host.contains("dev.azure.com") || 
-            host.contains("visualstudio.com") ||
-            host.contains("azure.com")
+            // Accept any valid HTTPS URL for on-premise support
+            // Cloud: dev.azure.com, visualstudio.com
+            // On-Premise: any custom domain
+            uri.scheme == "https" && uri.host != null && uri.host.isNotBlank()
         } catch (_: Exception) {
             false
         }

@@ -8,26 +8,37 @@ import java.net.URI
  */
 @ConsistentCopyVisibility
 data class AzureDevOpsConfig private constructor(
+    val baseUrl: String = "",
     val organization: String = "",
     val project: String = "",
     val repository: String = "",
     val personalAccessToken: String = ""
 ) {
     fun isValid(): Boolean {
-        return organization.isNotBlank() &&
+        return baseUrl.isNotBlank() &&
+                organization.isNotBlank() &&
                 project.isNotBlank() &&
                 repository.isNotBlank() &&
                 personalAccessToken.isNotBlank()
     }
 
+    /**
+     * Returns the normalized base URL (without trailing slash)
+     */
+    fun getNormalizedBaseUrl(): String {
+        return baseUrl.trimEnd('/')
+    }
+
     companion object {
         fun create(
+            baseUrl: String,
             organization: String,
             project: String,
             repository: String,
             personalAccessToken: String
         ): AzureDevOpsConfig {
             return AzureDevOpsConfig(
+                baseUrl = baseUrl.trimEnd('/'),
                 organization = URI(null, null, organization, null).rawPath,
                 project = URI(null, null, project, null).rawPath,
                 repository = URI(null, null, repository, null).rawPath,
