@@ -100,8 +100,11 @@
     <!-- Extension points defined by the plugin.
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
     <extensions defaultExtensionNs="com.intellij">
-        <!-- Azure DevOps Checkout Provider for Clone Repository dialog -->
-        <checkoutProvider implementation="paol0b.azuredevops.checkout.AzureDevOpsCheckoutProvider"/>
+        <!-- Azure DevOps Clone Dialog Extension - appears in left panel alongside GitHub/GitLab -->
+        <openapi.vcs.ui.cloneDialog.VcsCloneDialogExtension 
+            id="paol0b.azuredevops.checkout.AzureDevOpsCloneDialogExtension" 
+            implementation="paol0b.azuredevops.checkout.AzureDevOpsCloneDialogExtension"
+            order="after org.jetbrains.plugins.github.ui.cloneDialog.GHECloneDialogExtension"/>
         <!-- Application-level service for account management -->
         <applicationService serviceImplementation="paol0b.azuredevops.checkout.AzureDevOpsAccountManager"/>
         <!-- OAuth authentication service -->
