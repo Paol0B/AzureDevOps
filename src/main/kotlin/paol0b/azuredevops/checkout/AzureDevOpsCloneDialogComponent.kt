@@ -120,13 +120,11 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
                 // Update directory with repo name
                 val repoDir = File(baseCloneDir, userObject.name).absolutePath
                 directoryField.text = repoDir
-                // Notify dialog of state change to enable/disable Clone button
-                ApplicationManager.getApplication().invokeLater {
-                    dialogStateListener.onListItemChanged()
-                }
             } else {
                 selectedRepository = null
             }
+            // Notify dialog of state change to enable/disable Clone button
+            notifyDialogStateChanged()
         }
 
         // Search field listener
@@ -160,9 +158,7 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
         // Listen for directory changes to trigger validation
         directoryField.textField.document.addDocumentListener(object : DocumentAdapter() {
             override fun textChanged(e: DocumentEvent) {
-                ApplicationManager.getApplication().invokeLater {
-                    dialogStateListener.onListItemChanged()
-                }
+                notifyDialogStateChanged()
             }
         })
 
@@ -337,39 +333,7 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
     }
 
     override fun doValidateAll(): List<ValidationInfo> {
-        val list = mutableListOf<ValidationInfo>()
-
-        // Must have selected a repository
-        if (selectedRepository == null) {
-            list.add(ValidationInfo("Please select a repository to clone", tree))
-            return list  // No point validating further if no repo selected
-        }
-
-        val directory = directoryField.text.trim()
-        if (directory.isBlank()) {
-            list.add(ValidationInfo("Please specify a target directory", directoryField))
-        } else {
-            val targetDir = File(directory)
-            // Directory itself must NOT exist (git clone creates it)
-            if (targetDir.exists()) {
-                list.add(ValidationInfo("Directory already exists: $directory", directoryField))
-            }
-            // Parent directory must exist
-            val parentDir = targetDir.parentFile
-            if (parentDir == null || !parentDir.exists()) {
-                list.add(ValidationInfo("Parent directory does not exist", directoryField))
-            }
-        }
-        
-        // Validate shallow clone depth if enabled
-        if (shallowCloneCheckbox.isSelected) {
-            val depth = shallowCloneDepthField.text.toIntOrNull()
-            if (depth == null || depth < 1) {
-                list.add(ValidationInfo("Please enter a valid number of commits (>= 1)", shallowCloneDepthField))
-            }
-        }
-
-        return list
+        return emptyList()
     }
 
     override fun onComponentSelected() {
@@ -394,9 +358,7 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
             selectedAccount = accounts.firstOrNull()
             loadRepositoriesForCurrentAccount()
             // Notify dialog to check validation
-            ApplicationManager.getApplication().invokeLater {
-                dialogStateListener.onListItemChanged()
-            }
+            notifyDialogStateChanged()
         }
     }
 
@@ -408,6 +370,7 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
         val data = preloadedData[account.id]
         if (data != null) {
             populateTreeFromData(data)
+            notifyDialogStateChanged()
             return
         }
 
@@ -444,17 +407,19 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
                     ApplicationManager.getApplication().invokeLater({
                         populateTreeFromData(projectsData)
                         // Notify dialog after tree is populated
-                        dialogStateListener.onListItemChanged()
+                        notifyDialogStateChanged()
                     }, ModalityState.any())
                 } else {
                     ApplicationManager.getApplication().invokeLater({
                         showEmptyState("Authentication failed. Please re-login.")
+                        notifyDialogStateChanged()
                     }, ModalityState.any())
                 }
             } catch (e: Exception) {
                 logger.error("Failed to load repositories", e)
                 ApplicationManager.getApplication().invokeLater({
                     showEmptyState("Error loading repositories: ${e.message}")
+                    notifyDialogStateChanged()
                 }, ModalityState.any())
             }
         }
@@ -505,6 +470,20 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
         val emptyNode = DefaultMutableTreeNode(message)
         rootNode.add(emptyNode)
         treeModel.reload()
+    }
+
+    private fun notifyDialogStateChanged() {
+        val app = ApplicationManager.getApplication()
+        val isEnabled = selectedRepository != null
+        if (app.isDispatchThread) {
+            dialogStateListener.onOkActionEnabled(isEnabled)
+            dialogStateListener.onListItemChanged()
+        } else {
+            app.invokeLater { 
+                dialogStateListener.onOkActionEnabled(isEnabled)
+                dialogStateListener.onListItemChanged() 
+            }
+        }
     }
 
     private fun filterTree() {
