@@ -15,8 +15,6 @@ import paol0b.azuredevops.services.AzureDevOpsConfigService
 import paol0b.azuredevops.services.AzureDevOpsRepositoryDetector
 import java.awt.BorderLayout
 import java.awt.event.ItemEvent
-import java.net.URLEncoder
-import java.nio.charset.StandardCharsets
 import javax.swing.*
 
 /**
@@ -208,10 +206,8 @@ class AzureDevOpsProjectConfigurable(private val project: Project) : Configurabl
         }
 
         try {
-            val encodedOrg = URLEncoder.encode(repoInfo.organization, StandardCharsets.UTF_8.toString())
-            val encodedProject = URLEncoder.encode(repoInfo.project, StandardCharsets.UTF_8.toString())
-            val encodedRepo = URLEncoder.encode(repoInfo.repository, StandardCharsets.UTF_8.toString())
-            val url = "https://dev.azure.com/$encodedOrg/$encodedProject/_apis/git/repositories/$encodedRepo?api-version=7.0"
+            val apiClient = AzureDevOpsApiClient.getInstance(project)
+            val url = apiClient.buildApiUrl(repoInfo.project, repoInfo.repository, "?api-version=7.0")
             
             testConnectionDirectly(url, token)
             

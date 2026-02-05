@@ -51,22 +51,38 @@ The plugin will automatically use your authenticated account for this repository
      * Helper function to build API URLs with proper URL encoding for project and repository names
      * This handles special characters like accented letters (à, è, ì, etc.) and spaces
      */
-    private fun buildApiUrl(project: String, repository: String, endpoint: String): String {
+    fun buildApiUrl(project: String, repository: String, endpoint: String): String {
         val configService = AzureDevOpsConfigService.getInstance(this.project)
-        // URLEncoder encodes spaces as "+", but for URL paths we need "%20"
-        val encodedProject = URLEncoder.encode(project, StandardCharsets.UTF_8.toString()).replace("+", "%20")
+        val encodedProject = encodePathSegment(project)
+        val encodedRepo = encodePathSegment(repository)
 
-        return "${configService.getApiBaseUrl()}/$encodedProject/_apis/git/repositories/$repository$endpoint"
+        return "${configService.getApiBaseUrl()}/$encodedProject/_apis/git/repositories/$encodedRepo$endpoint"
     }
 
     /**
      * Helper function to build organization-level API URLs
      * Used for endpoints that don't require project/repository scope
      */
-    private fun buildOrgApiUrl(endpoint: String): String {
+    fun buildOrgApiUrl(endpoint: String): String {
         val configService = AzureDevOpsConfigService.getInstance(project)
-        val encodedOrg = URLEncoder.encode(configService.getConfig().organization, StandardCharsets.UTF_8)
-        return "https://dev.azure.com/$encodedOrg/_apis$endpoint"
+        val baseUrl = configService.getApiBaseUrl()
+        return "$baseUrl/_apis$endpoint"
+    }
+
+    fun buildRepositoryWebUrl(projectName: String, repositoryName: String): String {
+        val configService = AzureDevOpsConfigService.getInstance(project)
+        val baseUrl = configService.getApiBaseUrl()
+        val encodedProject = encodePathSegment(projectName)
+        val encodedRepo = encodePathSegment(repositoryName)
+        return "$baseUrl/$encodedProject/_git/$encodedRepo"
+    }
+
+    fun buildPullRequestWebUrl(projectName: String, repositoryName: String, pullRequestId: Int): String {
+        return "${buildRepositoryWebUrl(projectName, repositoryName)}/pullrequest/$pullRequestId"
+    }
+
+    private fun encodePathSegment(value: String): String {
+        return URLEncoder.encode(value, StandardCharsets.UTF_8.toString()).replace("+", "%20")
     }
 
     /**

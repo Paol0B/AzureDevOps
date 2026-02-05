@@ -28,9 +28,9 @@ data class AzureDevOpsConfig private constructor(
             personalAccessToken: String
         ): AzureDevOpsConfig {
             return AzureDevOpsConfig(
-                organization = URI(null, null, organization, null).rawPath,
-                project = URI(null, null, project, null).rawPath,
-                repository = URI(null, null, repository, null).rawPath,
+                organization = organization,
+                project = project,
+                repository = repository,
                 personalAccessToken = personalAccessToken
             )
         }
