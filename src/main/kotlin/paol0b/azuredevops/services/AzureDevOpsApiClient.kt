@@ -1414,6 +1414,235 @@ The plugin will automatically use your authenticated account for this repository
     }
 
 
+    // region Pipelines / Builds
+
+    /**
+     * Helper to build Build API URLs (build APIs are project-scoped, not repo-scoped).
+     * Format: {baseUrl}/{project}/_apis/build{endpoint}
+     */
+    private fun buildBuildApiUrl(projectName: String, endpoint: String): String {
+        val configService = AzureDevOpsConfigService.getInstance(project)
+        val encodedProject = encodePathSegment(projectName)
+        return "${configService.getApiBaseUrl()}/$encodedProject/_apis/build$endpoint"
+    }
+
+    /**
+     * Retrieves a list of builds (pipeline runs) for the current project.
+     * API: GET https://dev.azure.com/{org}/{project}/_apis/build/builds
+     *
+     * @param definitionId Optional: filter by pipeline definition ID
+     * @param requestedFor Optional: filter by user display name or unique name
+     * @param branchName Optional: filter by branch (e.g., "refs/heads/main")
+     * @param statusFilter Optional: filter by build status
+     * @param resultFilter Optional: filter by build result
+     * @param top Maximum number of builds to return
+     * @return List of pipeline builds
+     */
+    @Throws(AzureDevOpsApiException::class)
+    fun getBuilds(
+        definitionId: Int? = null,
+        requestedFor: String? = null,
+        branchName: String? = null,
+        statusFilter: String? = null,
+        resultFilter: String? = null,
+        top: Int = 50
+    ): List<PipelineBuild> {
+        val configService = AzureDevOpsConfigService.getInstance(project)
+        val config = configService.getConfig()
+
+        if (!config.isValid()) {
+            throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
+        }
+
+        val params = mutableListOf("\$top=$top", "api-version=$API_VERSION")
+        definitionId?.let { params.add("definitions=$it") }
+        requestedFor?.let { params.add("requestedFor=${encodePathSegment(it)}") }
+        branchName?.let {
+            val ref = if (it.startsWith("refs/")) it else "refs/heads/$it"
+            params.add("branchName=$ref")
+        }
+        statusFilter?.let { if (it != "all") params.add("statusFilter=$it") }
+        resultFilter?.let { if (it != "all") params.add("resultFilter=$it") }
+
+        val url = buildBuildApiUrl(config.project, "/builds?${params.joinToString("&")}")
+
+        logger.info("Fetching builds: $url")
+
+        return try {
+            val response = executeGet(url, config.personalAccessToken)
+            val listResponse = gson.fromJson(response, BuildListResponse::class.java)
+            listResponse.value
+        } catch (e: Exception) {
+            logger.error("Failed to fetch builds", e)
+            throw AzureDevOpsApiException("Error while retrieving builds: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Retrieves a single build by ID.
+     * API: GET https://dev.azure.com/{org}/{project}/_apis/build/builds/{buildId}
+     */
+    @Throws(AzureDevOpsApiException::class)
+    fun getBuild(buildId: Int): PipelineBuild {
+        val configService = AzureDevOpsConfigService.getInstance(project)
+        val config = configService.getConfig()
+
+        if (!config.isValid()) {
+            throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
+        }
+
+        val url = buildBuildApiUrl(config.project, "/builds/$buildId?api-version=$API_VERSION")
+
+        logger.info("Fetching build #$buildId")
+
+        return try {
+            val response = executeGet(url, config.personalAccessToken)
+            gson.fromJson(response, PipelineBuild::class.java)
+        } catch (e: Exception) {
+            logger.error("Failed to fetch build #$buildId", e)
+            throw AzureDevOpsApiException("Error while retrieving build: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Retrieves the timeline (stages, jobs, tasks) for a build.
+     * API: GET https://dev.azure.com/{org}/{project}/_apis/build/builds/{buildId}/timeline
+     */
+    @Throws(AzureDevOpsApiException::class)
+    fun getBuildTimeline(buildId: Int): BuildTimeline {
+        val configService = AzureDevOpsConfigService.getInstance(project)
+        val config = configService.getConfig()
+
+        if (!config.isValid()) {
+            throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
+        }
+
+        val url = buildBuildApiUrl(config.project, "/builds/$buildId/timeline?api-version=$API_VERSION")
+
+        logger.info("Fetching timeline for build #$buildId")
+
+        return try {
+            val response = executeGet(url, config.personalAccessToken)
+            gson.fromJson(response, BuildTimeline::class.java)
+        } catch (e: Exception) {
+            logger.error("Failed to fetch timeline for build #$buildId", e)
+            throw AzureDevOpsApiException("Error while retrieving build timeline: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Retrieves the full log content for a specific log of a build.
+     * API: GET https://dev.azure.com/{org}/{project}/_apis/build/builds/{buildId}/logs/{logId}
+     * Returns plain text log lines.
+     */
+    @Throws(AzureDevOpsApiException::class)
+    fun getBuildLogText(buildId: Int, logId: Int): String {
+        val configService = AzureDevOpsConfigService.getInstance(project)
+        val config = configService.getConfig()
+
+        if (!config.isValid()) {
+            throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
+        }
+
+        val url = buildBuildApiUrl(config.project, "/builds/$buildId/logs/$logId?api-version=$API_VERSION")
+
+        logger.info("Fetching log #$logId for build #$buildId")
+
+        return try {
+            // The log endpoint returns plain text, not JSON
+            val request = Request.Builder()
+                .url(url)
+                .get()
+                .addHeader("Authorization", createAuthHeader(config.personalAccessToken))
+                .addHeader("Accept", "text/plain")
+                .build()
+
+            httpClient.newCall(request).execute().use { response ->
+                val responseBody = response.body?.string() ?: ""
+                if (response.isSuccessful) {
+                    responseBody
+                } else {
+                    throw handleErrorResponse(response.code, responseBody)
+                }
+            }
+        } catch (e: AzureDevOpsApiException) {
+            throw e
+        } catch (e: Exception) {
+            logger.error("Failed to fetch log #$logId for build #$buildId", e)
+            throw AzureDevOpsApiException("Error while retrieving build log: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Retrieves all build definitions (pipelines) for the current project.
+     * API: GET https://dev.azure.com/{org}/{project}/_apis/build/definitions
+     */
+    @Throws(AzureDevOpsApiException::class)
+    fun getBuildDefinitions(): List<BuildDefinition> {
+        val configService = AzureDevOpsConfigService.getInstance(project)
+        val config = configService.getConfig()
+
+        if (!config.isValid()) {
+            throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
+        }
+
+        val url = buildBuildApiUrl(config.project, "/definitions?api-version=$API_VERSION")
+
+        logger.info("Fetching build definitions")
+
+        return try {
+            val response = executeGet(url, config.personalAccessToken)
+            val listResponse = gson.fromJson(response, BuildDefinitionListResponse::class.java)
+            listResponse.value
+        } catch (e: Exception) {
+            logger.error("Failed to fetch build definitions", e)
+            throw AzureDevOpsApiException("Error while retrieving build definitions: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Queues (runs) a new build.
+     * API: POST https://dev.azure.com/{org}/{project}/_apis/build/builds
+     *
+     * @param definitionId The ID of the pipeline definition to run
+     * @param sourceBranch Optional: branch to build (e.g., "refs/heads/main")
+     * @param parameters Optional: JSON string of parameters
+     * @return The queued build
+     */
+    @Throws(AzureDevOpsApiException::class)
+    fun queueBuild(
+        definitionId: Int,
+        sourceBranch: String? = null,
+        parameters: String? = null
+    ): PipelineBuild {
+        val configService = AzureDevOpsConfigService.getInstance(project)
+        val config = configService.getConfig()
+
+        if (!config.isValid()) {
+            throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
+        }
+
+        val request = QueueBuildRequest(
+            definition = QueueBuildDefinitionRef(id = definitionId),
+            sourceBranch = sourceBranch,
+            parameters = parameters
+        )
+
+        val url = buildBuildApiUrl(config.project, "/builds?api-version=$API_VERSION")
+
+        logger.info("Queueing build for definition #$definitionId on branch: $sourceBranch")
+
+        return try {
+            val response = executePost(url, request, config.personalAccessToken)
+            gson.fromJson(response, PipelineBuild::class.java)
+        } catch (e: Exception) {
+            logger.error("Failed to queue build", e)
+            throw AzureDevOpsApiException("Error while queueing build: ${e.message}", e)
+        }
+    }
+
+    // endregion
+
 }
 
 /**

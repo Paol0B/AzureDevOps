@@ -144,6 +144,15 @@
                 canCloseContents="true"
                 doNotActivateOnStart="false"/>
 
+        <!-- Pipelines Tool Window -->
+        <toolWindow
+                id="Azure DevOps Pipelines"
+                anchor="left"
+                icon="paol0b.azuredevops.AzureDevOpsIcons.ToolWindow"
+                factoryClass="paol0b.azuredevops.toolwindow.pipeline.PipelineToolWindowFactory"
+                canCloseContents="true"
+                doNotActivateOnStart="false"/>
+
         <!-- Comments Navigator Tool Window -->
         <toolWindow
                 id="PR Comments"
@@ -168,6 +177,15 @@
 
         <!-- PR Timeline Editor Tab -->
         <fileEditorProvider implementation="paol0b.azuredevops.toolwindow.review.editor.PrTimelineFileEditorProvider"/>
+
+        <!-- Pipeline Log Editor Tab -->
+        <fileEditorProvider implementation="paol0b.azuredevops.toolwindow.pipeline.editor.PipelineLogFileEditorProvider"/>
+
+        <!-- Pipeline Diagram Editor Tab -->
+        <fileEditorProvider implementation="paol0b.azuredevops.toolwindow.pipeline.editor.PipelineDiagramFileEditorProvider"/>
+
+        <!-- Pipeline Tab Service -->
+        <projectService serviceImplementation="paol0b.azuredevops.services.PipelineTabService"/>
 
         <!-- File Decorator for PR Comments -->
         <projectViewNodeDecorator implementation="paol0b.azuredevops.decorators.FileWithCommentsDecorator"/>
