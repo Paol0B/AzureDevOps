@@ -194,12 +194,12 @@ class FileTreePanel(
         
         treeModel.reload()
         
-        // Restore expansion state
-        restoreExpansionState()
-        
-        // Restore selection if possible
-        if (selectedFilePath != null) {
-            javax.swing.SwingUtilities.invokeLater {
+        // Always expand all nodes recursively
+        javax.swing.SwingUtilities.invokeLater {
+            expandAllNodes()
+            
+            // Restore selection if possible
+            if (selectedFilePath != null) {
                 selectFile(selectedFilePath)
             }
         }
@@ -281,12 +281,12 @@ class FileTreePanel(
         
         treeModel.reload()
         
-        // Restore expansion state
-        restoreExpansionState()
-        
-        // Restore selection if possible
-        if (selectedFilePath != null) {
-            javax.swing.SwingUtilities.invokeLater {
+        // Always expand all nodes recursively
+        javax.swing.SwingUtilities.invokeLater {
+            expandAllNodes()
+            
+            // Restore selection if possible
+            if (selectedFilePath != null) {
                 selectFile(selectedFilePath)
             }
         }
@@ -398,6 +398,26 @@ class FileTreePanel(
                 }
             }
         }
+    }
+
+    /**
+     * Expand all directory nodes recursively
+     */
+    private fun expandAllNodes() {
+        fun expandNodeRecursively(node: DefaultMutableTreeNode) {
+            for (i in 0 until node.childCount) {
+                val child = node.getChildAt(i) as DefaultMutableTreeNode
+                val userObject = child.userObject
+                
+                if (userObject is DirectoryNode) {
+                    val path = TreePath(treeModel.getPathToRoot(child))
+                    tree.expandPath(path)
+                    expandNodeRecursively(child)
+                }
+            }
+        }
+        
+        expandNodeRecursively(rootNode)
     }
 
     /**

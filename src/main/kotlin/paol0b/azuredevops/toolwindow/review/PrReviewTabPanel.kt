@@ -73,6 +73,7 @@ class PrReviewTabPanel(
     private var ignoringVoteChange = false
     private var refreshTimer: Timer? = null
     private val REFRESH_INTERVAL = 30000
+    private var activeCommentThreads: List<CommentThread> = emptyList()
 
     init {
         background = UIUtil.getPanelBackground()
@@ -103,12 +104,12 @@ class PrReviewTabPanel(
         scrollContent.add(createSeparator())
         scrollContent.add(createReviewersSection())
 
+        // Glue - Place before vote to allow reviewers to expand
+        scrollContent.add(Box.createVerticalGlue())
+
         // === VOTE SECTION ===
         scrollContent.add(createSeparator())
         scrollContent.add(createVoteSection())
-
-        // Glue
-        scrollContent.add(Box.createVerticalGlue())
 
         val scrollPane = JBScrollPane(scrollContent).apply {
             border = JBUI.Borders.empty()
@@ -244,8 +245,9 @@ class PrReviewTabPanel(
     private fun createPolicyChecksSection(): JPanel {
         val section = JPanel(BorderLayout()).apply {
             background = UIUtil.getPanelBackground()
-            border = JBUI.Borders.empty(4, 14, 4, 14)
+            border = JBUI.Borders.empty(2, 14, 2, 14)
             alignmentX = Component.LEFT_ALIGNMENT
+            maximumSize = Dimension(Int.MAX_VALUE, 80)
         }
 
         section.add(policyChecksContainer, BorderLayout.CENTER)
@@ -268,9 +270,18 @@ class PrReviewTabPanel(
             background = UIUtil.getPanelBackground()
             border = JBUI.Borders.empty(4, 14, 4, 14)
             alignmentX = Component.LEFT_ALIGNMENT
+            // Allow section to expand vertically to fill available space
+            maximumSize = Dimension(Int.MAX_VALUE, Int.MAX_VALUE)
+            preferredSize = Dimension(Int.MAX_VALUE, 150)
         }
 
         section.add(reviewersContainer, BorderLayout.CENTER)
+        
+        // Allow reviewers container to expand
+        reviewersContainer.apply {
+            maximumSize = Dimension(Int.MAX_VALUE, Int.MAX_VALUE)
+        }
+        
         updateReviewersUI(pullRequest.reviewers ?: emptyList())
 
         return section
@@ -323,6 +334,10 @@ class PrReviewTabPanel(
 
                 // Load comment threads (for file badges)
                 val threads = apiClient.getCommentThreads(pullRequest.pullRequestId, projectName, repositoryId)
+                // Filter active (non-resolved) comment threads
+                activeCommentThreads = threads.filter { 
+                    it.isDeleted != true && it.isActive()
+                }
 
                 // Load policy evaluations
                 val policies = apiClient.getPolicyEvaluations(pullRequest.pullRequestId, projectName, repositoryId)
@@ -338,7 +353,7 @@ class PrReviewTabPanel(
                     }
 
                     // Update policy checks
-                    updatePolicyChecksUI(policies, pullRequest)
+                    updatePolicyChecksUI(policies, pullRequest, activeCommentThreads)
 
                     // Refresh reviewers with avatars potentially loaded
                     updateReviewersUI(pullRequest.reviewers ?: emptyList())
@@ -349,42 +364,58 @@ class PrReviewTabPanel(
         }
     }
 
-    private fun updatePolicyChecksUI(policies: List<PolicyEvaluation>, pr: PullRequest) {
+    private fun updatePolicyChecksUI(policies: List<PolicyEvaluation>, pr: PullRequest, threads: List<CommentThread> = emptyList()) {
         policyChecksContainer.removeAll()
+        policyChecksContainer.layout = FlowLayout(FlowLayout.LEFT, 12, 2)
+
+        // Check for active comments that need to be resolved
+        val hasActiveComments = threads.isNotEmpty()
+        if (hasActiveComments) {
+            policyChecksContainer.add(createCompactCheckItem("💬 Comments must be resolved", false, isBuild = false))
+        }
 
         if (policies.isEmpty()) {
-            // Fallback: show basic info from PR data
+            // Fallback: show compact info from PR data
             val hasConflicts = pr.hasConflicts()
             if (hasConflicts) {
-                policyChecksContainer.add(createCheckItem("Merge conflicts detected", false))
+                policyChecksContainer.add(createCompactCheckItem("⚠ Conflicts", false))
             }
-            // Check comment resolution from threads
-            policyChecksContainer.add(createCheckItem(
-                if (pr.mergeStatus == "succeeded") "All required checks have passed" else "Checks status unknown",
-                pr.mergeStatus == "succeeded"
-            ))
+            // Show merge status compactly
+            val statusText = if (pr.mergeStatus == "succeeded") "✓ All checks passed" else "⚠ Checks pending"
+            policyChecksContainer.add(createCompactCheckItem(statusText, pr.mergeStatus == "succeeded"))
         } else {
-            policies.forEach { policy ->
+            // Show policies compactly - prioritize build status
+            val buildPolicies = policies.filter { it.getDisplayName().contains("build", ignoreCase = true) }
+            val otherPolicies = policies.filter { !it.getDisplayName().contains("build", ignoreCase = true) }
+            
+            // Show build policies first with emphasis
+            buildPolicies.forEach { policy ->
                 val name = policy.getDisplayName()
                 val approved = policy.isApproved()
                 val running = policy.isRunning()
-                val icon = when {
-                    approved -> AllIcons.RunConfigurations.TestPassed
-                    running -> AllIcons.Process.Step_1
-                    else -> AllIcons.RunConfigurations.TestFailed
+                
+                val displayName = when {
+                    running -> "⏳ ${name}"
+                    approved -> "✓ ${name}"
+                    else -> "✗ ${name}"
                 }
-                val label = JBLabel(name).apply {
-                    this.icon = icon
-                    foreground = when {
-                        approved -> JBColor(Color(34, 139, 34), Color(50, 200, 50))
-                        running -> JBColor.GRAY
-                        else -> JBColor(Color(220, 53, 69), Color(200, 35, 51))
-                    }
-                    font = font.deriveFont(11f)
-                    alignmentX = Component.LEFT_ALIGNMENT
-                    border = JBUI.Borders.empty(2, 0)
+                
+                policyChecksContainer.add(createCompactCheckItem(displayName, approved, isBuild = true))
+            }
+            
+            // Then show other policies
+            otherPolicies.forEach { policy ->
+                val name = policy.getDisplayName()
+                val approved = policy.isApproved()
+                val running = policy.isRunning()
+                
+                val displayName = when {
+                    running -> "⏳ ${name}"
+                    approved -> "✓ ${name}"
+                    else -> "✗ ${name}"
                 }
-                policyChecksContainer.add(label)
+                
+                policyChecksContainer.add(createCompactCheckItem(displayName, approved, isBuild = false))
             }
         }
 
@@ -400,6 +431,23 @@ class PrReviewTabPanel(
             font = font.deriveFont(11f)
             alignmentX = Component.LEFT_ALIGNMENT
             border = JBUI.Borders.empty(2, 0)
+        }
+    }
+    
+    private fun createCompactCheckItem(text: String, passed: Boolean, isBuild: Boolean = false): JComponent {
+        return JBLabel(text).apply {
+            foreground = if (passed) JBColor(Color(34, 139, 34), Color(50, 200, 50))
+                else JBColor(Color(220, 53, 69), Color(200, 35, 51))
+            font = if (isBuild) font.deriveFont(Font.BOLD, 11f) else font.deriveFont(11f)
+            border = JBUI.Borders.empty(1, 6, 1, 6)
+            
+            // Add subtle background for build items
+            if (isBuild) {
+                isOpaque = true
+                background = if (passed) 
+                    JBColor(Color(230, 255, 230), Color(30, 60, 30))
+                    else JBColor(Color(255, 230, 230), Color(60, 30, 30))
+            }
         }
     }
 
@@ -567,10 +615,17 @@ class PrReviewTabPanel(
             try {
                 val updatedPr = apiClient.getPullRequest(pullRequest.pullRequestId, projectName, repositoryId)
                 val threads = apiClient.getCommentThreads(pullRequest.pullRequestId, projectName, repositoryId)
+                val policies = apiClient.getPolicyEvaluations(pullRequest.pullRequestId, projectName, repositoryId)
+                
+                // Filter active (non-resolved) comment threads
+                activeCommentThreads = threads.filter { 
+                    it.isDeleted != true && it.isActive()
+                }
 
                 ApplicationManager.getApplication().invokeLater {
                     updateReviewersUI(updatedPr.reviewers ?: emptyList())
                     fileTreePanel?.updateCommentCounts(threads)
+                    updatePolicyChecksUI(policies, updatedPr, activeCommentThreads)
                 }
             } catch (e: Exception) {
                 logger.warn("Auto-refresh failed: ${e.message}")

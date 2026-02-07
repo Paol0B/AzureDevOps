@@ -3,7 +3,7 @@
     <idea-version since-build="251" />
     <!-- Unique identifier of the plugin. It should be FQN. It cannot be changed between the plugin versions. -->
     <id>paol0b.AzureDevOps</id>
-    <version>2.5-rc3</version>
+    <version>3.0</version>
 
     <!-- Public plugin name should be written in Title Case.
          Guidelines: https://plugins.jetbrains.com/docs/marketplace/best-practices-for-listing.html#plugin-name -->
@@ -138,7 +138,7 @@
         <!-- Tool Window -->
         <toolWindow
                 id="Azure DevOps PRs"
-                anchor="right"
+                anchor="left"
                 icon="paol0b.azuredevops.AzureDevOpsIcons.ToolWindow"
                 factoryClass="paol0b.azuredevops.toolwindow.PullRequestToolWindowFactory"
                 canCloseContents="true"
@@ -147,7 +147,7 @@
         <!-- Comments Navigator Tool Window -->
         <toolWindow
                 id="PR Comments"
-                anchor="right"
+                anchor="left"
                 icon="AllIcons.Toolwindows.ToolWindowMessages"
                 factoryClass="paol0b.azuredevops.toolwindow.CommentsNavigatorToolWindow"/>
 

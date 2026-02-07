@@ -13,14 +13,13 @@ import java.io.OutputStream
  */
 class PrDiffVirtualFile(
     val pullRequestId: Int,
-    val filePath: String,
+    var filePath: String,
     val repositoryId: String?
 ) : VirtualFile() {
 
-    private val displayName = "PR #$pullRequestId: ${filePath.substringAfterLast('/')}"
     private val fileSystem = PrDiffVirtualFileSystem
 
-    override fun getName(): String = displayName
+    override fun getName(): String = "PR #$pullRequestId: ${filePath.substringAfterLast('/')}"
     override fun getFileSystem(): VirtualFileSystem = fileSystem
     override fun getPath(): String = "prdiff://$pullRequestId/${filePath}"
     override fun isWritable(): Boolean = false
@@ -42,10 +41,11 @@ class PrDiffVirtualFile(
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is PrDiffVirtualFile) return false
-        return pullRequestId == other.pullRequestId && filePath == other.filePath
+        // Only consider PR ID for equality, not file path (allows reusing same tab for different files)
+        return pullRequestId == other.pullRequestId
     }
 
-    override fun hashCode(): Int = 31 * pullRequestId + filePath.hashCode()
+    override fun hashCode(): Int = pullRequestId
 }
 
 object PrDiffVirtualFileSystem : VirtualFileSystem() {

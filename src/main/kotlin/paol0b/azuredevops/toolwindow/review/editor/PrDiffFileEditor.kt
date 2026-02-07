@@ -20,7 +20,7 @@ class PrDiffFileEditor(
     private val project: Project,
     private val file: VirtualFile,
     private val pullRequest: PullRequest,
-    private val change: PullRequestChange
+    private var change: PullRequestChange
 ) : UserDataHolderBase(), FileEditor {
 
     private val diffPanel = DiffViewerPanel(
@@ -46,6 +46,15 @@ class PrDiffFileEditor(
     override fun addPropertyChangeListener(listener: PropertyChangeListener) {}
     override fun removePropertyChangeListener(listener: PropertyChangeListener) {}
     override fun getCurrentLocation(): FileEditorLocation? = null
+
+    /**
+     * Update the displayed change and reload the diff viewer.
+     * Called when the same tab is reused for a different file in the same PR.
+     */
+    fun updateChange(newChange: PullRequestChange) {
+        change = newChange
+        diffPanel.loadDiff(newChange)
+    }
 
     override fun dispose() {
         if (!isDisposed) {

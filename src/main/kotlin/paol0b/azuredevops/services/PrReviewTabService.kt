@@ -6,6 +6,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import paol0b.azuredevops.model.PullRequest
 import paol0b.azuredevops.model.PullRequestChange
+import paol0b.azuredevops.toolwindow.review.editor.PrDiffFileEditor
 import paol0b.azuredevops.toolwindow.review.editor.PrDiffVirtualFile
 import paol0b.azuredevops.toolwindow.review.editor.PrReviewKey
 import paol0b.azuredevops.toolwindow.review.editor.PrReviewVirtualFile
@@ -21,7 +22,7 @@ class PrReviewTabService(private val project: Project) {
     /** Legacy review key → file mapping */
     private val fileByKey = ConcurrentHashMap<PrReviewKey, VirtualFile>()
 
-    /** Diff files keyed by "prId:filePath" */
+    /** Diff files keyed by prId (reuses same tab for different files in the same PR) */
     private val diffFiles = ConcurrentHashMap<String, PrDiffVirtualFile>()
 
     /** Timeline files keyed by prId */
@@ -63,10 +64,23 @@ class PrReviewTabService(private val project: Project) {
     fun openDiffTab(pullRequest: PullRequest, change: PullRequestChange) {
         val editorManager = FileEditorManager.getInstance(project)
         val filePath = change.item?.path ?: return
-        val diffKey = "${pullRequest.pullRequestId}:$filePath"
+        // Use only PR ID as key - reuse the same tab for different files in the same PR
+        val diffKey = "${pullRequest.pullRequestId}"
 
         val existing = diffFiles[diffKey]
         if (existing != null) {
+            // File already exists for this PR - update it with the new file path and change
+            existing.filePath = filePath
+            changeByFile[existing] = change
+            
+            // Update the editor if it's already open
+            val editors = editorManager.getEditors(existing)
+            for (editor in editors) {
+                if (editor is PrDiffFileEditor) {
+                    editor.updateChange(change)
+                }
+            }
+            
             editorManager.openFile(existing, true, true)
             return
         }
@@ -115,7 +129,9 @@ class PrReviewTabService(private val project: Project) {
                 fileByKey.remove(key)
             }
             is PrDiffVirtualFile -> {
-                diffFiles.entries.removeIf { it.value == file }
+                // Remove by PR ID only (since that's now the key)
+                val diffKey = "${pullRequest.pullRequestId}"
+                diffFiles.remove(diffKey)
             }
             is PrTimelineVirtualFile -> {
                 timelineFiles.remove(pullRequest.pullRequestId)

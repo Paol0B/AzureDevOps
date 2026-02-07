@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "paol0b"
-version = "2.5-rc3"
+version = "3.0"
 
 repositories {
     mavenCentral()
