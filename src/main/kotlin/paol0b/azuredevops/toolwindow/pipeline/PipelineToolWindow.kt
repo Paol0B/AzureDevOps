@@ -26,6 +26,8 @@ class PipelineToolWindow(private val project: Project) {
     private val mainPanel: SimpleToolWindowPanel
     val pipelineListPanel: PipelineListPanel
     private var isInitialLoadDone = false
+    private var isDefinitionsLoading = false
+    private var isDefinitionsLoaded = false
 
     // Filter controls
     private val resultComboBox = ComboBox(arrayOf(
@@ -39,13 +41,41 @@ class PipelineToolWindow(private val project: Project) {
     private val definitionComboBox = ComboBox(arrayOf("All Pipelines")).apply {
         selectedItem = "All Pipelines"
         maximumSize = Dimension(200, 30)
+        preferredSize = Dimension(200, 30)
+        // Set a prototype value to prevent width from changing when items are loaded
+        setPrototypeDisplayValue("All Pipelines - Very Long Pipeline Name XXX")
         toolTipText = "Filter by Pipeline"
+        
+        // Custom renderer with tooltip support
+        renderer = object : com.intellij.ui.SimpleListCellRenderer<Any>() {
+            override fun customize(list: javax.swing.JList<out Any>, value: Any?, index: Int, selected: Boolean, hasFocus: Boolean) {
+                text = value?.toString() ?: ""
+                // Add tooltip with full text for long names
+                if (value != null) {
+                    icon = null
+                    toolTipText = value.toString()
+                }
+            }
+        }
+        
+        addPopupMenuListener(object : javax.swing.event.PopupMenuListener {
+            override fun popupMenuWillBecomeVisible(e: javax.swing.event.PopupMenuEvent?) {
+                // If combo is empty or only has "All Pipelines" when opened, try loading
+                if (itemCount <= 1 && !isDefinitionsLoaded && !isDefinitionsLoading) {
+                    logger.info("Combo opened with no items, triggering definitions load")
+                    loadDefinitions()
+                }
+            }
+
+            override fun popupMenuWillBecomeInvisible(e: javax.swing.event.PopupMenuEvent?) {}
+            override fun popupMenuCanceled(e: javax.swing.event.PopupMenuEvent?) {}
+        })
     }
 
     private val branchField = JBTextField().apply {
         emptyText.text = "Branch filter..."
         maximumSize = Dimension(140, 30)
-        preferredSize = Dimension(140, 30)
+        preferredSize = Dimension(90, 30)
         toolTipText = "Filter by branch name (press Enter to apply)"
     }
 
@@ -116,6 +146,9 @@ class PipelineToolWindow(private val project: Project) {
     }
 
     fun loadPipelinesIfNeeded() {
+        if (!isDefinitionsLoaded) {
+            loadDefinitions()
+        }
         if (!isInitialLoadDone) {
             isInitialLoadDone = true
             pipelineListPanel.refreshBuilds()
@@ -162,7 +195,7 @@ class PipelineToolWindow(private val project: Project) {
             // Refresh
             add(object : AnAction("Refresh", "Refresh pipeline list", AllIcons.Actions.Refresh) {
                 override fun actionPerformed(e: AnActionEvent) {
-                    pipelineListPanel.refreshBuilds()
+                    refreshDefinitionsAndBuilds()
                 }
             })
 
@@ -199,15 +232,13 @@ class PipelineToolWindow(private val project: Project) {
             // Filter controls on the right
             val filterPanel = JPanel().apply {
                 layout = BoxLayout(this, BoxLayout.X_AXIS)
-                add(Box.createHorizontalStrut(8))
+                add(Box.createHorizontalStrut(6))
                 add(resultComboBox)
                 add(Box.createHorizontalStrut(6))
-                add(userComboBox)
-                add(Box.createHorizontalStrut(6))
                 add(branchField)
-                add(Box.createHorizontalStrut(6))
+                add(Box.createHorizontalStrut(4))
                 add(definitionComboBox)
-                add(Box.createHorizontalStrut(8))
+                add(Box.createHorizontalStrut(6))
             }
             add(filterPanel, BorderLayout.EAST)
         }
@@ -219,23 +250,57 @@ class PipelineToolWindow(private val project: Project) {
      * Load pipeline definitions in background and populate the filter combo.
      */
     private fun loadDefinitions() {
+        if (isDefinitionsLoading || isDefinitionsLoaded) return
+        
+        isDefinitionsLoading = true
+        logger.info("Starting to load build definitions...")
+        
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
                 val apiClient = AzureDevOpsApiClient.getInstance(project)
                 val definitions = apiClient.getBuildDefinitions()
+                
+                if (definitions.isEmpty()) {
+                    logger.warn("No build definitions returned from API")
+                } else {
+                    logger.info("Loaded ${definitions.size} build definitions")
+                }
+                
                 cachedDefinitions = definitions.sortedBy { it.name }
 
                 ApplicationManager.getApplication().invokeLater {
-                    definitionComboBox.removeAllItems()
-                    definitionComboBox.addItem("All Pipelines")
-                    cachedDefinitions.forEach { def ->
-                        definitionComboBox.addItem(def.getDisplayName())
-                    }
+                    updateDefinitionsCombo()
+                    isDefinitionsLoaded = true
+                    isDefinitionsLoading = false
+                    logger.info("Build definitions combo updated successfully")
                 }
             } catch (e: Exception) {
-                logger.warn("Failed to load build definitions: ${e.message}")
+                logger.error("Failed to load build definitions: ${e.message}", e)
+                isDefinitionsLoading = false
+                // Don't mark as loaded on error, allow retry
             }
         }
+    }
+
+    /**
+     * Update the definitions combo box with the cached definitions.
+     */
+    private fun updateDefinitionsCombo() {
+        definitionComboBox.removeAllItems()
+        definitionComboBox.addItem("All Pipelines")
+        cachedDefinitions.forEach { def ->
+            definitionComboBox.addItem(def.getDisplayName())
+        }
+    }
+
+    /**
+     * Refresh definitions and builds together.
+     */
+    fun refreshDefinitionsAndBuilds() {
+        isDefinitionsLoaded = false
+        isDefinitionsLoading = false
+        loadDefinitions()
+        pipelineListPanel.refreshBuilds()
     }
 
     fun dispose() {
