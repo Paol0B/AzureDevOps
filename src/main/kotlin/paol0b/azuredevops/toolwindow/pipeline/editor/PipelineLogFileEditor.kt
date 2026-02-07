@@ -10,6 +10,7 @@ import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.fileEditor.FileEditorLocation
 import com.intellij.openapi.fileEditor.FileEditorState
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.util.UserDataHolderBase
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
@@ -69,13 +70,14 @@ class PipelineLogFileEditor(
             try {
                 val apiClient = AzureDevOpsApiClient.getInstance(project)
                 val logText = apiClient.getBuildLogText(file.buildId, file.logId)
+                val normalizedLogText = StringUtil.convertLineSeparators(logText)
 
                 ApplicationManager.getApplication().invokeLater {
                     // Remove loading placeholder
                     mainPanel.remove(mainPanel.getComponent(1))
 
                     // Create read-only editor with monospaced font
-                    val document = EditorFactory.getInstance().createDocument(logText)
+                    val document = EditorFactory.getInstance().createDocument(normalizedLogText)
                     val editor = EditorFactory.getInstance().createViewer(document, project)
 
                     (editor as? EditorEx)?.let { editorEx ->

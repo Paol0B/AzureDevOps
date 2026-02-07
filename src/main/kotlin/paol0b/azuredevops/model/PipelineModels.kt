@@ -212,6 +212,23 @@ data class BuildTimeline(
     fun getTasksForJob(jobId: String): List<TimelineRecord> {
         return records?.filter { it.type == "Task" && it.parentId == jobId }?.sortedBy { it.order } ?: emptyList()
     }
+
+    /**
+     * Returns top-level timeline records (no parentId), ordered by `order`.
+     */
+    fun getRootRecords(): List<TimelineRecord> {
+        val all = records ?: return emptyList()
+        val ids = all.mapNotNull { it.id }.toSet()
+        return all.filter { it.parentId == null || (it.parentId != null && it.parentId !in ids) }
+            .sortedBy { it.order }
+    }
+
+    /**
+     * Returns child records for a parent id, ordered by `order`.
+     */
+    fun getChildren(parentId: String): List<TimelineRecord> {
+        return records?.filter { it.parentId == parentId }?.sortedBy { it.order } ?: emptyList()
+    }
 }
 
 /**

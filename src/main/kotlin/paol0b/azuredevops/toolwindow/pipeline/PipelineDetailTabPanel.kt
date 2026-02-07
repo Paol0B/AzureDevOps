@@ -314,7 +314,7 @@ class PipelineDetailTabPanel(
             // Click on a task opens its log
             addMouseListener(object : MouseAdapter() {
                 override fun mouseClicked(e: MouseEvent) {
-                    if (e.clickCount == 2) {
+                    if (e.clickCount >= 1) {
                         val node = lastSelectedPathComponent as? DefaultMutableTreeNode ?: return
                         val record = node.userObject as? TimelineRecord ?: return
                         if (record.type == "Task" && record.hasLog()) {
@@ -370,19 +370,16 @@ class PipelineDetailTabPanel(
             return
         }
 
-        val stages = tl.getStages()
-        for (stage in stages) {
-            val stageNode = DefaultMutableTreeNode(stage)
-            val jobs = tl.getJobsForStage(stage.id ?: continue)
-            for (job in jobs) {
-                val jobNode = DefaultMutableTreeNode(job)
-                val tasks = tl.getTasksForJob(job.id ?: continue)
-                for (task in tasks) {
-                    jobNode.add(DefaultMutableTreeNode(task))
-                }
-                stageNode.add(jobNode)
-            }
-            treeRootNode.add(stageNode)
+        val roots = tl.getRootRecords()
+        if (roots.isEmpty()) {
+            treeRootNode.add(DefaultMutableTreeNode("No timeline data available"))
+            treeModel.reload()
+            return
+        }
+
+        val visited = mutableSetOf<String>()
+        for (root in roots) {
+            treeRootNode.add(buildRecordSubtree(tl, root, visited))
         }
 
         treeModel.reload()
@@ -391,6 +388,24 @@ class PipelineDetailTabPanel(
         for (i in 0 until timelineTree.rowCount) {
             timelineTree.expandRow(i)
         }
+    }
+
+    private fun buildRecordSubtree(
+        tl: BuildTimeline,
+        record: TimelineRecord,
+        visited: MutableSet<String>
+    ): DefaultMutableTreeNode {
+        val node = DefaultMutableTreeNode(record)
+        val recordId = record.id
+        if (recordId == null || !visited.add(recordId)) {
+            return node
+        }
+
+        val children = tl.getChildren(recordId)
+        for (child in children) {
+            node.add(buildRecordSubtree(tl, child, visited))
+        }
+        return node
     }
 
     // ========================
@@ -519,7 +534,7 @@ class PipelineDetailTabPanel(
                     record.result?.let { append(" — $it") }
                     if ((record.errorCount ?: 0) > 0) append(" — ${record.errorCount} error(s)")
                     if ((record.warningCount ?: 0) > 0) append(" — ${record.warningCount} warning(s)")
-                    if (record.type == "Task" && record.hasLog()) append("\nDouble-click to view log")
+                    if (record.type == "Task" && record.hasLog()) append("\nClick to view log")
                 }
             } else if (record is String) {
                 icon = AllIcons.General.Information
@@ -538,6 +553,8 @@ class PipelineDetailTabPanel(
             record.isPending() -> AllIcons.RunConfigurations.TestNotRan
             else -> when (record.type) {
                 "Stage" -> AllIcons.Nodes.Module
+                "Phase" -> AllIcons.Nodes.Folder
+                "Checkpoint" -> AllIcons.Nodes.Folder
                 "Job" -> AllIcons.Nodes.ConfigFolder
                 "Task" -> AllIcons.Nodes.Plugin
                 else -> AllIcons.General.Information
