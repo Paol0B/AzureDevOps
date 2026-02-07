@@ -293,7 +293,13 @@ class InlineCommentComponent(
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
                 val threadId = thread.id ?: return@executeOnPooledThread
-                apiClient.updateThreadStatus(pullRequestId, threadId, newStatus)
+                apiClient.updateThreadStatus(
+                    pullRequestId,
+                    threadId,
+                    newStatus,
+                    projectName,
+                    repositoryId
+                )
                 
                 logger.info("Thread #$threadId status updated to $newStatus")
                 
@@ -316,7 +322,13 @@ class InlineCommentComponent(
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
                 val threadId = thread.id ?: return@executeOnPooledThread
-                apiClient.addCommentToThread(pullRequestId, threadId, text)
+                apiClient.addCommentToThread(
+                    pullRequestId,
+                    threadId,
+                    text,
+                    projectName,
+                    repositoryId
+                )
                 
                 logger.info("Reply added to thread #$threadId")
                 

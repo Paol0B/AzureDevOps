@@ -560,7 +560,13 @@ The plugin will automatically use your authenticated account for this repository
      * @return The created comment
      */
     @Throws(AzureDevOpsApiException::class)
-    fun addCommentToThread(pullRequestId: Int, threadId: Int, content: String): Comment {
+    fun addCommentToThread(
+        pullRequestId: Int,
+        threadId: Int,
+        content: String,
+        projectName: String? = null,
+        repositoryId: String? = null
+    ): Comment {
         val configService = AzureDevOpsConfigService.getInstance(project)
         val config = configService.getConfig()
 
@@ -568,10 +574,17 @@ The plugin will automatically use your authenticated account for this repository
             throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
         }
 
+        val effectiveProject = projectName ?: config.project
+        val effectiveRepo = repositoryId ?: config.repository
+
         val request = CreateCommentRequest(content = content)
-        val url = buildApiUrl(config.project, config.repository, "/pullRequests/$pullRequestId/threads/$threadId/comments?api-version=$API_VERSION")
-        
-        logger.info("Adding comment to thread #$threadId in PR #$pullRequestId")
+        val url = buildApiUrl(
+            effectiveProject,
+            effectiveRepo,
+            "/pullRequests/$pullRequestId/threads/$threadId/comments?api-version=$API_VERSION"
+        )
+
+        logger.info("Adding comment to thread #$threadId in PR #$pullRequestId ($effectiveProject/$effectiveRepo)")
         
         return try {
             val response = executePost(url, request, config.personalAccessToken)
@@ -590,7 +603,13 @@ The plugin will automatically use your authenticated account for this repository
      * @return Updated thread
      */
     @Throws(AzureDevOpsApiException::class)
-    fun updateThreadStatus(pullRequestId: Int, threadId: Int, status: ThreadStatus) {
+    fun updateThreadStatus(
+        pullRequestId: Int,
+        threadId: Int,
+        status: ThreadStatus,
+        projectName: String? = null,
+        repositoryId: String? = null
+    ) {
         val configService = AzureDevOpsConfigService.getInstance(project)
         val config = configService.getConfig()
 
@@ -598,14 +617,17 @@ The plugin will automatically use your authenticated account for this repository
             throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
         }
 
+        val effectiveProject = projectName ?: config.project
+        val effectiveRepo = repositoryId ?: config.repository
+
         // Create the request with status and empty comments array
         val request = UpdateThreadStatusRequest(status)
         val jsonBody = gson.toJson(request)
         
         // Build URL without api-version (will be in header)
-        val baseUrl = buildApiUrl(config.project, config.repository, "/pullRequests/$pullRequestId/threads/$threadId?")
+        val baseUrl = buildApiUrl(effectiveProject, effectiveRepo, "/pullRequests/$pullRequestId/threads/$threadId?")
         
-        logger.info("Updating thread #$threadId status to ${status.getDisplayName()} (API value: ${status.toApiValue()}) in PR #$pullRequestId")
+        logger.info("Updating thread #$threadId status to ${status.getDisplayName()} (API value: ${status.toApiValue()}) in PR #$pullRequestId ($effectiveProject/$effectiveRepo)")
         logger.info("PATCH URL: $baseUrl")
         logger.info("Request body: $jsonBody")
         

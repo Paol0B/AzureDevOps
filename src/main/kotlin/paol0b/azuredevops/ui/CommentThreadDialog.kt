@@ -62,10 +62,6 @@ class CommentThreadDialog(
         panel.add(headerPanel, BorderLayout.NORTH)
 
         // Comments list
-        commentsPanel.layout = BoxLayout(commentsPanel, BoxLayout.Y_AXIS)
-        buildCommentsPanel()
-        lastThreadHash = calculateThreadHash(thread)
-        
         commentsScrollPane = JBScrollPane(commentsPanel).apply {
             preferredSize = Dimension(660, 300)
             border = JBUI.Borders.customLine(JBUI.CurrentTheme.CustomFrameDecorations.separatorForeground(), 1)
@@ -355,10 +351,20 @@ class CommentThreadDialog(
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
                 val apiClient = AzureDevOpsApiClient.getInstance(project)
-                apiClient.addCommentToThread(pullRequest.pullRequestId, threadId, content)
+                apiClient.addCommentToThread(
+                    pullRequest.pullRequestId,
+                    threadId,
+                    content,
+                    pullRequest.repository?.project?.name,
+                    pullRequest.repository?.id
+                )
                 
                 // Reload thread to get the new reply
-                val updatedThreads = apiClient.getCommentThreads(pullRequest.pullRequestId)
+                val updatedThreads = apiClient.getCommentThreads(
+                    pullRequest.pullRequestId,
+                    pullRequest.repository?.project?.name,
+                    pullRequest.repository?.id
+                )
                 val updatedThread = updatedThreads.firstOrNull { it.id == threadId }
                 
                 ApplicationManager.getApplication().invokeLater {
@@ -419,10 +425,20 @@ class CommentThreadDialog(
             try {
                 val apiClient = AzureDevOpsApiClient.getInstance(project)
                 
-                apiClient.updateThreadStatus(pullRequest.pullRequestId, threadId, newStatus)
+                apiClient.updateThreadStatus(
+                    pullRequest.pullRequestId,
+                    threadId,
+                    newStatus,
+                    pullRequest.repository?.project?.name,
+                    pullRequest.repository?.id
+                )
                 
                 // Reload thread
-                val updatedThreads = apiClient.getCommentThreads(pullRequest.pullRequestId)
+                val updatedThreads = apiClient.getCommentThreads(
+                    pullRequest.pullRequestId,
+                    pullRequest.repository?.project?.name,
+                    pullRequest.repository?.id
+                )
                 val updatedThread = updatedThreads.firstOrNull { it.id == threadId }
                 
                 ApplicationManager.getApplication().invokeLater {
@@ -505,7 +521,11 @@ class CommentThreadDialog(
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
                 val apiClient = AzureDevOpsApiClient.getInstance(project)
-                val updatedThreads = apiClient.getCommentThreads(pullRequest.pullRequestId)
+                val updatedThreads = apiClient.getCommentThreads(
+                    pullRequest.pullRequestId,
+                    pullRequest.repository?.project?.name,
+                    pullRequest.repository?.id
+                )
                 val updatedThread = updatedThreads.firstOrNull { it.id == threadId }
 
                 ApplicationManager.getApplication().invokeLater {

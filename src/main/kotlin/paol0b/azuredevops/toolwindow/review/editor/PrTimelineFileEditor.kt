@@ -40,6 +40,7 @@ class PrTimelineFileEditor(
     override fun dispose() {
         if (!isDisposed) {
             isDisposed = true
+            timelinePanel.dispose()
             PrReviewTabService.getInstance(project).unregisterFile(file)
         }
     }
