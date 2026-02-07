@@ -110,6 +110,9 @@
         <!-- OAuth authentication service -->
         <applicationService serviceImplementation="paol0b.azuredevops.checkout.AzureDevOpsOAuthService"/>
         
+        <!-- Avatar caching service -->
+        <projectService serviceImplementation="paol0b.azuredevops.services.AvatarService"/>
+        
         <!-- Application-level configuration for accounts -->
         <applicationConfigurable 
             parentId="tools" 
@@ -138,7 +141,7 @@
                 anchor="right"
                 icon="paol0b.azuredevops.AzureDevOpsIcons.ToolWindow"
                 factoryClass="paol0b.azuredevops.toolwindow.PullRequestToolWindowFactory"
-                canCloseContents="false"
+                canCloseContents="true"
                 doNotActivateOnStart="false"/>
 
         <!-- Comments Navigator Tool Window -->
@@ -157,8 +160,14 @@
                 canCloseContents="false"
                 doNotActivateOnStart="false"/> -->
 
-        <!-- PR Review Editor Tab -->
+        <!-- PR Review Editor Tab (legacy full-review in editor) -->
         <fileEditorProvider implementation="paol0b.azuredevops.toolwindow.review.editor.PrReviewFileEditorProvider"/>
+
+        <!-- PR Diff Editor Tab (individual file diff with inline comments) -->
+        <fileEditorProvider implementation="paol0b.azuredevops.toolwindow.review.editor.PrDiffFileEditorProvider"/>
+
+        <!-- PR Timeline Editor Tab -->
+        <fileEditorProvider implementation="paol0b.azuredevops.toolwindow.review.editor.PrTimelineFileEditorProvider"/>
 
         <!-- File Decorator for PR Comments -->
         <projectViewNodeDecorator implementation="paol0b.azuredevops.decorators.FileWithCommentsDecorator"/>

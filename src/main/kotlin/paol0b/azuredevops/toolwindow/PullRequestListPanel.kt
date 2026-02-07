@@ -102,6 +102,16 @@ class PullRequestListPanel(
                     showContextMenu(e)
                 }
             }
+
+            override fun mouseClicked(e: MouseEvent) {
+                if (e.clickCount == 2) {
+                    val path = tree.getPathForLocation(e.x, e.y) ?: return
+                    val node = path.lastPathComponent as? DefaultMutableTreeNode ?: return
+                    val pr = node.userObject as? PullRequest ?: return
+                    // Double-click opens a review tab in the tool window
+                    PullRequestToolWindowFactory.openPrReviewTab(project, pr)
+                }
+            }
         })
 
         // Status label with modern design
@@ -403,11 +413,10 @@ class PullRequestListPanel(
         
         val popup = JBPopupMenu()
 
-        // Open PR review in editor tab
+        // Open PR review in tool window tab
         val openReviewItem = JMenuItem("Open Review in Tab")
         openReviewItem.addActionListener {
-            paol0b.azuredevops.services.PrReviewTabService.getInstance(project)
-                .openReviewTab(pr)
+            PullRequestToolWindowFactory.openPrReviewTab(project, pr)
         }
         popup.add(openReviewItem)
 

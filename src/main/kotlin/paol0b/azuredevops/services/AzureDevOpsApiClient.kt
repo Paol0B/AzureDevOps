@@ -46,6 +46,170 @@ The plugin will automatically use your authenticated account for this repository
             return project.getService(AzureDevOpsApiClient::class.java)
         }
     }
+
+    // region HTTP Methods
+
+    /**
+     * Executes a GET request using OkHttp
+     */
+    @Throws(IOException::class, AzureDevOpsApiException::class)
+    private fun executeGet(urlString: String, token: String): String {
+        val request = Request.Builder()
+            .url(urlString)
+            .get()
+            .addHeader("Authorization", createAuthHeader(token))
+            .addHeader("Accept", "application/json")
+            .build()
+
+        return httpClient.newCall(request).execute().use { response ->
+            val responseBody = response.body?.string() ?: ""
+
+            if (response.isSuccessful) {
+                responseBody
+            } else {
+                throw handleErrorResponse(response.code, responseBody)
+            }
+        }
+    }
+
+    /**
+     * Executes a POST request using OkHttp
+     */
+    @Throws(IOException::class, AzureDevOpsApiException::class)
+    private fun executePost(urlString: String, body: Any, token: String): String {
+        val mediaType = "application/json; charset=UTF-8".toMediaType()
+        val jsonBody = gson.toJson(body)
+        val requestBody = jsonBody.toRequestBody(mediaType)
+
+        val request = Request.Builder()
+            .url(urlString)
+            .post(requestBody)
+            .addHeader("Authorization", createAuthHeader(token))
+            .addHeader("Content-Type", "application/json; charset=UTF-8")
+            .addHeader("Accept", "application/json")
+            .build()
+
+        return httpClient.newCall(request).execute().use { response ->
+            val responseBody = response.body?.string() ?: ""
+
+            if (response.isSuccessful) {
+                responseBody
+            } else {
+                throw handleErrorResponse(response.code, responseBody)
+            }
+        }
+    }
+
+    /**
+     * Executes a PUT request using OkHttp
+     */
+    @Throws(IOException::class, AzureDevOpsApiException::class)
+    private fun executePut(urlString: String, body: Any, token: String): String {
+        val mediaType = "application/json; charset=UTF-8".toMediaType()
+        val jsonBody = gson.toJson(body)
+        val requestBody = jsonBody.toRequestBody(mediaType)
+
+        val request = Request.Builder()
+            .url(urlString)
+            .put(requestBody)
+            .addHeader("Authorization", createAuthHeader(token))
+            .addHeader("Content-Type", "application/json; charset=UTF-8")
+            .addHeader("Accept", "application/json")
+            .build()
+
+        return httpClient.newCall(request).execute().use { response ->
+            val responseBody = response.body?.string() ?: ""
+
+            if (response.isSuccessful) {
+                responseBody
+            } else {
+                throw handleErrorResponse(response.code, responseBody)
+            }
+        }
+    }
+
+    /**
+     * Executes a PATCH request using OkHttp
+     */
+    @Throws(IOException::class, AzureDevOpsApiException::class)
+    private fun executePatch(urlString: String, body: String, token: String): String {
+        val mediaType = "application/json; charset=UTF-8".toMediaType()
+        val requestBody = body.toRequestBody(mediaType)
+
+        // Build URL properly with query parameters using HttpUrl
+        val httpUrl = urlString.toHttpUrl().newBuilder()
+            .addQueryParameter("api-version", "7.1")
+            .build()
+
+        val request = Request.Builder()
+            .url(httpUrl)
+            .patch(requestBody)
+            .addHeader("Authorization", createAuthHeader(token))
+            .addHeader("Accept", "application/json")
+            .addHeader("Content-Type", "application/json; charset=UTF-8")
+            .build()
+
+        logger.info("Executing PATCH request to: $httpUrl")
+
+        return httpClient.newCall(request).execute().use { response ->
+            val responseBody = response.body?.string() ?: ""
+
+            if (response.isSuccessful) {
+                responseBody
+            } else {
+                logger.warn("PATCH request failed - Status: ${response.code}, Body: $responseBody")
+                throw handleErrorResponse(response.code, responseBody)
+            }
+        }
+    }
+
+    /**
+     * Creates the Basic Auth header with the PAT
+     */
+    private fun createAuthHeader(token: String): String {
+        val credentials = ":$token"
+        val encodedCredentials = Base64.getEncoder().encodeToString(credentials.toByteArray(StandardCharsets.UTF_8))
+        return "Basic $encodedCredentials"
+    }
+
+    /**
+     * Handles error responses from Azure DevOps
+     */
+    private fun handleErrorResponse(statusCode: Int, errorBody: String): AzureDevOpsApiException {
+        logger.warn("Azure DevOps API error - Status: $statusCode, Body: $errorBody")
+        
+        // Try to parse the error
+        val errorMessage = try {
+            val error = gson.fromJson(errorBody, AzureDevOpsErrorResponse::class.java)
+            error?.message ?: "Unknown error"
+        } catch (e: Exception) {
+            logger.warn("Failed to parse error response", e)
+            errorBody.ifEmpty { "HTTP Error $statusCode" }
+        }
+
+        return when (statusCode) {
+            HttpURLConnection.HTTP_UNAUTHORIZED -> 
+                AzureDevOpsApiException("Authentication failed (401). Please login:\n" +
+                    "1. Go to File → Settings → Tools → Azure DevOps Accounts\n" +
+                    "2. Click 'Add' to login with your Microsoft account\n" +
+                    "3. Complete the authentication in your browser")
+            HttpURLConnection.HTTP_FORBIDDEN ->
+                AzureDevOpsApiException("Insufficient permissions (403). Your account doesn't have access to this resource.\n" +
+                    "Please check that you have the required permissions in Azure DevOps.")
+            HttpURLConnection.HTTP_NOT_FOUND ->
+                AzureDevOpsApiException("Resource not found (404).\n" +
+                    "Please verify that the Organization, Project, and Repository names are correct\n" +
+                    "and that you have access to them in Azure DevOps.")
+            HttpURLConnection.HTTP_CONFLICT ->
+                AzureDevOpsApiException("Conflict: $errorMessage (409)")
+            HttpURLConnection.HTTP_BAD_REQUEST ->
+                AzureDevOpsApiException("Invalid request: $errorMessage (400)")
+            else ->
+                AzureDevOpsApiException("HTTP Error $statusCode: $errorMessage")
+        }
+    }
+
+    // endregion
     
     /**
      * Helper function to build API URLs with proper URL encoding for project and repository names
@@ -446,7 +610,7 @@ The plugin will automatically use your authenticated account for this repository
         logger.info("Request body: $jsonBody")
         
         try {
-            val response = executePatchOkHttp(baseUrl, jsonBody, config.personalAccessToken)
+            val response = executePatch(baseUrl, jsonBody, config.personalAccessToken)
             logger.info("Thread status updated successfully. Response: $response")
         } catch (e: Exception) {
             logger.error("Failed to update thread status", e)
@@ -454,40 +618,7 @@ The plugin will automatically use your authenticated account for this repository
         }
     }
 
-    /**
-     * Executes a PATCH request using OkHttp (native PATCH support)
-     */
-    @Throws(IOException::class, AzureDevOpsApiException::class)
-    private fun executePatchOkHttp(urlString: String, body: String, token: String): String {
-        val mediaType = "application/json; charset=UTF-8".toMediaType()
-        val requestBody = body.toRequestBody(mediaType)
 
-        // Build URL properly with query parameters using HttpUrl
-        val httpUrl = urlString.toHttpUrl().newBuilder()
-            .addQueryParameter("api-version", "7.1")
-            .build()
-
-        val request = Request.Builder()
-            .url(httpUrl)
-            .patch(requestBody)
-            .addHeader("Authorization", createAuthHeader(token))
-            .addHeader("Accept", "application/json")
-            .addHeader("Content-Type", "application/json; charset=UTF-8")
-            .build()
-
-        logger.info("Executing PATCH request to: $httpUrl")
-
-        return httpClient.newCall(request).execute().use { response ->
-            val responseBody = response.body?.string() ?: ""
-
-            if (response.isSuccessful) {
-                responseBody
-            } else {
-                logger.warn("PATCH request failed - Status: ${response.code}, Body: $responseBody")
-                throw handleErrorResponse(response.code, responseBody)
-            }
-        }
-    }
 
     /**
      * Finds the Pull Request associated with a specific branch
@@ -519,116 +650,6 @@ The plugin will automatically use your authenticated account for this repository
         }
     }
 
-    /**
-     * Executes a GET request
-     */
-    @Throws(IOException::class, AzureDevOpsApiException::class)
-    private fun executeGet(urlString: String, token: String): String {
-        val url = java.net.URI(urlString).toURL()
-        val connection = url.openConnection() as HttpURLConnection
-        
-        try {
-            connection.requestMethod = "GET"
-            connection.setRequestProperty("Authorization", createAuthHeader(token))
-            connection.setRequestProperty("Accept", "application/json")
-            connection.connectTimeout = 10000
-            connection.readTimeout = 10000
-
-            val responseCode = connection.responseCode
-            
-            if (responseCode == HttpURLConnection.HTTP_OK) {
-                return connection.inputStream.bufferedReader().use { it.readText() }
-            } else {
-                val errorBody = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
-                throw handleErrorResponse(responseCode, errorBody)
-            }
-        } finally {
-            connection.disconnect()
-        }
-    }
-
-    /**
-     * Executes a POST request
-     */
-    @Throws(IOException::class, AzureDevOpsApiException::class)
-    private fun executePost(urlString: String, body: Any, token: String): String {
-        val url = java.net.URI(urlString).toURL()
-        val connection = url.openConnection() as HttpURLConnection
-        
-        try {
-            connection.requestMethod = "POST"
-            connection.setRequestProperty("Authorization", createAuthHeader(token))
-            connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8")
-            connection.setRequestProperty("Accept", "application/json")
-            connection.doOutput = true
-            connection.connectTimeout = 10000
-            connection.readTimeout = 10000
-
-            // Write the body
-            val jsonBody = gson.toJson(body)
-            connection.outputStream.bufferedWriter(StandardCharsets.UTF_8).use { writer ->
-                writer.write(jsonBody)
-            }
-
-            val responseCode = connection.responseCode
-            
-            if (responseCode == HttpURLConnection.HTTP_OK || responseCode == HttpURLConnection.HTTP_CREATED) {
-                return connection.inputStream.bufferedReader().use { it.readText() }
-            } else {
-                val errorBody = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
-                throw handleErrorResponse(responseCode, errorBody)
-            }
-        } finally {
-            connection.disconnect()
-        }
-    }
-
-    /**
-     * Creates the Basic Auth header with the PAT
-     */
-    private fun createAuthHeader(token: String): String {
-        val credentials = ":$token"
-        val encodedCredentials = Base64.getEncoder().encodeToString(credentials.toByteArray(StandardCharsets.UTF_8))
-        return "Basic $encodedCredentials"
-    }
-
-    /**
-     * Handles error responses from Azure DevOps
-     */
-    private fun handleErrorResponse(statusCode: Int, errorBody: String): AzureDevOpsApiException {
-        logger.warn("Azure DevOps API error - Status: $statusCode, Body: $errorBody")
-        
-        // Try to parse the error
-        val errorMessage = try {
-            val error = gson.fromJson(errorBody, AzureDevOpsErrorResponse::class.java)
-            error?.message ?: "Unknown error"
-        } catch (e: Exception) {
-            logger.warn("Failed to parse error response", e)
-            errorBody.ifEmpty { "HTTP Error $statusCode" }
-        }
-
-        return when (statusCode) {
-            HttpURLConnection.HTTP_UNAUTHORIZED -> 
-                AzureDevOpsApiException("Authentication failed (401). Please login:\n" +
-                    "1. Go to File → Settings → Tools → Azure DevOps Accounts\n" +
-                    "2. Click 'Add' to login with your Microsoft account\n" +
-                    "3. Complete the authentication in your browser")
-            HttpURLConnection.HTTP_FORBIDDEN ->
-                AzureDevOpsApiException("Insufficient permissions (403). Your account doesn't have access to this resource.\n" +
-                    "Please check that you have the required permissions in Azure DevOps.")
-            HttpURLConnection.HTTP_NOT_FOUND ->
-                AzureDevOpsApiException("Resource not found (404).\n" +
-                    "Please verify that the Organization, Project, and Repository names are correct\n" +
-                    "and that you have access to them in Azure DevOps.")
-            HttpURLConnection.HTTP_CONFLICT ->
-                AzureDevOpsApiException("Conflict: $errorMessage (409)")
-            HttpURLConnection.HTTP_BAD_REQUEST ->
-                AzureDevOpsApiException("Invalid request: $errorMessage (400)")
-            else ->
-                AzureDevOpsApiException("HTTP Error $statusCode: $errorMessage")
-        }
-    }
-    
     /**
      * Gets all file changes of a Pull Request
      * @param pullRequestId PR ID
@@ -916,7 +937,7 @@ The plugin will automatically use your authenticated account for this repository
             val jsonBody = gson.toJson(requestBody)
             logger.info("Request body: $jsonBody")
 
-            val response = executePatchOkHttp(url, jsonBody, config.personalAccessToken)
+            val response = executePatch(url, jsonBody, config.personalAccessToken)
             val completedPr = gson.fromJson(response, PullRequest::class.java)
 
             // Add comment if provided
@@ -975,7 +996,7 @@ The plugin will automatically use your authenticated account for this repository
             val jsonBody = gson.toJson(requestBody)
             logger.info("Request body: $jsonBody")
 
-            val response = executePatchOkHttp(url, jsonBody, config.personalAccessToken)
+            val response = executePatch(url, jsonBody, config.personalAccessToken)
             val updatedPr = gson.fromJson(response, PullRequest::class.java)
 
             // Add comment if provided
@@ -1222,6 +1243,83 @@ The plugin will automatically use your authenticated account for this repository
     }
 
     /**
+     * Retrieves policy evaluations for a Pull Request
+     * API: GET https://dev.azure.com/{org}/{project}/_apis/policy/evaluations?artifactId=vstfs:///CodeReview/CodeReviewId/{projectId}/{pullRequestId}&api-version=7.0
+     *
+     * @param pullRequestId PR ID
+     * @param projectName Optional project name for cross-repo PRs
+     * @param repositoryId Optional repository ID for cross-repo PRs
+     * @return List of policy evaluations
+     */
+    @Throws(AzureDevOpsApiException::class)
+    fun getPolicyEvaluations(pullRequestId: Int, projectName: String? = null, repositoryId: String? = null): List<PolicyEvaluation> {
+        val configService = AzureDevOpsConfigService.getInstance(project)
+        val config = configService.getConfig()
+
+        if (!config.isValid()) {
+            throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
+        }
+
+        val effectiveProject = projectName ?: config.project
+
+        // We need the project ID. If accessible from the PR, use it. Otherwise, we use the project name in the URL.
+        // The artifactId format: vstfs:///CodeReview/CodeReviewId/{projectId}/{pullRequestId}
+        // Since we may not have projectId directly, we use the project-scoped policy evaluations endpoint instead
+        val encodedProject = encodePathSegment(effectiveProject)
+        val baseUrl = configService.getApiBaseUrl()
+        val artifactId = "vstfs:///CodeReview/CodeReviewId/$encodedProject/$pullRequestId"
+        val encodedArtifactId = URLEncoder.encode(artifactId, StandardCharsets.UTF_8.toString())
+        val url = "$baseUrl/$encodedProject/_apis/policy/evaluations?artifactId=$encodedArtifactId&api-version=$API_VERSION"
+
+        logger.info("Fetching policy evaluations for PR #$pullRequestId")
+
+        return try {
+            val response = executeGet(url, config.personalAccessToken)
+            val listResponse = gson.fromJson(response, PolicyEvaluationListResponse::class.java)
+            listResponse.value?.filter { it.configuration?.isEnabled == true } ?: emptyList()
+        } catch (e: Exception) {
+            logger.warn("Failed to fetch policy evaluations for PR #$pullRequestId: ${e.message}")
+            emptyList()
+        }
+    }
+
+    /**
+     * Retrieves commits in a Pull Request
+     * API: GET https://dev.azure.com/{org}/{project}/_apis/git/repositories/{repo}/pullRequests/{pullRequestId}/commits?api-version=7.0
+     *
+     * @param pullRequestId PR ID
+     * @param projectName Optional project name for cross-repo PRs
+     * @param repositoryId Optional repository ID for cross-repo PRs
+     * @return List of commits
+     */
+    @Throws(AzureDevOpsApiException::class)
+    fun getPullRequestCommits(pullRequestId: Int, projectName: String? = null, repositoryId: String? = null): List<GitCommitRef> {
+        val configService = AzureDevOpsConfigService.getInstance(project)
+        val config = configService.getConfig()
+
+        if (!config.isValid()) {
+            throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
+        }
+
+        val effectiveProject = projectName ?: config.project
+        val effectiveRepo = repositoryId ?: config.repository
+
+        val url = buildApiUrl(effectiveProject, effectiveRepo,
+            "/pullRequests/$pullRequestId/commits?api-version=$API_VERSION")
+
+        logger.info("Fetching commits for PR #$pullRequestId")
+
+        return try {
+            val response = executeGet(url, config.personalAccessToken)
+            val listResponse = gson.fromJson(response, GitCommitListResponse::class.java)
+            listResponse.value ?: emptyList()
+        } catch (e: Exception) {
+            logger.warn("Failed to fetch commits for PR #$pullRequestId: ${e.message}")
+            emptyList()
+        }
+    }
+
+    /**
      * Vote on a Pull Request
      * Vote values: 10 = Approved, 5 = Approved with suggestions, 0 = No vote, -5 = Waiting for author, -10 = Rejected
      * API: PUT https://dev.azure.com/{organization}/{project}/_apis/git/repositories/{repositoryId}/pullRequests/{pullRequestId}/reviewers/{reviewerId}?api-version=7.0
@@ -1315,41 +1413,7 @@ The plugin will automatically use your authenticated account for this repository
         }
     }
 
-    /**
-     * Executes a PUT request
-     */
-    @Throws(IOException::class, AzureDevOpsApiException::class)
-    private fun executePut(urlString: String, body: Any, token: String): String {
-        val url = java.net.URI(urlString).toURL()
-        val connection = url.openConnection() as HttpURLConnection
 
-        try {
-            connection.requestMethod = "PUT"
-            connection.setRequestProperty("Authorization", createAuthHeader(token))
-            connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8")
-            connection.setRequestProperty("Accept", "application/json")
-            connection.doOutput = true
-            connection.connectTimeout = 10000
-            connection.readTimeout = 10000
-
-            // Write the body
-            val jsonBody = gson.toJson(body)
-            connection.outputStream.bufferedWriter(StandardCharsets.UTF_8).use { writer ->
-                writer.write(jsonBody)
-            }
-
-            val responseCode = connection.responseCode
-
-            if (responseCode in 200..299) {
-                return connection.inputStream.bufferedReader().use { it.readText() }
-            } else {
-                val errorBody = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
-                throw handleErrorResponse(responseCode, errorBody)
-            }
-        } finally {
-            connection.disconnect()
-        }
-    }
 }
 
 /**

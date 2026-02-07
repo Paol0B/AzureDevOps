@@ -9,9 +9,11 @@ import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.ui.JBUI
+import paol0b.azuredevops.model.CommentThread
 import paol0b.azuredevops.model.PullRequestChange
 import paol0b.azuredevops.services.PrReviewStateService
 import java.awt.BorderLayout
+import java.awt.Color
 import java.awt.Component
 import java.awt.Dimension
 import java.awt.Font
@@ -50,6 +52,18 @@ class FileTreePanel(
     
     // Cache of last loaded changes for comparison
     private var cachedChanges: List<PullRequestChange> = emptyList()
+
+    // All changes (unfiltered) for filter support
+    private var allChanges: List<PullRequestChange> = emptyList()
+    
+    // Current filter mode
+    private var currentFilterMode = FilterMode.ALL
+
+    // Comment counts per file path
+    private val commentCountMap = mutableMapOf<String, Int>()
+
+    /** Filter mode for the file tree */
+    enum class FilterMode { ALL, REVIEWED, UNREVIEWED }
 
     init {
         setupTree()
@@ -135,6 +149,11 @@ class FileTreePanel(
      * Load file changes into the tree
      */
     fun loadFileChanges(changes: List<PullRequestChange>) {
+        // Store unfiltered changes for later filtering (only on "All" mode loads)
+        if (currentFilterMode == FilterMode.ALL) {
+            allChanges = changes
+        }
+
         // Check if data has actually changed
         if (!hasDataChanged(changes)) {
             logger.info("File changes data unchanged, skipping tree reload")
@@ -271,6 +290,54 @@ class FileTreePanel(
                 selectFile(selectedFilePath)
             }
         }
+    }
+
+    /**
+     * Set filter mode and rebuild tree accordingly
+     */
+    fun setFilterMode(mode: FilterMode) {
+        if (currentFilterMode == mode) return
+        currentFilterMode = mode
+        rebuildFilteredTree()
+    }
+
+    /**
+     * Update comment counts from loaded threads and repaint
+     */
+    fun updateCommentCounts(threads: List<CommentThread>) {
+        commentCountMap.clear()
+        for (thread in threads) {
+            val path = thread.getFilePath() ?: continue
+            if (thread.isDeleted == true) continue
+            commentCountMap[path] = (commentCountMap[path] ?: 0) + (thread.comments?.size ?: 0)
+        }
+        // Repaint tree so badges are shown
+        tree.repaint()
+    }
+
+    /**
+     * Get comment count for a file path
+     */
+    fun getCommentCount(filePath: String): Int = commentCountMap[filePath] ?: 0
+
+    /**
+     * Rebuild the tree applying the current filter
+     */
+    private fun rebuildFilteredTree() {
+        val filtered = when (currentFilterMode) {
+            FilterMode.ALL -> allChanges
+            FilterMode.REVIEWED -> allChanges.filter { change ->
+                val path = change.item?.path ?: ""
+                reviewStateService.isFileReviewed(pullRequestId, path)
+            }
+            FilterMode.UNREVIEWED -> allChanges.filter { change ->
+                val path = change.item?.path ?: ""
+                !reviewStateService.isFileReviewed(pullRequestId, path)
+            }
+        }
+        // Force reload cache so loadFileChanges will process it
+        cachedChanges = emptyList()
+        loadFileChanges(filtered)
     }
     
     /**
@@ -426,6 +493,19 @@ class FileTreePanel(
                     
                     panel.add(checkbox, BorderLayout.WEST)
                     panel.add(nameLabel, BorderLayout.CENTER)
+
+                    // Comment count badge
+                    val commentCount = getCommentCount(userObject.filePath)
+                    if (commentCount > 0) {
+                        val badge = JBLabel(" $commentCount ").apply {
+                            isOpaque = true
+                            background = JBColor(Color(0, 120, 212), Color(55, 148, 255))
+                            foreground = Color.WHITE
+                            font = font.deriveFont(Font.BOLD, 10f)
+                            border = JBUI.Borders.empty(1, 4, 1, 4)
+                        }
+                        panel.add(badge, BorderLayout.EAST)
+                    }
                     
                     return panel
                 }
