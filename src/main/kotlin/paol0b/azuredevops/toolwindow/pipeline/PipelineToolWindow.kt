@@ -153,6 +153,8 @@ class PipelineToolWindow(private val project: Project) {
             isInitialLoadDone = true
             pipelineListPanel.refreshBuilds()
         }
+        // Start auto-refresh polling
+        pipelineListPanel.startAutoRefresh()
     }
 
     fun getContent(): JPanel = mainPanel
@@ -304,6 +306,6 @@ class PipelineToolWindow(private val project: Project) {
     }
 
     fun dispose() {
-        // cleanup if needed
+        pipelineListPanel.stopAutoRefresh()
     }
 }

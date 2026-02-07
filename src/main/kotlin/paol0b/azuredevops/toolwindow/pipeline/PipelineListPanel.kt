@@ -3,9 +3,6 @@ package paol0b.azuredevops.toolwindow.pipeline
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
-import com.intellij.openapi.progress.ProgressIndicator
-import com.intellij.openapi.progress.ProgressManager
-import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.JBPopupMenu
 import com.intellij.ui.ColoredTreeCellRenderer
@@ -25,6 +22,7 @@ import java.awt.event.MouseEvent
 import javax.swing.*
 import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.DefaultTreeModel
+import javax.swing.tree.TreePath
 
 /**
  * Panel that shows the list of Pipeline builds with filtering and double-click support.
@@ -52,6 +50,16 @@ class PipelineListPanel(
     // State
     private var cachedBuilds: List<PipelineBuild> = emptyList()
     private var isErrorState: Boolean = false
+    private var cachedHash: String = ""
+
+    // Auto-refresh
+    private var refreshTimer: Timer? = null
+    private val REFRESH_INTERVAL = 30_000 // 30 seconds
+
+    // Retry with exponential backoff
+    private var retryCount: Int = 0
+    private var retryTimer: Timer? = null
+    private val MAX_RETRY_DELAY = 30_000 // 30 seconds max
 
     init {
         rootNode = DefaultMutableTreeNode("Pipelines")
@@ -147,45 +155,113 @@ class PipelineListPanel(
         statusLabel.text = "Loading pipelines..."
         statusLabel.icon = AllIcons.Process.Step_1
 
-        ProgressManager.getInstance().run(object : Task.Backgroundable(project, "Loading Pipelines...", false) {
-            override fun run(indicator: ProgressIndicator) {
-                indicator.isIndeterminate = true
-                try {
-                    val apiClient = AzureDevOpsApiClient.getInstance(project)
-                    val builds = apiClient.getBuilds(
-                        definitionId = definitionFilter,
-                        requestedFor = userFilter,
-                        branchName = branchFilter,
-                        statusFilter = statusFilter,
-                        resultFilter = resultFilter,
-                        top = 50
-                    )
+        ApplicationManager.getApplication().executeOnPooledThread {
+            try {
+                val apiClient = AzureDevOpsApiClient.getInstance(project)
+                val builds = apiClient.getBuilds(
+                    definitionId = definitionFilter,
+                    requestedFor = userFilter,
+                    branchName = branchFilter,
+                    statusFilter = statusFilter,
+                    resultFilter = resultFilter,
+                    top = 50
+                )
 
-                    ApplicationManager.getApplication().invokeLater {
-                        cachedBuilds = builds
-                        isErrorState = false
-                        updateTreeWithBuilds(builds)
-                        statusLabel.text = "Loaded ${builds.size} pipeline run(s)"
+                ApplicationManager.getApplication().invokeLater {
+                    retryCount = 0
+                    retryTimer?.stop()
+                    retryTimer = null
+
+                    val newHash = computeBuildsHash(builds)
+                    if (!isErrorState && newHash == cachedHash && cachedBuilds.isNotEmpty()) {
+                        // No changes — just update status quietly
+                        statusLabel.text = "${builds.size} pipeline run(s) — up to date"
                         statusLabel.icon = AllIcons.General.InspectionsOK
+                        return@invokeLater
                     }
-                } catch (e: Exception) {
-                    ApplicationManager.getApplication().invokeLater {
-                        val isConfigError = e.message?.contains("not configured", ignoreCase = true) == true
-                        if (isConfigError) {
-                            rootNode.removeAllChildren()
-                            treeModel.reload()
-                            statusLabel.text = "Azure DevOps not configured"
-                            statusLabel.icon = AllIcons.General.Warning
-                            isErrorState = true
-                        } else {
+
+                    cachedBuilds = builds
+                    cachedHash = newHash
+                    isErrorState = false
+                    updateTreeWithBuilds(builds)
+                    statusLabel.text = "Loaded ${builds.size} pipeline run(s)"
+                    statusLabel.icon = AllIcons.General.InspectionsOK
+                }
+            } catch (e: Exception) {
+                ApplicationManager.getApplication().invokeLater {
+                    val isConfigError = e.message?.contains("not configured", ignoreCase = true) == true ||
+                            e.message?.contains("Authentication required", ignoreCase = true) == true
+                    if (isConfigError) {
+                        rootNode.removeAllChildren()
+                        treeModel.reload()
+                        statusLabel.text = "Azure DevOps not configured"
+                        statusLabel.icon = AllIcons.General.Warning
+                        isErrorState = true
+                    } else {
+                        // Only show error if we had no data before
+                        if (cachedBuilds.isEmpty()) {
                             updateTreeWithError(e.message ?: "Unknown error")
-                            statusLabel.text = "Error loading pipelines"
-                            statusLabel.icon = AllIcons.General.Error
                         }
+                        statusLabel.text = "Error loading pipelines"
+                        statusLabel.icon = AllIcons.General.Error
+                        isErrorState = true
+                        scheduleRetry()
                     }
                 }
             }
-        })
+        }
+    }
+
+    // ========================
+    //  Auto-refresh
+    // ========================
+
+    fun startAutoRefresh() {
+        if (refreshTimer != null) return
+        refreshTimer = Timer(REFRESH_INTERVAL) {
+            refreshBuilds()
+        }.apply {
+            isRepeats = true
+            start()
+        }
+    }
+
+    fun stopAutoRefresh() {
+        refreshTimer?.stop()
+        refreshTimer = null
+        retryTimer?.stop()
+        retryTimer = null
+    }
+
+    private fun scheduleRetry() {
+        if (retryTimer != null) return
+        val delay = minOf((1000L * (1 shl retryCount)).toInt(), MAX_RETRY_DELAY)
+        retryCount++
+        logger.info("Scheduling pipeline list retry in ${delay}ms (attempt $retryCount)")
+        retryTimer = Timer(delay) {
+            retryTimer = null
+            refreshBuilds()
+        }.apply {
+            isRepeats = false
+            start()
+        }
+    }
+
+    // ========================
+    //  Change Detection
+    // ========================
+
+    private fun computeBuildsHash(builds: List<PipelineBuild>): String {
+        if (builds.isEmpty()) return ""
+        val sb = StringBuilder()
+        for (b in builds) {
+            sb.append(b.id).append(':')
+            sb.append(b.status?.toApiValue() ?: "-").append(':')
+            sb.append(b.result?.toApiValue() ?: "-").append(':')
+            sb.append(b.startTime ?: "-").append(':')
+            sb.append(b.finishTime ?: "-").append('|')
+        }
+        return sb.toString().hashCode().toString()
     }
 
     fun getSelectedBuild(): PipelineBuild? {
@@ -194,6 +270,9 @@ class PipelineListPanel(
     }
 
     private fun updateTreeWithBuilds(builds: List<PipelineBuild>) {
+        // Save selection
+        val selectedBuild = getSelectedBuild()
+
         rootNode.removeAllChildren()
 
         if (builds.isEmpty()) {
@@ -209,6 +288,18 @@ class PipelineListPanel(
         // Expand root to show all items
         for (i in 0 until tree.rowCount) {
             tree.expandRow(i)
+        }
+
+        // Restore selection
+        if (selectedBuild != null) {
+            for (i in 0 until rootNode.childCount) {
+                val child = rootNode.getChildAt(i) as? DefaultMutableTreeNode ?: continue
+                val build = child.userObject as? PipelineBuild ?: continue
+                if (build.id == selectedBuild.id) {
+                    tree.selectionPath = TreePath(arrayOf(rootNode, child))
+                    break
+                }
+            }
         }
     }
 

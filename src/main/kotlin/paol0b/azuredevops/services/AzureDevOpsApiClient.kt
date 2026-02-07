@@ -1574,6 +1574,47 @@ The plugin will automatically use your authenticated account for this repository
     }
 
     /**
+     * Retrieves log content starting from a specific line number (0-based).
+     * Uses the \$startLine query parameter to fetch only new lines.
+     * Returns plain text of the new lines only.
+     */
+    @Throws(AzureDevOpsApiException::class)
+    fun getBuildLogTextFromLine(buildId: Int, logId: Int, startLine: Int): String {
+        val configService = AzureDevOpsConfigService.getInstance(project)
+        val config = configService.getConfig()
+
+        if (!config.isValid()) {
+            throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
+        }
+
+        val url = buildBuildApiUrl(config.project,
+            "/builds/$buildId/logs/$logId?startLine=$startLine&api-version=$API_VERSION")
+
+        return try {
+            val request = Request.Builder()
+                .url(url)
+                .get()
+                .addHeader("Authorization", createAuthHeader(config.personalAccessToken))
+                .addHeader("Accept", "text/plain")
+                .build()
+
+            httpClient.newCall(request).execute().use { response ->
+                val responseBody = response.body?.string() ?: ""
+                if (response.isSuccessful) {
+                    responseBody
+                } else {
+                    throw handleErrorResponse(response.code, responseBody)
+                }
+            }
+        } catch (e: AzureDevOpsApiException) {
+            throw e
+        } catch (e: Exception) {
+            logger.error("Failed to fetch log delta #$logId for build #$buildId from line $startLine", e)
+            throw AzureDevOpsApiException("Error while retrieving build log delta: ${e.message}", e)
+        }
+    }
+
+    /**
      * Retrieves all build definitions (pipelines) for the current project.
      * API: GET https://dev.azure.com/{org}/{project}/_apis/build/definitions
      */

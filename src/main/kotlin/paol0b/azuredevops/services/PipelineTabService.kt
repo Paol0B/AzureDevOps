@@ -34,6 +34,9 @@ class PipelineTabService(private val project: Project) {
     /** Diagram virtual files, keyed by buildId. */
     private val diagramFiles = ConcurrentHashMap<Int, PipelineDiagramVirtualFile>()
 
+    /** Tracks last fetched line count per log key ("buildId-logId"). */
+    private val logLineCount = ConcurrentHashMap<String, Int>()
+
     companion object {
         fun getInstance(project: Project): PipelineTabService {
             return project.getService(PipelineTabService::class.java)
@@ -90,6 +93,18 @@ class PipelineTabService(private val project: Project) {
     fun getTimeline(file: VirtualFile): BuildTimeline? = timelineByFile[file]
     fun getTimelineRecord(file: VirtualFile): TimelineRecord? = recordByFile[file]
 
+    // ------------------------------------------------------------------
+    // Log line tracking for delta fetch
+    // ------------------------------------------------------------------
+
+    fun getLogLineCount(buildId: Int, logId: Int): Int {
+        return logLineCount["$buildId-$logId"] ?: 0
+    }
+
+    fun setLogLineCount(buildId: Int, logId: Int, lineCount: Int) {
+        logLineCount["$buildId-$logId"] = lineCount
+    }
+
     fun unregisterFile(file: VirtualFile) {
         val build = buildByFile.remove(file) ?: return
         timelineByFile.remove(file)
@@ -99,6 +114,7 @@ class PipelineTabService(private val project: Project) {
             is PipelineLogVirtualFile -> {
                 val logKey = "${build.id}-${file.logId}"
                 logFiles.remove(logKey)
+                logLineCount.remove(logKey)
             }
             is PipelineDiagramVirtualFile -> {
                 diagramFiles.remove(build.id)

@@ -50,17 +50,27 @@ class PipelineDetailTabPanel(
 
     private var timeline: BuildTimeline? = null
     private var refreshTimer: Timer? = null
-    private val REFRESH_INTERVAL = 15_000
+    private val REFRESH_INTERVAL_RUNNING = 10_000  // 10s while running
+    private val REFRESH_INTERVAL_FINISHED = 30_000 // 30s when finished
+
+    // Change detection
+    private var cachedTimelineHash: String = ""
+
+    // Tree expansion state
+    private val expandedNodeIds = mutableSetOf<String>()
+
+    // Retry with exponential backoff
+    private var retryCount: Int = 0
+    private var retryTimer: Timer? = null
+    private val MAX_RETRY_DELAY = 30_000
 
     init {
         background = UIUtil.getPanelBackground()
         setupUI()
         loadTimeline()
 
-        // Auto-refresh if the build is still running
-        if (build.isRunning()) {
-            startAutoRefresh()
-        }
+        // Always start auto-refresh
+        startAutoRefresh()
     }
 
     // ========================
@@ -348,27 +358,47 @@ class PipelineDetailTabPanel(
                 timeline = tl
 
                 ApplicationManager.getApplication().invokeLater {
+                    retryCount = 0
+                    retryTimer?.stop()
+                    retryTimer = null
                     populateTimelineTree(tl)
                 }
             } catch (e: Exception) {
                 logger.error("Failed to load build timeline", e)
                 ApplicationManager.getApplication().invokeLater {
-                    treeRootNode.removeAllChildren()
-                    treeRootNode.add(DefaultMutableTreeNode("Failed to load timeline: ${e.message}"))
-                    treeModel.reload()
+                    // Only show error if we have no data yet
+                    if (timeline == null) {
+                        treeRootNode.removeAllChildren()
+                        treeRootNode.add(DefaultMutableTreeNode("Failed to load timeline: ${e.message}"))
+                        treeModel.reload()
+                    }
+                    scheduleRetry()
                 }
             }
         }
     }
 
     private fun populateTimelineTree(tl: BuildTimeline?) {
-        treeRootNode.removeAllChildren()
-
         if (tl == null || tl.records.isNullOrEmpty()) {
-            treeRootNode.add(DefaultMutableTreeNode("No timeline data available"))
-            treeModel.reload()
+            if (cachedTimelineHash.isEmpty()) {
+                treeRootNode.removeAllChildren()
+                treeRootNode.add(DefaultMutableTreeNode("No timeline data available"))
+                treeModel.reload()
+            }
             return
         }
+
+        // Check if data actually changed via hash
+        val newHash = computeTimelineHash(tl)
+        if (newHash == cachedTimelineHash) {
+            return // No changes, skip UI update
+        }
+        cachedTimelineHash = newHash
+
+        // Save expansion state
+        saveExpansionState()
+
+        treeRootNode.removeAllChildren()
 
         val roots = tl.getRootRecords()
         if (roots.isEmpty()) {
@@ -384,9 +414,56 @@ class PipelineDetailTabPanel(
 
         treeModel.reload()
 
-        // Expand all stages by default
+        // Restore expansion state (or expand all on first load)
+        if (expandedNodeIds.isEmpty()) {
+            for (i in 0 until timelineTree.rowCount) {
+                timelineTree.expandRow(i)
+            }
+        } else {
+            restoreExpansionState()
+        }
+    }
+
+    // ========================
+    //  Timeline Hash & State
+    // ========================
+
+    private fun computeTimelineHash(tl: BuildTimeline): String {
+        val records = tl.records ?: return ""
+        val sb = StringBuilder()
+        for (r in records) {
+            sb.append(r.id ?: "").append(':')
+            sb.append(r.state ?: "").append(':')
+            sb.append(r.result ?: "").append(':')
+            sb.append(r.startTime ?: "").append(':')
+            sb.append(r.finishTime ?: "").append(':')
+            sb.append(r.percentComplete ?: 0).append(':')
+            sb.append(r.errorCount ?: 0).append(':')
+            sb.append(r.warningCount ?: 0).append('|')
+        }
+        return sb.toString().hashCode().toString()
+    }
+
+    private fun saveExpansionState() {
+        expandedNodeIds.clear()
         for (i in 0 until timelineTree.rowCount) {
-            timelineTree.expandRow(i)
+            val path = timelineTree.getPathForRow(i) ?: continue
+            if (timelineTree.isExpanded(path)) {
+                val node = path.lastPathComponent as? DefaultMutableTreeNode ?: continue
+                val record = node.userObject as? TimelineRecord ?: continue
+                record.id?.let { expandedNodeIds.add(it) }
+            }
+        }
+    }
+
+    private fun restoreExpansionState() {
+        for (i in 0 until timelineTree.rowCount) {
+            val path = timelineTree.getPathForRow(i) ?: continue
+            val node = path.lastPathComponent as? DefaultMutableTreeNode ?: continue
+            val record = node.userObject as? TimelineRecord ?: continue
+            if (record.id in expandedNodeIds) {
+                timelineTree.expandPath(path)
+            }
         }
     }
 
@@ -459,11 +536,8 @@ class PipelineDetailTabPanel(
     // ========================
 
     private fun startAutoRefresh() {
-        refreshTimer = Timer(REFRESH_INTERVAL) {
-            if (!build.isRunning()) {
-                refreshTimer?.stop()
-                return@Timer
-            }
+        val interval = if (build.isRunning()) REFRESH_INTERVAL_RUNNING else REFRESH_INTERVAL_FINISHED
+        refreshTimer = Timer(interval) {
             loadTimeline()
         }.apply {
             isRepeats = true
@@ -471,9 +545,25 @@ class PipelineDetailTabPanel(
         }
     }
 
+    private fun scheduleRetry() {
+        if (retryTimer != null) return
+        val delay = minOf((1000L * (1 shl retryCount)).toInt(), MAX_RETRY_DELAY)
+        retryCount++
+        logger.info("Scheduling timeline retry in ${delay}ms (attempt $retryCount)")
+        retryTimer = Timer(delay) {
+            retryTimer = null
+            loadTimeline()
+        }.apply {
+            isRepeats = false
+            start()
+        }
+    }
+
     fun dispose() {
         refreshTimer?.stop()
         refreshTimer = null
+        retryTimer?.stop()
+        retryTimer = null
     }
 
     // ========================
