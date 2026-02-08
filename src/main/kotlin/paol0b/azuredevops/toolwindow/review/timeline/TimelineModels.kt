@@ -30,7 +30,13 @@ data class TimelineEntry(
     /** Number of non-system comments in this thread (including the root). */
     val commentCount: Int = 0,
     /** The reviewer vote value if this is a VOTE_EVENT (10, 5, 0, -5, -10). */
-    val voteValue: Int? = null
+    val voteValue: Int? = null,
+    /** 1-based start line of the comment range in the file. */
+    val lineStart: Int? = null,
+    /** 1-based end line of the comment range in the file (inclusive). */
+    val lineEnd: Int? = null,
+    /** True if the comment is on the left/old side of the diff. */
+    val isLeftSide: Boolean = false
 )
 
 /**
@@ -111,6 +117,15 @@ object TimelineConverter {
                     )
                 }
 
+                // Extract line range from thread context
+                val ctx = thread.pullRequestThreadContext ?: thread.threadContext
+                val rightStart = thread.getRightFileStart()
+                val rightEnd = thread.getRightFileEnd()
+                val leftStart = ctx?.leftFileStart?.line
+                val leftEnd = ctx?.leftFileEnd?.line
+                val effectiveLineStart = rightStart ?: leftStart
+                val effectiveLineEnd = (rightEnd ?: leftEnd) ?: effectiveLineStart
+
                 entries += TimelineEntry(
                     type = TimelineEntryType.COMMENT_THREAD,
                     author = rootComment.author?.displayName ?: "Unknown",
@@ -121,7 +136,10 @@ object TimelineConverter {
                     threadId = thread.id,
                     threadStatus = thread.status,
                     replies = replies,
-                    commentCount = nonSystemComments.size
+                    commentCount = nonSystemComments.size,
+                    lineStart = effectiveLineStart,
+                    lineEnd = effectiveLineEnd,
+                    isLeftSide = rightStart == null && leftStart != null
                 )
             }
         }

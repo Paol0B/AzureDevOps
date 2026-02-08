@@ -6,6 +6,7 @@ import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
+import paol0b.azuredevops.model.PullRequest
 import paol0b.azuredevops.model.ThreadStatus
 import paol0b.azuredevops.services.AvatarService
 import java.awt.*
@@ -31,6 +32,7 @@ import javax.swing.*
 class CommentCardComponent(
     private val project: Project,
     private val entry: TimelineEntry,
+    private val pullRequest: PullRequest,
     private val onReply: (threadId: Int, content: String) -> Unit,
     private val onStatusChange: (threadId: Int, newStatus: ThreadStatus) -> Unit
 ) : JPanel() {
@@ -69,6 +71,19 @@ class CommentCardComponent(
         if (!entry.filePath.isNullOrBlank()) {
             card.add(Box.createVerticalStrut(4))
             card.add(createFilePathLabel(entry.filePath!!))
+        }
+
+        // ── Diff preview (accordion) for file-scoped comments ──
+        if (!entry.filePath.isNullOrBlank() && entry.lineStart != null) {
+            card.add(Box.createVerticalStrut(4))
+            card.add(FileDiffPreviewComponent(
+                project = project,
+                pullRequest = pullRequest,
+                filePath = entry.filePath!!,
+                lineStart = entry.lineStart,
+                lineEnd = entry.lineEnd ?: entry.lineStart,
+                isLeftSide = entry.isLeftSide
+            ))
         }
 
         // ── Reply count toggle ──

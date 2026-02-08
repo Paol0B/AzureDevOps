@@ -54,6 +54,7 @@ class TimelinePanel(
     // ── Polling state ──
     private var scheduler: ScheduledExecutorService? = null
     private var lastDataHash: Int = 0
+    @Volatile private var latestPullRequest: PullRequest = pullRequest
 
     companion object {
         private const val POLLING_INTERVAL_SECONDS = 8L
@@ -167,6 +168,7 @@ class TimelinePanel(
                 val freshPr = try {
                     apiClient.getPullRequest(pullRequest.pullRequestId, projectName, repositoryId)
                 } catch (_: Exception) { pullRequest }
+                latestPullRequest = freshPr
 
                 val hash = TimelineConverter.calculateHash(threads, freshPr.reviewers)
                 if (hash == lastDataHash) return@executeOnPooledThread    // nothing changed
@@ -228,6 +230,7 @@ class TimelinePanel(
                         timelineContainer.add(CommentCardComponent(
                             project = project,
                             entry = entry,
+                            pullRequest = latestPullRequest,
                             onReply = { threadId, content -> handleReply(threadId, content) },
                             onStatusChange = { threadId, status -> handleStatusChange(threadId, status) }
                         ))

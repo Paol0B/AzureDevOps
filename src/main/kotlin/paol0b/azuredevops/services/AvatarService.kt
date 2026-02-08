@@ -12,6 +12,7 @@ import java.awt.Image
 import java.awt.image.BufferedImage
 import java.net.URI
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
 import javax.imageio.ImageIO
 import javax.swing.Icon
 import javax.swing.ImageIcon
@@ -30,6 +31,8 @@ class AvatarService(private val project: Project) {
 
     // Set of URLs currently being loaded (to avoid duplicate requests)
     private val loading = ConcurrentHashMap.newKeySet<String>()
+    // Callbacks waiting for a URL to finish loading
+    private val pendingCallbacks = ConcurrentHashMap<String, CopyOnWriteArrayList<() -> Unit>>()
 
     companion object {
         private const val DEFAULT_SIZE = 24
@@ -59,6 +62,18 @@ class AvatarService(private val project: Project) {
         // Return cached icon if available
         cache[sizedUrl]?.let { return it }
 
+        if (onLoaded != null) {
+            pendingCallbacks.computeIfAbsent(sizedUrl) { CopyOnWriteArrayList() }.add(onLoaded)
+        }
+
+        cache[sizedUrl]?.let { icon ->
+            if (onLoaded != null) {
+                pendingCallbacks.remove(sizedUrl)
+                ApplicationManager.getApplication().invokeLater { onLoaded() }
+            }
+            return icon
+        }
+
         // Start async load if not already in progress
         if (loading.add(sizedUrl)) {
             ApplicationManager.getApplication().executeOnPooledThread {
@@ -67,13 +82,16 @@ class AvatarService(private val project: Project) {
                     if (image != null) {
                         val icon = ImageIcon(image)
                         cache[sizedUrl] = icon
-                        onLoaded?.let {
-                            ApplicationManager.getApplication().invokeLater { it() }
-                        }
                     }
                 } catch (e: Exception) {
                     logger.warn("Failed to load avatar from $sizedUrl: ${e.message}")
                 } finally {
+                    val callbacks = pendingCallbacks.remove(sizedUrl)
+                    if (callbacks != null && callbacks.isNotEmpty()) {
+                        ApplicationManager.getApplication().invokeLater {
+                            callbacks.forEach { it() }
+                        }
+                    }
                     loading.remove(sizedUrl)
                 }
             }
