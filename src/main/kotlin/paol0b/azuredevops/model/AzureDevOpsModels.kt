@@ -207,14 +207,7 @@ data class Reviewer(
     @SerializedName("isRequired")
     val isRequired: Boolean?
 ) {
-    fun getVoteStatus(): ReviewerVote = when(vote) {
-        10 -> ReviewerVote.Approved
-        5 -> ReviewerVote.ApprovedWithSuggestions
-        0 -> ReviewerVote.NoVote
-        -5 -> ReviewerVote.WaitingForAuthor
-        -10 -> ReviewerVote.Rejected
-        else -> ReviewerVote.NoVote
-    }
+    fun getVoteStatus(): ReviewerVote = ReviewerVote.fromVoteValue(vote)
 }
 
 enum class ReviewerVote {
@@ -230,6 +223,17 @@ enum class ReviewerVote {
         NoVote -> "○ No vote"
         WaitingForAuthor -> "⚠ Waiting for author"
         Rejected -> "✗ Rejected"
+    }
+
+    companion object {
+        fun fromVoteValue(vote: Int?): ReviewerVote = when (vote) {
+            10 -> Approved
+            5 -> ApprovedWithSuggestions
+            0 -> NoVote
+            -5 -> WaitingForAuthor
+            -10 -> Rejected
+            else -> NoVote
+        }
     }
 }
 

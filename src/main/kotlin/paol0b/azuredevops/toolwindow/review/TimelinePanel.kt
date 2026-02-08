@@ -232,6 +232,9 @@ class TimelinePanel(
                             onStatusChange = { threadId, status -> handleStatusChange(threadId, status) }
                         ))
                     }
+                    TimelineEntryType.VOTE_EVENT -> {
+                        timelineContainer.add(createVoteEventRow(entry))
+                    }
                     else -> {
                         timelineContainer.add(createSystemEventRow(entry))
                     }
@@ -304,6 +307,80 @@ class TimelinePanel(
                 font = font.deriveFont(10f)
             })
         }
+        center.add(headerLine)
+        row.add(center, BorderLayout.CENTER)
+
+        return row
+    }
+
+    private fun createVoteEventRow(entry: TimelineEntry): JPanel {
+        val row = JPanel(BorderLayout(8, 0)).apply {
+            background = UIUtil.getPanelBackground()
+            border = JBUI.Borders.empty(4, 0)
+            alignmentX = Component.LEFT_ALIGNMENT
+            maximumSize = Dimension(Int.MAX_VALUE, 48)
+        }
+
+        // Avatar
+        val avatarIcon = avatarService.getAvatar(entry.authorImageUrl, 24) { row.repaint() }
+        row.add(JBLabel(avatarIcon).apply {
+            verticalAlignment = SwingConstants.TOP
+            border = JBUI.Borders.emptyTop(2)
+        }, BorderLayout.WEST)
+
+        // Content
+        val center = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            background = UIUtil.getPanelBackground()
+        }
+
+        val headerLine = JPanel(FlowLayout(FlowLayout.LEFT, 6, 0)).apply {
+            isOpaque = false
+            alignmentX = Component.LEFT_ALIGNMENT
+        }
+        
+        // Author name
+        headerLine.add(JBLabel(entry.author).apply {
+            font = font.deriveFont(Font.BOLD, 11f)
+        })
+
+        val voteStatus = ReviewerVote.fromVoteValue(entry.voteValue)
+        
+        // Vote icon
+        val voteIcon = when (voteStatus) {
+            ReviewerVote.Approved -> AllIcons.RunConfigurations.TestPassed
+            ReviewerVote.ApprovedWithSuggestions -> AllIcons.General.Information
+            ReviewerVote.WaitingForAuthor -> AllIcons.General.Warning
+            ReviewerVote.Rejected -> AllIcons.RunConfigurations.TestFailed
+            ReviewerVote.NoVote -> AllIcons.Debugger.ThreadSuspended
+        }
+        
+        // Vote color
+        val voteColor = when (voteStatus) {
+            ReviewerVote.Approved -> JBColor(Color(34, 139, 34), Color(50, 200, 50))
+            ReviewerVote.ApprovedWithSuggestions -> JBColor(Color(255, 165, 0), Color(255, 140, 0))
+            ReviewerVote.WaitingForAuthor -> JBColor(Color(255, 165, 0), Color(255, 140, 0))
+            ReviewerVote.Rejected -> JBColor(Color(220, 53, 69), Color(200, 35, 51))
+            ReviewerVote.NoVote -> JBColor.GRAY
+        }
+        
+        headerLine.add(JBLabel(voteIcon))
+        
+        // Vote display name
+        headerLine.add(JBLabel(voteStatus.getDisplayName()).apply {
+            foreground = voteColor
+            font = font.deriveFont(Font.BOLD, 11f)
+        })
+
+        // Timestamp
+        val ts = TimelineUtils.formatTimeAgo(entry.timestamp)
+        if (ts.isNotEmpty()) {
+            headerLine.add(JBLabel("· $ts").apply {
+                foreground = JBColor.GRAY
+                font = font.deriveFont(10f)
+            })
+        }
+        
         center.add(headerLine)
         row.add(center, BorderLayout.CENTER)
 

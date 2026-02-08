@@ -71,4 +71,24 @@ object TimelineUtils {
             .replace(">", "&gt;")
             .replace("\n", "<br>")
     }
+
+    /**
+     * Extract the vote value from system content text like "voted (-5)" or "voted (10)".
+     * Returns null if no vote value is found.
+     */
+    fun extractVoteValueFromContent(content: String): Int? {
+        val numericRegex = Regex("""voted[^-\d]*(-?\d+)""", RegexOption.IGNORE_CASE)
+        val numericMatch = numericRegex.find(content)
+        val numericValue = numericMatch?.groupValues?.get(1)?.toIntOrNull()
+        if (numericValue != null) return numericValue
+
+        val lower = content.lowercase()
+        return when {
+            lower.contains("approved with suggestions") || lower.contains("approve with suggestions") -> 5
+            lower.contains("waiting for author") || lower.contains("wait for author") -> -5
+            lower.contains("rejected") || lower.contains("reject") -> -10
+            lower.contains("approved") || lower.contains("approve") -> 10
+            else -> null
+        }
+    }
 }

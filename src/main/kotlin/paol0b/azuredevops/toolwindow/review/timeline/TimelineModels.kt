@@ -86,12 +86,14 @@ object TimelineConverter {
             if (isSystem) {
                 // System / vote events kept as flat entries
                 val isVote = root.content?.contains("voted", ignoreCase = true) == true
+                val voteValue = if (isVote) TimelineUtils.extractVoteValueFromContent(root.content ?: "") else null
                 entries += TimelineEntry(
                     type = if (isVote) TimelineEntryType.VOTE_EVENT else TimelineEntryType.SYSTEM_EVENT,
                     author = root.author?.displayName ?: "System",
                     authorImageUrl = root.author?.imageUrl,
                     timestamp = root.publishedDate ?: root.lastUpdatedDate,
-                    content = root.content ?: ""
+                    content = root.content ?: "",
+                    voteValue = voteValue
                 )
             } else {
                 // Human comment thread → card with nested replies
