@@ -132,20 +132,6 @@ class PullRequestToolWindow(private val project: Project) {
 
     private fun createToolbar(): JPanel {
         val actionGroup = DefaultActionGroup().apply {
-            // Action to show comments for the current branch
-            add(object : AnAction("Show PR Comments", "Show comments for current branch's Pull Request", AllIcons.General.InlineVariables) {
-                override fun actionPerformed(e: AnActionEvent) {
-                    showCurrentBranchPRComments()
-                }
-
-                override fun update(e: AnActionEvent) {
-                    // The action is always visible
-                    e.presentation.isEnabledAndVisible = true
-                }
-            })
-
-            addSeparator()
-
             // Action for creating a new PR
             add(object : AnAction("New Pull Request", "Create a new Pull Request", AllIcons.General.Add) {
                 override fun actionPerformed(e: AnActionEvent) {

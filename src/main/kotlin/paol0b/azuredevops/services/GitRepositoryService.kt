@@ -6,6 +6,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.vcs.changes.Change
 import git4idea.GitLocalBranch
 import git4idea.GitRemoteBranch
+import git4idea.changes.GitChangeUtils
 import git4idea.history.GitHistoryUtils
 import git4idea.repo.GitRepository
 import git4idea.repo.GitRepositoryManager
@@ -215,7 +216,6 @@ class GitRepositoryService(private val project: Project) {
     /**
      * Gets the changes between two branches
      */
-    @Suppress("UnstableApiUsage")
     fun getChangesBetweenBranches(sourceBranch: String, targetBranch: String): List<Change> {
         val repository = getCurrentRepository() ?: return emptyList()
         
@@ -224,16 +224,8 @@ class GitRepositoryService(private val project: Project) {
             val sourceRef = sourceBranch.removePrefix("refs/heads/")
             val targetRef = targetBranch.removePrefix("refs/heads/")
             
-            // Get the commits between the two branches
-            val commits = GitHistoryUtils.history(project, repository.root, "$targetRef..$sourceRef")
-            
-            // Collect all changes from the commits
-            val changes = mutableListOf<Change>()
-            commits.forEach { commit ->
-                changes.addAll(commit.changes)
-            }
-            
-            return changes.distinctBy { it.afterRevision?.file?.path ?: it.beforeRevision?.file?.path }
+            // Use GitChangeUtils.getDiff which is a stable API for getting changes between revisions
+            return GitChangeUtils.getDiff(project, repository.root, targetRef, sourceRef, null).toList()
         } catch (e: Exception) {
             logger.error("Error getting changes between branches", e)
             return emptyList()
