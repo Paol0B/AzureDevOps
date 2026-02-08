@@ -6,8 +6,8 @@ import com.intellij.openapi.options.Configurable
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
+import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.ui.Messages
-import com.intellij.ui.AnActionButton
 import com.intellij.ui.JBColor
 import com.intellij.ui.ToolbarDecorator
 import com.intellij.ui.components.JBLabel
@@ -50,19 +50,18 @@ class AzureDevOpsAccountsConfigurable : Configurable {
             }
         }
 
-        @Suppress("DEPRECATION")
         val decorator = ToolbarDecorator.createDecorator(accountsTable)
             .setAddAction { addAccount() }
             .setRemoveAction { removeAccount() }
             .addExtraAction(
-                object : AnActionButton("Refresh Token", "Refresh the authentication token for selected account", AllIcons.Actions.Refresh) {
+                object : DumbAwareAction("Refresh Token", "Refresh the authentication token for selected account", AllIcons.Actions.Refresh) {
                     override fun actionPerformed(e: AnActionEvent) {
                         refreshToken()
                     }
                 }
             )
             .addExtraAction(
-                object : AnActionButton("Re-login", "Re-authenticate with selected account", AllIcons.Actions.Execute) {
+                object : DumbAwareAction("Re-login", "Re-authenticate with selected account", AllIcons.Actions.Execute) {
                     override fun actionPerformed(e: AnActionEvent) {
                         reAuthenticate()
                     }

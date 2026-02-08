@@ -13,6 +13,7 @@ import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.TextFieldWithBrowseButton
+import com.intellij.openapi.ui.TextBrowseFolderListener
 import com.intellij.openapi.ui.ValidationInfo
 import com.intellij.openapi.vcs.CheckoutProvider
 import com.intellij.openapi.vcs.ui.cloneDialog.VcsCloneDialogExtensionComponent
@@ -148,10 +149,7 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
         // Directory field setup
         val fileChooserDescriptor = FileChooserDescriptorFactory.createSingleFolderDescriptor()
         directoryField.addBrowseFolderListener(
-            "Select Clone Directory",
-            "Choose the directory where the repository will be cloned",
-            project,
-            fileChooserDescriptor
+            TextBrowseFolderListener(fileChooserDescriptor, project)
         )
         directoryField.text = defaultCloneDir
         
