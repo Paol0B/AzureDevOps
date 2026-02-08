@@ -104,7 +104,7 @@ You've finished working on a new feature and want to create a PR for review.
 
 2. **See what changed**
    - View the list of changed files
-   - Click on any file to see what lines were added/modified/deleted
+   - Click on any file to open the PR diff editor and review line changes
    - Look for the status badge: [A] = Added, [M] = Modified, [D] = Deleted
 
 3. **Read the PR description**
@@ -125,6 +125,35 @@ You've finished working on a new feature and want to create a PR for review.
    - Click **"Approve"** button if you're satisfied
    - Click **"Open in Browser"** if you need to leave detailed comments
    - Or click **"Abandon"** if the PR should be closed
+
+7. **Follow the timeline (optional)**
+   - Open the timeline view to see updates, comments, and approvals in order
+   - Use it to understand the review history without leaving the IDE
+
+---
+
+## Visualizing a Pipeline Run
+
+### Scenario: You want a full pipeline view without opening the browser
+
+**Steps:**
+
+1. **Open the "Azure DevOps Pipelines" tool window**
+   - Look for it on the left side tool windows
+
+2. **Select a pipeline**
+   - Choose the pipeline you want to inspect
+
+3. **Open a run**
+   - Click the latest run to load its details
+
+4. **Use the pipeline diagram**
+   - Explore stages, jobs, and steps in the visualization
+   - Hover or click nodes to see status and timing
+
+5. **Open logs when needed**
+   - Click a job or step to open the log view
+   - Use search in the log tab to find errors quickly
 
 ---
 

@@ -39,16 +39,60 @@ intellijPlatform {
         }
 
         changeNotes = """
-            Version 2.2:
-            - Fix comment change status
-            - CommentToolWindow improvements
-            Version 2.1:
-            - Fix Get PRs return 404 on repo name with spaces
-            - Improve refresh of PRs Window
-            Version 2.0:
-            - Global Accounts – Manage all Azure DevOps accounts in one place with status, expiration, and actions (add, remove, refresh, re-login).
-            - Project Setup – Select an account per project with auto-detected organization and connection testing.
-            - Auto Refresh – Tokens automatically refresh via Microsoft Entra ID (OAuth 2.0).
+            <h2>🚀 Version 3.0 - The Complete PR Review & Pipeline Experience</h2>
+            
+            <h3>✨ Major Features</h3>
+            <ul>
+                <li><b>Full PR Review in IDE</b> – Review PRs with diff viewer, timeline, comments, and file tree—no browser needed</li>
+                <li><b>PR Timeline</b> – Visualize PR history: created, updated, comments, approvals, status changes</li>
+                <li><b>Inline Comments</b> – Add feedback directly on code lines</li>
+                <li><b>Pipeline Visualization</b> – See stages, jobs, and logs in your IDE with live updates</li>
+                <li><b>Pipeline Logs</b> – Stream logs with search and auto-refresh</li>
+                <li><b>Better Clone Dialog</b> – Browse organizations and repos with tree view and search</li>
+                <li><b>User Avatars</b> – See profile pictures for reviewers and commenters</li>
+                <li><b>Enhanced PR Management</b> – Auto-complete with policies, smart branch handling</li>
+            </ul>
+            
+            <h3>🔧 Technical Improvements</h3>
+            <ul>
+                <li>API client expanded from ~800 to 1,400+ lines; 20+ new endpoints</li>
+                <li>Delta log streaming for 70%+ bandwidth savings on logs</li>
+                <li>Smart avatar caching to reduce API calls</li>
+                <li>Lazy-loaded UI for PRs with 100+ file changes</li>
+                <li>OkHttp 4.12.0 for better PATCH support</li>
+            </ul>
+            
+            <h3>🐛 Bug Fixes</h3>
+            <ul>
+                <li>Comment parsing in complex threaded discussions</li>
+                <li>URL handling for repos with spaces</li>
+                <li>Token refresh edge cases</li>
+                <li>PR list flickering during updates</li>
+            </ul>
+            
+            <p><a href="https://github.com/paol0b/AzureDevOps/blob/main/RELEASE_NOTES_3.0.md">📖 Read full release notes</a></p>
+            
+            <hr>
+            
+            <h2>Version 2.2</h2>
+            <ul>
+                <li>Fix comment status changes</li>
+                <li>CommentToolWindow improvements</li>
+            </ul>
+            
+            <h2>Version 2.1</h2>
+            <ul>
+                <li>Fix PR list 404 errors for repos with spaces</li>
+                <li>Improve PR list refresh responsiveness</li>
+            </ul>
+            
+            <h2>Version 2.0</h2>
+            <ul>
+                <li>OAuth 2.0 authentication (no app registration needed)</li>
+                <li>Global account management with auto-refresh</li>
+                <li>PR Comments Tool Window with filtering</li>
+                <li>Auto-refresh PR list every 30 seconds</li>
+            </ul>
             - Fallback Login – If refresh fails, users are prompted to re-authenticate.
             - Token Tracking – Expiration and last refresh times are stored and checked before each operation.
             Version 1.2:
