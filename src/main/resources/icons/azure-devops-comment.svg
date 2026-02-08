@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Uploaded to: SVG Repo, www.svgrepo.com, Generator: SVG Repo Mixer Tools -->
+
+<svg
+   fill="#000000"
+   width="800px"
+   height="800px"
+   viewBox="0 0 32 32"
+   version="1.1"
+   id="svg1"
+   sodipodi:docname="azure-devops-comment.svg"
+   xml:space="preserve"
+   inkscape:version="1.4.3 (0d15f75042, 2025-12-25)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg"><defs
+     id="defs1" /><sodipodi:namedview
+     id="namedview1"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:zoom="0.65937707"
+     inkscape:cx="318.48241"
+     inkscape:cy="357.91357"
+     inkscape:window-width="2580"
+     inkscape:window-height="999"
+     inkscape:window-x="0"
+     inkscape:window-y="0"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="svg1" /><path
+     d="M0 11.865l2.995-3.953 11.208-4.557v-3.292l9.828 7.188-20.078 3.896v10.969l-3.953-1.141zM32 5.932v19.536l-7.672 6.531-12.401-4.073v4.073l-7.974-9.885 20.078 2.396v-17.26z"
+     id="path1" /><g
+     id="g1"
+     transform="matrix(0.01586765,0,0,0.01447358,15.203878,17.045111)"><path
+       d="M 896,192 H 128 c -35.3,0 -64,28.7 -64,64 v 512 c 0,35.3 28.7,64 64,64 H 704.6 L 896.2,959.7 896,832 c 35.3,0 64,-28.7 64,-64 V 256 c 0,-35.3 -28.7,-64 -64,-64 z"
+       fill="#3d5afe"
+       id="path1-6" /><path
+       d="M 640,512 C 640,386.6 588.5,273.3 505.5,192 H 128 c -35.3,0 -64,28.7 -64,64 v 512 c 0,35.3 28.7,64 64,64 H 505.5 C 588.5,750.7 640,637.4 640,512 Z"
+       fill="#536dfe"
+       id="path2" /><path
+       d="m 256,512 m -64,0 a 64,64 0 1 0 128,0 64,64 0 1 0 -128,0 z"
+       fill="#ffff8d"
+       id="path3" /><path
+       d="m 512,512 m -64,0 a 64,64 0 1 0 128,0 64,64 0 1 0 -128,0 z"
+       fill="#ffff00"
+       id="path4" /><path
+       d="m 768,512 m -64,0 a 64,64 0 1 0 128,0 64,64 0 1 0 -128,0 z"
+       fill="#ffea00"
+       id="path5" /></g></svg>

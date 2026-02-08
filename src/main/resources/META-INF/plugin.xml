@@ -3,7 +3,7 @@
     <idea-version since-build="251" />
     <!-- Unique identifier of the plugin. It should be FQN. It cannot be changed between the plugin versions. -->
     <id>paol0b.AzureDevOps</id>
-    <version>2.2</version>
+    <version>3.0</version>
 
     <!-- Public plugin name should be written in Title Case.
          Guidelines: https://plugins.jetbrains.com/docs/marketplace/best-practices-for-listing.html#plugin-name -->
@@ -100,12 +100,18 @@
     <!-- Extension points defined by the plugin.
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
     <extensions defaultExtensionNs="com.intellij">
-        <!-- Azure DevOps Checkout Provider for Clone Repository dialog -->
-        <checkoutProvider implementation="paol0b.azuredevops.checkout.AzureDevOpsCheckoutProvider"/>
+        <!-- Azure DevOps Clone Dialog Extension - appears in left panel alongside GitHub/GitLab -->
+        <openapi.vcs.ui.cloneDialog.VcsCloneDialogExtension 
+            id="paol0b.azuredevops.checkout.AzureDevOpsCloneDialogExtension" 
+            implementation="paol0b.azuredevops.checkout.AzureDevOpsCloneDialogExtension"
+            order="after org.jetbrains.plugins.github.ui.cloneDialog.GHECloneDialogExtension"/>
         <!-- Application-level service for account management -->
         <applicationService serviceImplementation="paol0b.azuredevops.checkout.AzureDevOpsAccountManager"/>
         <!-- OAuth authentication service -->
         <applicationService serviceImplementation="paol0b.azuredevops.checkout.AzureDevOpsOAuthService"/>
+        
+        <!-- Avatar caching service -->
+        <projectService serviceImplementation="paol0b.azuredevops.services.AvatarService"/>
         
         <!-- Application-level configuration for accounts -->
         <applicationConfigurable 
@@ -132,18 +138,54 @@
         <!-- Tool Window -->
         <toolWindow
                 id="Azure DevOps PRs"
-                anchor="right"
+                anchor="left"
                 icon="paol0b.azuredevops.AzureDevOpsIcons.ToolWindow"
                 factoryClass="paol0b.azuredevops.toolwindow.PullRequestToolWindowFactory"
-                canCloseContents="false"
+                canCloseContents="true"
+                doNotActivateOnStart="false"/>
+
+        <!-- Pipelines Tool Window -->
+        <toolWindow
+                id="Azure DevOps Pipelines"
+                anchor="left"
+                icon="paol0b.azuredevops.AzureDevOpsIcons.ToolWindowPipeline"
+                factoryClass="paol0b.azuredevops.toolwindow.pipeline.PipelineToolWindowFactory"
+                canCloseContents="true"
                 doNotActivateOnStart="false"/>
 
         <!-- Comments Navigator Tool Window -->
         <toolWindow
-                id="PR Comments"
+                id="Azure DevOps Comments"
                 anchor="right"
-                icon="AllIcons.Toolwindows.ToolWindowMessages"
+                icon="paol0b.azuredevops.AzureDevOpsIcons.ToolWindowComments"
                 factoryClass="paol0b.azuredevops.toolwindow.CommentsNavigatorToolWindow"/>
+
+        <!-- PR Review Tool Window (Master-Detail Diff Viewer) -->
+        <!-- <toolWindow
+                id="PR Review"
+                anchor="right"
+                icon="AllIcons.Actions.Diff"
+                factoryClass="paol0b.azuredevops.toolwindow.review.PrReviewToolWindowFactory"
+                canCloseContents="false"
+                doNotActivateOnStart="false"/> -->
+
+        <!-- PR Review Editor Tab (legacy full-review in editor) -->
+        <fileEditorProvider implementation="paol0b.azuredevops.toolwindow.review.editor.PrReviewFileEditorProvider"/>
+
+        <!-- PR Diff Editor Tab (individual file diff with inline comments) -->
+        <fileEditorProvider implementation="paol0b.azuredevops.toolwindow.review.editor.PrDiffFileEditorProvider"/>
+
+        <!-- PR Timeline Editor Tab -->
+        <fileEditorProvider implementation="paol0b.azuredevops.toolwindow.review.editor.PrTimelineFileEditorProvider"/>
+
+        <!-- Pipeline Log Editor Tab -->
+        <fileEditorProvider implementation="paol0b.azuredevops.toolwindow.pipeline.editor.PipelineLogFileEditorProvider"/>
+
+        <!-- Pipeline Diagram Editor Tab -->
+        <fileEditorProvider implementation="paol0b.azuredevops.toolwindow.pipeline.editor.PipelineDiagramFileEditorProvider"/>
+
+        <!-- Pipeline Tab Service -->
+        <projectService serviceImplementation="paol0b.azuredevops.services.PipelineTabService"/>
 
         <!-- File Decorator for PR Comments -->
         <projectViewNodeDecorator implementation="paol0b.azuredevops.decorators.FileWithCommentsDecorator"/>

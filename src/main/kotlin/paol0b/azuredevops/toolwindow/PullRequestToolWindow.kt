@@ -12,8 +12,15 @@ import com.intellij.ui.components.JBScrollPane
 import paol0b.azuredevops.actions.CreatePullRequestAction
 import paol0b.azuredevops.model.PullRequest
 import paol0b.azuredevops.services.AzureDevOpsApiClient
+import paol0b.azuredevops.services.AzureDevOpsConfigService
 import paol0b.azuredevops.services.GitRepositoryService
 import paol0b.azuredevops.services.PullRequestCommentsService
+import java.awt.BorderLayout
+import javax.swing.Box
+import javax.swing.BoxLayout
+import javax.swing.JButton
+import javax.swing.JComboBox
+import javax.swing.JLabel
 import javax.swing.JPanel
 
 /**
@@ -27,6 +34,48 @@ class PullRequestToolWindow(private val project: Project) {
     private val pullRequestDetailsPanel: PullRequestDetailsPanel
     private val pollingService = paol0b.azuredevops.services.PullRequestsPollingService.getInstance(project)
     private var isInitialLoadDone: Boolean = false
+    
+    // Filter and Org controls
+    private val filterComboBox = JComboBox(arrayOf(
+        "Active",
+        "Completed",
+        "Abandoned",
+        "All"
+    )).apply {
+        selectedItem = "Active"
+        maximumSize = java.awt.Dimension(120, 30)
+        toolTipText = "Filter by PR Status"
+        addActionListener {
+            val status = when (selectedItem) {
+                "Active" -> "active"
+                "Completed" -> "completed"
+                "Abandoned" -> "abandoned"
+                "All" -> "all"
+                else -> "active"
+            }
+            pullRequestListPanel.setFilterStatus(status)
+            
+            // When selecting "Active", automatically enable cross-repo view
+            if (selectedItem == "Active" && !pullRequestListPanel.getShowAllOrganizationPrs()) {
+                pullRequestListPanel.setShowAllOrganizationPrs(true)
+                updateCrossOrgButtonState()
+            }
+            // When selecting anything else and cross-repo is enabled, disable it
+            if (selectedItem != "Active" && pullRequestListPanel.getShowAllOrganizationPrs()) {
+                pullRequestListPanel.setShowAllOrganizationPrs(false)
+                updateCrossOrgButtonState()
+            }
+        }
+    }
+
+    private val showAllOrgButton = JButton("📦 Org").apply {
+        toolTipText = "Show Pull Requests from all organization repositories"
+        addActionListener {
+            val newState = !pullRequestListPanel.getShowAllOrganizationPrs()
+            pullRequestListPanel.setShowAllOrganizationPrs(newState)
+            updateCrossOrgButtonState()
+        }
+    }
 
     init {
         pullRequestListPanel = PullRequestListPanel(project) { selectedPR ->
@@ -67,6 +116,19 @@ class PullRequestToolWindow(private val project: Project) {
     }
 
     fun getContent(): JPanel = mainPanel
+    
+    /**
+     * Update the visual state of the cross-org button
+     */
+    private fun updateCrossOrgButtonState() {
+        if (pullRequestListPanel.getShowAllOrganizationPrs()) {
+            showAllOrgButton.text = "✓ 📦 Org"
+            showAllOrgButton.toolTipText = "✓ Showing PRs from all organization repositories"
+        } else {
+            showAllOrgButton.text = "📦 Org"
+            showAllOrgButton.toolTipText = "Show Pull Requests from all organization repositories"
+        }
+    }
 
     private fun createToolbar(): JPanel {
         val actionGroup = DefaultActionGroup().apply {
@@ -110,25 +172,13 @@ class PullRequestToolWindow(private val project: Project) {
                 }
             })
 
-            // Action to filter by status
-            add(object : ToggleAction("Show Only Active", "Show only active Pull Requests", AllIcons.General.Filter) {
-                private var showOnlyActive = true
-
-                override fun isSelected(e: AnActionEvent): Boolean = showOnlyActive
-
-                override fun setSelected(e: AnActionEvent, state: Boolean) {
-                    showOnlyActive = state
-                    pullRequestListPanel.setFilterStatus(if (state) "active" else "all")
-                }
-            })
-
             addSeparator()
 
             // Action to open selected PR in browser
             add(object : AnAction("Open in Browser", "Open selected PR in browser", AllIcons.Ide.External_link_arrow) {
                 override fun actionPerformed(e: AnActionEvent) {
                     pullRequestListPanel.getSelectedPullRequest()?.let { pr ->
-                        openInBrowser(pr.getWebUrl())
+                        getPullRequestWebUrl(pr)?.let { url -> openInBrowser(url) }
                     }
                 }
 
@@ -140,7 +190,25 @@ class PullRequestToolWindow(private val project: Project) {
 
         val toolbar = ActionManager.getInstance().createActionToolbar("AzureDevOpsPRToolbar", actionGroup, true)
         toolbar.targetComponent = mainPanel
-        return toolbar.component as JPanel
+        
+        // Create a panel to hold both the toolbar and filter controls
+        val toolbarPanel = JPanel(BorderLayout()).apply {
+            add(toolbar.component, BorderLayout.WEST)
+            
+            // Add filter controls on the right
+            val filterPanel = JPanel().apply {
+                layout = BoxLayout(this, BoxLayout.X_AXIS)
+                add(Box.createHorizontalStrut(10))
+                add(Box.createHorizontalStrut(5))
+                add(filterComboBox)
+                add(Box.createHorizontalStrut(10))
+                add(showAllOrgButton)
+                add(Box.createHorizontalStrut(10))
+            }
+            add(filterPanel, BorderLayout.EAST)
+        }
+        
+        return toolbarPanel
     }
 
     private fun onPullRequestSelected(pullRequest: PullRequest?) {
@@ -216,6 +284,29 @@ class PullRequestToolWindow(private val project: Project) {
                 }
             }
         }
+    }
+
+    /**
+     * Generates the web URL for a Pull Request (not the API URL)
+     * Supports cross-repository PRs by using the PR's repository information
+     */
+    private fun getPullRequestWebUrl(pr: PullRequest): String? {
+        val apiClient = AzureDevOpsApiClient.getInstance(project)
+
+        // For cross-repository support, use the PR's repository information
+        pr.repository?.let { repo ->
+            if (repo.name != null && repo.project?.name != null) {
+                return apiClient.buildPullRequestWebUrl(repo.project.name, repo.name, pr.pullRequestId)
+            }
+        }
+
+        // Fallback: use project config if repository info is not available
+        val configService = AzureDevOpsConfigService.getInstance(project)
+        val config = configService.getConfig()
+
+        if (!config.isValid()) return null
+
+        return apiClient.buildPullRequestWebUrl(config.project, config.repository, pr.pullRequestId)
     }
 
     private fun openInBrowser(url: String) {

@@ -20,8 +20,6 @@ import paol0b.azuredevops.services.GitRepositoryService
 import paol0b.azuredevops.ui.CreatePullRequestDialog
 import java.awt.Desktop
 import java.net.URI
-import java.net.URLEncoder
-import java.nio.charset.StandardCharsets
 
 /**
  * Action to create a Pull Request on Azure DevOps
@@ -278,13 +276,8 @@ class CreatePullRequestAction : AnAction() {
 
         if (!config.isValid()) return null
 
-        // URL encode components to handle special characters (spaces, accents, etc.)
-        val encodedOrg = URLEncoder.encode(config.organization, StandardCharsets.UTF_8.toString())
-        val encodedProject = URLEncoder.encode(config.project, StandardCharsets.UTF_8.toString())
-        val encodedRepo = URLEncoder.encode(config.repository, StandardCharsets.UTF_8.toString())
-
-        // URL format: https://dev.azure.com/{org}/{project}/_git/{repo}/pullrequest/{prId}
-        return "https://dev.azure.com/$encodedOrg/$encodedProject/_git/$encodedRepo/pullrequest/$prId"
+        val apiClient = AzureDevOpsApiClient.getInstance(project)
+        return apiClient.buildPullRequestWebUrl(config.project, config.repository, prId)
     }
 
     /**

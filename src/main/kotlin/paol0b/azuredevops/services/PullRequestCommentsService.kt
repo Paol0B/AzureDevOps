@@ -236,7 +236,13 @@ class PullRequestCommentsService(private val project: Project) {
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
                 val apiClient = AzureDevOpsApiClient.getInstance(project)
-                apiClient.addCommentToThread(pullRequest.pullRequestId, threadId, content)
+                apiClient.addCommentToThread(
+                    pullRequest.pullRequestId,
+                    threadId,
+                    content,
+                    pullRequest.repository?.project?.name,
+                    pullRequest.repository?.id
+                )
                 
                 ApplicationManager.getApplication().invokeLater {
                     onSuccess()
@@ -254,7 +260,13 @@ class PullRequestCommentsService(private val project: Project) {
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
                 val apiClient = AzureDevOpsApiClient.getInstance(project)
-                apiClient.updateThreadStatus(pullRequest.pullRequestId, threadId, ThreadStatus.Fixed)
+                apiClient.updateThreadStatus(
+                    pullRequest.pullRequestId,
+                    threadId,
+                    ThreadStatus.Fixed,
+                    pullRequest.repository?.project?.name,
+                    pullRequest.repository?.id
+                )
                 
                 ApplicationManager.getApplication().invokeLater {
                     onSuccess()
@@ -272,7 +284,13 @@ class PullRequestCommentsService(private val project: Project) {
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
                 val apiClient = AzureDevOpsApiClient.getInstance(project)
-                apiClient.updateThreadStatus(pullRequest.pullRequestId, threadId, ThreadStatus.Active)
+                apiClient.updateThreadStatus(
+                    pullRequest.pullRequestId,
+                    threadId,
+                    ThreadStatus.Active,
+                    pullRequest.repository?.project?.name,
+                    pullRequest.repository?.id
+                )
                 
                 ApplicationManager.getApplication().invokeLater {
                     onSuccess()

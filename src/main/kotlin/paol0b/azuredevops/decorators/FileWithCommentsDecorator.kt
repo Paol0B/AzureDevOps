@@ -28,6 +28,7 @@ class FileWithCommentsDecorator(private val project: Project) : ProjectViewNodeD
     private val commentsTracker: PullRequestCommentsTracker
         get() = project.service()
 
+    @Deprecated("Using deprecated API pending migration to new decorator system")
     @Suppress("OVERRIDE_DEPRECATION")
     override fun decorate(node: ProjectViewNode<*>, data: PresentationData) {
         try {
