@@ -39,6 +39,7 @@ Please perform this cleanup before using the new authentication features to avoi
 - Create PRs directly from your IDE
 - Complete PR details at a glance
 - Quick access to PR in browser
+- Review PR changes with diffs, timeline, and comments
 
 </td>
 <td width="50%">
@@ -59,6 +60,7 @@ Please perform this cleanup before using the new authentication features to avoi
 - Smart filters for PR views
 - Real-time notifications
 - Seamless IDE integration
+- Full pipeline visualization with stages, jobs, and logs
 
 </td>
 <td width="50%">

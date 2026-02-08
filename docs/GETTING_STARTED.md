@@ -38,13 +38,17 @@ The repository is cloned and ready to use. The plugin automatically detects your
 
 ## Step 2: Open the Tool Windows
 
-Once you have a repository open, you'll see two new tool windows on the **right side** of your IDE:
+Once you have a repository open, you'll see new tool windows in your IDE:
 
 ### **Azure DevOps PRs** (Pull Request Manager)
 - View all pull requests
 - Create new PRs
 - Review changes
 - Approve or complete PRs
+
+### **Azure DevOps Pipelines** (Pipeline Viewer)
+- Visualize pipeline stages and jobs
+- Open run details and logs
 
 ### **PR Comments** (Comment Browser)
 - See all comments on the PR
@@ -97,8 +101,9 @@ If you don't see these windows, go to **View** → **Tool Windows** and select t
 ### Review a Pull Request
 
 1. Click on a PR in the list to see its **changes** and **commits**
-2. Click on files to see what was modified
-3. Click **"Open in Browser"** to see detailed comments and discussions (if you need more advanced features)
+2. Click on files to open the PR diff editor and review line-by-line changes
+3. Use the timeline view to follow updates, comments, and status changes
+4. Click **"Open in Browser"** to see detailed comments and discussions (if you need more advanced features)
 
 ### View Comments
 

@@ -37,6 +37,13 @@
             <li><b>Open in Browser:</b> Jump to the PR in Azure DevOps for advanced options</li>
             <li><b>File Changes:</b> View which files were modified in each PR</li>
             <li><b>Commit History:</b> See all commits included in the PR</li>
+            <li><b>Review Experience:</b> Open PR diffs, timeline, and comments directly in the IDE</li>
+        </ul>
+
+        <h4>🚦 Pipelines Visualization</h4>
+        <ul>
+            <li><b>Full Pipeline View:</b> Visualize stages, jobs, and steps in a single diagram</li>
+            <li><b>Logs at Hand:</b> Open pipeline logs from the IDE without switching to the browser</li>
         </ul>
 
         <h4>💬 Comment Browser Tool</h4>
