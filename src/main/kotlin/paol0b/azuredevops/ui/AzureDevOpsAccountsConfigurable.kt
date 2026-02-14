@@ -122,6 +122,11 @@ class AzureDevOpsAccountsConfigurable : Configurable {
         infoText.append("<b>Server URL:</b> ${account.serverUrl}<br>")
         infoText.append("<b>Account ID:</b> ${account.id}<br>")
         infoText.append("<b>Auth Type:</b> ${if (isPat) "Personal Access Token (PAT)" else "OAuth 2.0"}<br>")
+        if (account.selfHosted) {
+            infoText.append("<b>Instance:</b> <font color='#CC6600'>Self-Hosted (on-premise)</font><br>")
+        } else {
+            infoText.append("<b>Instance:</b> Azure DevOps Services (cloud)<br>")
+        }
         infoText.append("<b>Status:</b> ${formatAuthState(accountWithStatus.state)}<br>")
         
         if (isPat) {
@@ -434,14 +439,15 @@ class AzureDevOpsAccountsConfigurable : Configurable {
 
         override fun getRowCount(): Int = accounts.size
 
-        override fun getColumnCount(): Int = 5
+        override fun getColumnCount(): Int = 6
 
         override fun getColumnName(column: Int): String = when (column) {
             0 -> "Account"
             1 -> "URL"
             2 -> "Type"
-            3 -> "Status"
-            4 -> "Expires"
+            3 -> "Instance"
+            4 -> "Status"
+            5 -> "Expires"
             else -> ""
         }
 
@@ -451,8 +457,9 @@ class AzureDevOpsAccountsConfigurable : Configurable {
                 0 -> item.account.displayName
                 1 -> item.account.serverUrl
                 2 -> item.account.authType
-                3 -> item.state
-                4 -> {
+                3 -> if (item.account.selfHosted) "Self-Hosted" else "Cloud"
+                4 -> item.state
+                5 -> {
                     if (item.account.authType == AuthType.PAT) {
                         "N/A"
                     } else if (item.expiresAt > 0) {
@@ -495,8 +502,18 @@ class AzureDevOpsAccountsConfigurable : Configurable {
                 }
             }
 
+            // Instance column
+            if (column == 3 && value is String) {
+                if (!isSelected) {
+                    foreground = when (value) {
+                        "Self-Hosted" -> JBColor(0xCC6600, 0xFFAA33)
+                        else -> table?.foreground ?: foreground
+                    }
+                }
+            }
+
             // Status column
-            if (column == 3 && value is AzureDevOpsAccountManager.AccountAuthState) {
+            if (column == 4 && value is AzureDevOpsAccountManager.AccountAuthState) {
                 text = when (value) {
                     AzureDevOpsAccountManager.AccountAuthState.VALID -> "✓ Valid"
                     AzureDevOpsAccountManager.AccountAuthState.EXPIRED -> "⚠ Expired"
