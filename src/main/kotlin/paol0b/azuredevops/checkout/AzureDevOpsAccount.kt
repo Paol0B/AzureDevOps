@@ -15,7 +15,8 @@ data class AzureDevOpsAccount(
     val id: String,
     val serverUrl: String,
     val displayName: String,
-    val authType: AuthType = AuthType.OAUTH
+    val authType: AuthType = AuthType.OAUTH,
+    val selfHosted: Boolean = false
 ) {
     override fun toString(): String = displayName
 }

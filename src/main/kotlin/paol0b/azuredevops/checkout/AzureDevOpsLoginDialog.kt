@@ -38,10 +38,12 @@ class AzureDevOpsLoginDialog(private val project: Project?) : DialogWrapper(proj
     private val oauthButton = JButton("Sign in with Browser (OAuth)")
     private val patLoginButton = JButton("Validate & Sign In")
     private val toggleLink = JButton("Use Personal Access Token instead")
+    private val selfHostedCheckbox = JCheckBox("Self-Hosted Instance (on-premise)")
 
     private val cardLayout = CardLayout()
     private val cardPanel = JPanel(cardLayout)
     private val patInfoLabel = JBLabel()
+    private val urlHintLabel = JBLabel("<html><div style='font-size:11px;color:gray;'>Examples: dev.azure.com/contoso or contoso.visualstudio.com</div></html>")
 
     private var account: AzureDevOpsAccount? = null
     private var useOAuth = true
@@ -52,6 +54,9 @@ class AzureDevOpsLoginDialog(private val project: Project?) : DialogWrapper(proj
         oauthButton.addActionListener { performOAuthLogin() }
         patLoginButton.addActionListener { performPatLogin() }
         toggleLink.addActionListener { toggleMode() }
+
+        // Self-hosted checkbox: when checked, force PAT mode and free-form URL
+        selfHostedCheckbox.addActionListener { onSelfHostedToggled() }
 
         // Borderless link-like appearance for the toggle
         toggleLink.isBorderPainted = false
@@ -110,8 +115,11 @@ class AzureDevOpsLoginDialog(private val project: Project?) : DialogWrapper(proj
                     serverUrlField.putClientProperty("JTextField.placeholderText", "https://dev.azure.com/YourOrganization")
                 })
                 add(Box.createVerticalStrut(5))
-                add(JBLabel("<html><div style='font-size:11px;color:gray;'>Examples: dev.azure.com/contoso or contoso.visualstudio.com</div></html>").apply {
-                    foreground = UIUtil.getLabelInfoForeground()
+                urlHintLabel.foreground = UIUtil.getLabelInfoForeground()
+                add(urlHintLabel)
+                add(Box.createVerticalStrut(8))
+                add(JPanel(BorderLayout()).apply {
+                    add(selfHostedCheckbox, BorderLayout.WEST)
                 })
             }
             add(inner, BorderLayout.CENTER)
@@ -221,6 +229,30 @@ class AzureDevOpsLoginDialog(private val project: Project?) : DialogWrapper(proj
         return mainPanel
     }
 
+    // -------- self-hosted toggle --------
+
+    private fun onSelfHostedToggled() {
+        val isSelfHosted = selfHostedCheckbox.isSelected
+        if (isSelfHosted) {
+            // Force PAT mode — OAuth is not available on self-hosted
+            useOAuth = false
+            cardLayout.show(cardPanel, "PAT")
+            toggleLink.isVisible = false
+            serverUrlField.text = "https://"
+            serverUrlField.putClientProperty("JTextField.placeholderText", "https://tfs.yourcompany.com/tfs/DefaultCollection")
+            urlHintLabel.text = "<html><div style='font-size:11px;color:gray;'>Enter the full URL of your Azure DevOps Server instance (e.g. https://tfs.yourcompany.com/tfs/DefaultCollection)</div></html>"
+        } else {
+            // Restore normal mode
+            toggleLink.isVisible = true
+            useOAuth = true
+            cardLayout.show(cardPanel, "OAUTH")
+            toggleLink.text = "Use Personal Access Token instead"
+            serverUrlField.text = "https://dev.azure.com/"
+            serverUrlField.putClientProperty("JTextField.placeholderText", "https://dev.azure.com/YourOrganization")
+            urlHintLabel.text = "<html><div style='font-size:11px;color:gray;'>Examples: dev.azure.com/contoso or contoso.visualstudio.com</div></html>"
+        }
+    }
+
     // -------- mode toggle --------
 
     private fun toggleMode() {
@@ -321,7 +353,7 @@ class AzureDevOpsLoginDialog(private val project: Project?) : DialogWrapper(proj
                 if (r.valid) {
                     patInfoLabel.text = "<html><div style='color:green;'>✓ ${escapeHtml(r.message)}</div></html>"
                     val accountManager = AzureDevOpsAccountManager.getInstance()
-                    account = accountManager.addPatAccount(serverUrl, pat, r.message)
+                    account = accountManager.addPatAccount(serverUrl, pat, r.message, selfHostedCheckbox.isSelected)
                     close(OK_EXIT_CODE)
                 } else {
                     patInfoLabel.text = "<html><div style='color:red;'>✗ ${escapeHtml(r.message)}</div></html>"

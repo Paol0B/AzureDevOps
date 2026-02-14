@@ -37,7 +37,8 @@ class AzureDevOpsAccountManager : PersistentStateComponent<AzureDevOpsAccountMan
         var lastRefreshed: Long = 0,  // Unix timestamp (millis) of last token refresh
         var authType: String = "OAUTH",  // OAUTH or PAT
         var lastValidatedAt: Long = 0,  // Unix timestamp (millis) of last PAT validation
-        var validationMessage: String = ""  // Last validation result message
+        var validationMessage: String = "",  // Last validation result message
+        var selfHosted: Boolean = false  // True for Azure DevOps Server (on-premise) instances
     )
     
     enum class AccountAuthState {
@@ -70,7 +71,8 @@ class AzureDevOpsAccountManager : PersistentStateComponent<AzureDevOpsAccountMan
                 id = it.id,
                 serverUrl = it.serverUrl,
                 displayName = it.displayName,
-                authType = try { AuthType.valueOf(it.authType) } catch (_: Exception) { AuthType.OAUTH }
+                authType = try { AuthType.valueOf(it.authType) } catch (_: Exception) { AuthType.OAUTH },
+                selfHosted = it.selfHosted
             )
         }
     }
@@ -114,7 +116,7 @@ class AzureDevOpsAccountManager : PersistentStateComponent<AzureDevOpsAccountMan
     /**
      * Add a new Azure DevOps account authenticated with a Personal Access Token.
      */
-    fun addPatAccount(serverUrl: String, pat: String, validationMessage: String = ""): AzureDevOpsAccount {
+    fun addPatAccount(serverUrl: String, pat: String, validationMessage: String = "", selfHosted: Boolean = false): AzureDevOpsAccount {
         val id = generateAccountId(serverUrl)
         val displayName = extractDisplayName(serverUrl)
         val now = System.currentTimeMillis()
@@ -127,15 +129,16 @@ class AzureDevOpsAccountManager : PersistentStateComponent<AzureDevOpsAccountMan
             lastRefreshed = now,
             authType = AuthType.PAT.name,
             lastValidatedAt = now,
-            validationMessage = validationMessage
+            validationMessage = validationMessage,
+            selfHosted = selfHosted
         )
         myState.accounts.add(accountData)
 
         saveToken(id, pat)
 
-        logger.info("Added Azure DevOps PAT account: $displayName")
+        logger.info("Added Azure DevOps PAT account: $displayName (selfHosted=$selfHosted)")
 
-        return AzureDevOpsAccount(id, serverUrl, displayName, AuthType.PAT)
+        return AzureDevOpsAccount(id, serverUrl, displayName, AuthType.PAT, selfHosted)
     }
 
     /**
@@ -248,11 +251,11 @@ class AzureDevOpsAccountManager : PersistentStateComponent<AzureDevOpsAccountMan
     }
     
     /**
-     * Extracts organization name from Azure DevOps URL
+     * Extracts organization name from Azure DevOps URL.
+     * For self-hosted instances, returns the host as the identifier.
      */
     private fun extractOrganizationFromUrl(url: String): String? {
         return try {
-            // Handle both dev.azure.com and visualstudio.com formats
             val uri = java.net.URI(url)
             
             // For dev.azure.com: https://dev.azure.com/{organization}
@@ -270,11 +273,19 @@ class AzureDevOpsAccountManager : PersistentStateComponent<AzureDevOpsAccountMan
                 return uri.host?.substringBefore(".visualstudio.com")
             }
             
-            null
+            // For self-hosted: use the full host as the identifier
+            uri.host
         } catch (e: Exception) {
             logger.warn("Failed to extract organization from URL: $url", e)
             null
         }
+    }
+
+    /**
+     * Check if a given account is self-hosted.
+     */
+    fun isSelfHosted(accountId: String): Boolean {
+        return myState.accounts.find { it.id == accountId }?.selfHosted ?: false
     }
     
     /**

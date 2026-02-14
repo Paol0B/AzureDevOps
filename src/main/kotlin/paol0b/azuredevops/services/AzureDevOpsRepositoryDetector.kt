@@ -15,11 +15,14 @@ data class AzureDevOpsRepoInfo(
     val project: String,
     val repository: String,
     val remoteUrl: String,
-    val useVisualStudioDomain: Boolean = false
+    val useVisualStudioDomain: Boolean = false,
+    val selfHostedUrl: String? = null
 ) {
     fun isValid(): Boolean = organization.isNotBlank() && 
                             project.isNotBlank() && 
                             repository.isNotBlank()
+
+    fun isSelfHosted(): Boolean = selfHostedUrl != null
 }
 
 /**

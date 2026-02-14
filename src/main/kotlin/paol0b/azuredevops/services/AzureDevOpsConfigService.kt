@@ -153,6 +153,23 @@ class AzureDevOpsConfigService(private val project: com.intellij.openapi.project
             if (isDevMode()) logger.info("Found ${accounts.size} accounts in account manager")
             
             for (account in accounts) {
+                // For self-hosted accounts, match by server URL host
+                if (account.selfHosted) {
+                    val accountHost = try { java.net.URI(account.serverUrl).host?.lowercase() } catch (_: Exception) { null }
+                    val remoteHost = try {
+                        val gitService = GitRepositoryService.getInstance(project)
+                        val remoteUrl = gitService.getRemoteUrl()
+                        if (remoteUrl != null) java.net.URI(remoteUrl).host?.lowercase() else null
+                    } catch (_: Exception) { null }
+
+                    if (accountHost != null && accountHost == remoteHost) {
+                        if (isDevMode()) logger.info("Found matching self-hosted account: ${account.displayName}")
+                        val token = accountManager.getToken(account.id)
+                        if (!token.isNullOrBlank()) return token
+                    }
+                    continue
+                }
+
                 // Extract organization from account server URL
                 val accountOrg = extractOrganizationFromUrl(account.serverUrl)
                 if (isDevMode()) logger.info("Checking account: ${account.displayName}, org from URL: $accountOrg")
@@ -310,10 +327,18 @@ class AzureDevOpsConfigService(private val project: com.intellij.openapi.project
     }
 
     /**
-     * Gets the base URL for Azure DevOps APIs
+     * Gets the base URL for Azure DevOps APIs.
+     * For self-hosted accounts, uses the account's server URL directly.
+     * For cloud accounts, derives the URL from the organization.
      */
     fun getApiBaseUrl(): String {
         val config = getConfig()
+
+        // Check if there is a self-hosted account matching the current repository
+        val selfHostedUrl = tryGetSelfHostedBaseUrl()
+        if (selfHostedUrl != null) {
+            return selfHostedUrl.trimEnd('/')
+        }
 
         // Check availability of visualstudio.com domain preference from detector
         val detector = AzureDevOpsRepositoryDetector.getInstance(project)
@@ -325,6 +350,39 @@ class AzureDevOpsConfigService(private val project: com.intellij.openapi.project
 
         val encodedOrganization = URLEncoder.encode(config.organization, StandardCharsets.UTF_8.toString()).replace("+", "%20")
         return "https://dev.azure.com/$encodedOrganization"
+    }
+
+    /**
+     * Checks if the current project is associated with a self-hosted account
+     * and returns the server URL if so.
+     */
+    private fun tryGetSelfHostedBaseUrl(): String? {
+        try {
+            val detector = AzureDevOpsRepositoryDetector.getInstance(project)
+            val repoInfo = detector.detectAzureDevOpsInfo() ?: return null
+
+            // If the repo info has a self-hosted server URL, use it
+            if (repoInfo.selfHostedUrl != null) {
+                return repoInfo.selfHostedUrl
+            }
+
+            // Also check all accounts for a self-hosted match
+            val accountManager = AzureDevOpsAccountManager.getInstance()
+            for (account in accountManager.getAccounts()) {
+                if (account.selfHosted) {
+                    // Compare the account server URL host with the repo remote URL host
+                    val accountHost = java.net.URI(account.serverUrl).host?.lowercase()
+                    val remoteUrl = repoInfo.remoteUrl
+                    val remoteHost = try { java.net.URI(remoteUrl).host?.lowercase() } catch (_: Exception) { null }
+                    if (accountHost != null && accountHost == remoteHost) {
+                        return account.serverUrl.trimEnd('/')
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            // fall through to cloud URL
+        }
+        return null
     }
     
     /**

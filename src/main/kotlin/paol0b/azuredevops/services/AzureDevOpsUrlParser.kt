@@ -6,7 +6,7 @@ import java.nio.charset.StandardCharsets
 import java.util.regex.Pattern
 
 /**
- * Utility to parse Azure DevOps URLs
+ * Utility to parse Azure DevOps URLs (cloud and self-hosted)
  */
 object AzureDevOpsUrlParser {
     private val logger = Logger.getInstance(AzureDevOpsUrlParser::class.java)
@@ -30,6 +30,13 @@ object AzureDevOpsUrlParser {
     // Pattern for legacy SSH: {organization}@vs-ssh.visualstudio.com:v3/{organization}/{project}/{repository}
     private val SSH_LEGACY_PATTERN = Pattern.compile(
         "[^@]+@vs-ssh\\.visualstudio\\.com:v3/([^/]+)/([^/]+)/([^/]+?)(?:\\.git)?/?$"
+    )
+
+    // Pattern for self-hosted Azure DevOps Server:
+    // https://[username@]server[:port][/path]/{collection}/{project}/_git/{repository}
+    // The _git segment is the key marker for Azure DevOps Server repositories.
+    private val SELF_HOSTED_PATTERN = Pattern.compile(
+        "https?://(?:[^@]+@)?([^/]+)(/[^_]+)?/([^/]+)/_git/([^/]+?)(?:\\.git)?/?$"
     )
 
     /**
@@ -81,6 +88,44 @@ object AzureDevOpsUrlParser {
                 repository = urlDecode(matcher.group(3)),
                 remoteUrl = url,
                 useVisualStudioDomain = true
+            )
+        }
+
+        // Try self-hosted Azure DevOps Server pattern
+        matcher = SELF_HOSTED_PATTERN.matcher(url)
+        if (matcher.matches()) {
+            val host = matcher.group(1)                        // e.g. "tfs.company.com"
+            val collectionPath = matcher.group(2)?.trim('/') ?: ""  // e.g. "tfs/DefaultCollection"
+            val project = urlDecode(matcher.group(3))          // e.g. "MyProject"
+            val repository = urlDecode(matcher.group(4))       // e.g. "MyRepo"
+
+            // Skip known cloud hosts — they should be caught by the patterns above
+            if (host.contains("dev.azure.com") || host.endsWith(".visualstudio.com")) {
+                return null
+            }
+
+            // Build the self-hosted server base URL (scheme + host + collection path)
+            val scheme = if (url.startsWith("https")) "https" else "http"
+            val selfHostedBaseUrl = if (collectionPath.isNotEmpty()) {
+                "$scheme://$host/$collectionPath"
+            } else {
+                "$scheme://$host"
+            }
+
+            // For self-hosted, the "organization" field holds the collection/path identifier
+            val organization = if (collectionPath.isNotEmpty()) {
+                collectionPath.split("/").lastOrNull() ?: host
+            } else {
+                host
+            }
+
+            return AzureDevOpsRepoInfo(
+                organization = organization,
+                project = project,
+                repository = repository,
+                remoteUrl = url,
+                useVisualStudioDomain = false,
+                selfHostedUrl = selfHostedBaseUrl
             )
         }
 
