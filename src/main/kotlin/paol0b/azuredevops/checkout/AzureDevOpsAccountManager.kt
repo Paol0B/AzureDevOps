@@ -38,6 +38,7 @@ class AzureDevOpsAccountManager : PersistentStateComponent<AzureDevOpsAccountMan
         var authType: String = "OAUTH",  // OAUTH or PAT
         var lastValidatedAt: Long = 0,  // Unix timestamp (millis) of last PAT validation
         var validationMessage: String = "",  // Last validation result message
+        var lastValidationSucceeded: Boolean = true,  // Last PAT validation success flag
         var selfHosted: Boolean = false  // True for Azure DevOps Server (on-premise) instances
     )
     
@@ -130,6 +131,7 @@ class AzureDevOpsAccountManager : PersistentStateComponent<AzureDevOpsAccountMan
             authType = AuthType.PAT.name,
             lastValidatedAt = now,
             validationMessage = validationMessage,
+            lastValidationSucceeded = true,
             selfHosted = selfHosted
         )
         myState.accounts.add(accountData)
@@ -298,7 +300,10 @@ class AzureDevOpsAccountManager : PersistentStateComponent<AzureDevOpsAccountMan
         
         // PAT accounts: rely on last validation result
         if (account.authType == AuthType.PAT.name) {
-            return if (account.lastValidatedAt > 0) AccountAuthState.VALID else AccountAuthState.UNKNOWN
+            if (account.lastValidatedAt <= 0) return AccountAuthState.UNKNOWN
+            val message = account.validationMessage
+            if (isPatValidationFailureMessage(message)) return AccountAuthState.REVOKED
+            return if (account.lastValidationSucceeded) AccountAuthState.VALID else AccountAuthState.REVOKED
         }
         
         // OAuth: check if token is expired
@@ -324,6 +329,7 @@ class AzureDevOpsAccountManager : PersistentStateComponent<AzureDevOpsAccountMan
         val account = myState.accounts.find { it.id == accountId } ?: return
         account.lastValidatedAt = System.currentTimeMillis()
         account.validationMessage = validationMessage
+        account.lastValidationSucceeded = !isPatValidationFailureMessage(validationMessage)
     }
 
     /**
@@ -338,6 +344,17 @@ class AzureDevOpsAccountManager : PersistentStateComponent<AzureDevOpsAccountMan
      */
     fun getValidationMessage(accountId: String): String {
         return myState.accounts.find { it.id == accountId }?.validationMessage ?: ""
+    }
+
+    private fun isPatValidationFailureMessage(message: String): Boolean {
+        val normalized = message.trim().lowercase()
+        if (normalized.isBlank()) return false
+        return normalized.contains("invalid") ||
+            normalized.contains("revoked") ||
+            normalized.contains("authentication failed") ||
+            normalized.contains("missing permissions") ||
+            normalized.contains("http 401") ||
+            normalized.contains("http 403")
     }
 
     private fun saveToken(accountId: String, token: String) {
