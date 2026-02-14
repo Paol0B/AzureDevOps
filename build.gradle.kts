@@ -39,6 +39,29 @@ intellijPlatform {
         }
 
         changeNotes = """
+            <h2>Version 3.1 - On-Premise & PAT Authentication</h2>
+            
+            <h3>New Features</h3>
+            <ul>
+                <li><b>Azure DevOps On-Premise Support</b> – Full integration with self-hosted Azure DevOps Server instances</li>
+                <li><b>Personal Access Token (PAT) Authentication</b> – Add PAT accounts with automatic validation and permission verification</li>
+            </ul>
+            
+            <h3>Improvements</h3>
+            <ul>
+                <li>Enhanced account authentication state tracking</li>
+                <li>Better PAT validation with clear permission reporting (Clone, Pull Requests)</li>
+                <li>Improved OAuth token refresh logic with fallback error handling</li>
+            </ul>
+            
+            <h3>Bug Fixes</h3>
+            <ul>
+                <li>Fixed inconsistent PAT status display in account settings (now correctly shows Revoked for invalid tokens)</li>
+                <li>Corrected PR review state persistence across sessions</li>
+            </ul>
+            
+            <hr>
+            
             <h2>🚀 Version 3.0 - The Complete PR Review & Pipeline Experience</h2>
             
             <h3>✨ Major Features</h3>
