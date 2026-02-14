@@ -17,6 +17,8 @@ import paol0b.azuredevops.checkout.AzureDevOpsAccount
 import paol0b.azuredevops.checkout.AzureDevOpsAccountManager
 import paol0b.azuredevops.checkout.AzureDevOpsLoginDialog
 import paol0b.azuredevops.checkout.AzureDevOpsOAuthService
+import paol0b.azuredevops.checkout.AuthType
+import paol0b.azuredevops.services.PatValidationService
 import java.awt.BorderLayout
 import java.awt.Component
 import java.text.SimpleDateFormat
@@ -113,41 +115,58 @@ class AzureDevOpsAccountsConfigurable : Configurable {
 
         val accountWithStatus = accountsModel.getAccountAt(selectedRow)
         val account = accountWithStatus.account
+        val isPat = account.authType == AuthType.PAT
         
         val infoText = StringBuilder("<html><b>Account Details:</b><br><br>")
         infoText.append("<b>Display Name:</b> ${account.displayName}<br>")
         infoText.append("<b>Server URL:</b> ${account.serverUrl}<br>")
         infoText.append("<b>Account ID:</b> ${account.id}<br>")
+        infoText.append("<b>Auth Type:</b> ${if (isPat) "Personal Access Token (PAT)" else "OAuth 2.0"}<br>")
         infoText.append("<b>Status:</b> ${formatAuthState(accountWithStatus.state)}<br>")
         
-        if (accountWithStatus.expiresAt > 0) {
-            val expiryDate = Date(accountWithStatus.expiresAt)
-            val dateFormat = SimpleDateFormat("MMM dd, yyyy HH:mm:ss")
-            infoText.append("<b>Token Expires:</b> ${dateFormat.format(expiryDate)}<br>")
-            
-            val now = System.currentTimeMillis()
-            val timeLeft = accountWithStatus.expiresAt - now
-            if (timeLeft > 0) {
-                val daysLeft = timeLeft / (1000 * 60 * 60 * 24)
-                val hoursLeft = (timeLeft % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)
-                val minutesLeft = (timeLeft % (1000 * 60 * 60)) / (1000 * 60)
-                val secondsLeft = (timeLeft % (1000 * 60)) / 1000
-                infoText.append("<b>Time Remaining:</b> ${daysLeft}d ${hoursLeft}h ${minutesLeft}m ${secondsLeft}s<br>")
-            } else {
-                infoText.append("<b>Time Remaining:</b> <font color='red'>Expired</font><br>")
+        if (isPat) {
+            // PAT-specific details
+            val lastValidated = accountManager.getLastValidatedAt(account.id)
+            if (lastValidated > 0) {
+                val dateFormat = SimpleDateFormat("MMM dd, yyyy HH:mm:ss")
+                infoText.append("<b>Last Validated:</b> ${dateFormat.format(Date(lastValidated))}<br>")
             }
+            val validationMsg = accountManager.getValidationMessage(account.id)
+            if (validationMsg.isNotBlank()) {
+                infoText.append("<b>Validation:</b> $validationMsg<br>")
+            }
+            infoText.append("<b>Has Refresh Token:</b> No (PAT)<br>")
         } else {
-            infoText.append("<b>Token Expires:</b> Unknown<br>")
+            // OAuth-specific details
+            if (accountWithStatus.expiresAt > 0) {
+                val expiryDate = Date(accountWithStatus.expiresAt)
+                val dateFormat = SimpleDateFormat("MMM dd, yyyy HH:mm:ss")
+                infoText.append("<b>Token Expires:</b> ${dateFormat.format(expiryDate)}<br>")
+                
+                val now = System.currentTimeMillis()
+                val timeLeft = accountWithStatus.expiresAt - now
+                if (timeLeft > 0) {
+                    val daysLeft = timeLeft / (1000 * 60 * 60 * 24)
+                    val hoursLeft = (timeLeft % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)
+                    val minutesLeft = (timeLeft % (1000 * 60 * 60)) / (1000 * 60)
+                    val secondsLeft = (timeLeft % (1000 * 60)) / 1000
+                    infoText.append("<b>Time Remaining:</b> ${daysLeft}d ${hoursLeft}h ${minutesLeft}m ${secondsLeft}s<br>")
+                } else {
+                    infoText.append("<b>Time Remaining:</b> <font color='red'>Expired</font><br>")
+                }
+            } else {
+                infoText.append("<b>Token Expires:</b> Unknown<br>")
+            }
+            
+            if (accountWithStatus.lastRefreshed > 0) {
+                val refreshDate = Date(accountWithStatus.lastRefreshed)
+                val dateFormat = SimpleDateFormat("MMM dd, yyyy HH:mm:ss")
+                infoText.append("<b>Last Refreshed:</b> ${dateFormat.format(refreshDate)}<br>")
+            }
+            
+            val hasRefreshToken = accountManager.getRefreshToken(account.id) != null
+            infoText.append("<b>Has Refresh Token:</b> ${if (hasRefreshToken) "Yes" else "No"}<br>")
         }
-        
-        if (accountWithStatus.lastRefreshed > 0) {
-            val refreshDate = Date(accountWithStatus.lastRefreshed)
-            val dateFormat = SimpleDateFormat("MMM dd, yyyy HH:mm:ss")
-            infoText.append("<b>Last Refreshed:</b> ${dateFormat.format(refreshDate)}<br>")
-        }
-        
-        val hasRefreshToken = accountManager.getRefreshToken(account.id) != null
-        infoText.append("<b>Has Refresh Token:</b> ${if (hasRefreshToken) "Yes" else "No"}<br>")
         
         infoText.append("</html>")
         
@@ -157,45 +176,11 @@ class AzureDevOpsAccountsConfigurable : Configurable {
         accountInfoPanel.revalidate()
         accountInfoPanel.repaint()
         
-        // Start countdown timer if token is not expired
-        if (accountWithStatus.expiresAt > 0 && accountWithStatus.expiresAt > System.currentTimeMillis()) {
+        // Start countdown timer for OAuth accounts with non-expired tokens
+        if (!isPat && accountWithStatus.expiresAt > 0 && accountWithStatus.expiresAt > System.currentTimeMillis()) {
             countdownTimer = javax.swing.Timer(1000) {
                 SwingUtilities.invokeLater {
-                    val now = System.currentTimeMillis()
-                    val timeLeft = accountWithStatus.expiresAt - now
-                    
-                    if (timeLeft > 0) {
-                        val daysLeft = timeLeft / (1000 * 60 * 60 * 24)
-                        val hoursLeft = (timeLeft % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)
-                        val minutesLeft = (timeLeft % (1000 * 60 * 60)) / (1000 * 60)
-                        val secondsLeft = (timeLeft % (1000 * 60)) / 1000
-                        
-                        val newInfoText = StringBuilder("<html><b>Account Details:</b><br><br>")
-                        newInfoText.append("<b>Display Name:</b> ${account.displayName}<br>")
-                        newInfoText.append("<b>Server URL:</b> ${account.serverUrl}<br>")
-                        newInfoText.append("<b>Account ID:</b> ${account.id}<br>")
-                        newInfoText.append("<b>Status:</b> ${formatAuthState(accountWithStatus.state)}<br>")
-                        
-                        val expiryDate = Date(accountWithStatus.expiresAt)
-                        val dateFormat = SimpleDateFormat("MMM dd, yyyy HH:mm:ss")
-                        newInfoText.append("<b>Token Expires:</b> ${dateFormat.format(expiryDate)}<br>")
-                        newInfoText.append("<b>Time Remaining:</b> ${daysLeft}d ${hoursLeft}h ${minutesLeft}m ${secondsLeft}s<br>")
-                        
-                        if (accountWithStatus.lastRefreshed > 0) {
-                            val refreshDate = Date(accountWithStatus.lastRefreshed)
-                            newInfoText.append("<b>Last Refreshed:</b> ${dateFormat.format(refreshDate)}<br>")
-                        }
-                        
-                        val hasRefreshToken = accountManager.getRefreshToken(account.id) != null
-                        newInfoText.append("<b>Has Refresh Token:</b> ${if (hasRefreshToken) "Yes" else "No"}<br>")
-                        newInfoText.append("</html>")
-                        
-                        infoLabel.text = newInfoText.toString()
-                    } else {
-                        countdownTimer?.stop()
-                        // Reload to show expired state
-                        updateAccountInfoPanel()
-                    }
+                    updateAccountInfoPanel()
                 }
             }
             countdownTimer?.start()
@@ -250,6 +235,13 @@ class AzureDevOpsAccountsConfigurable : Configurable {
 
         val accountWithStatus = accountsModel.getAccountAt(selectedRow)
         val account = accountWithStatus.account
+
+        if (account.authType == AuthType.PAT) {
+            // For PAT accounts, re-validate instead of refreshing
+            revalidatePat(account)
+            return
+        }
+
         val refreshToken = accountManager.getRefreshToken(account.id)
 
         if (refreshToken == null) {
@@ -293,8 +285,8 @@ class AzureDevOpsAccountsConfigurable : Configurable {
 
             override fun onSuccess() {
                 if (success) {
-                    loadAccounts()  // Reload the table data
-                    updateAccountInfoPanel()  // Update the info panel to show new expiry
+                    loadAccounts()
+                    updateAccountInfoPanel()
                     Messages.showInfoMessage(
                         null as com.intellij.openapi.project.Project?,
                         "Access token refreshed successfully for '${account.displayName}'",
@@ -305,6 +297,52 @@ class AzureDevOpsAccountsConfigurable : Configurable {
                         null as com.intellij.openapi.project.Project?,
                         errorMessage ?: "Unknown error occurred",
                         "Refresh Failed"
+                    )
+                }
+            }
+        })
+    }
+
+    /**
+     * Re-validate a PAT account by checking permissions again.
+     */
+    private fun revalidatePat(account: AzureDevOpsAccount) {
+        val pat = accountManager.getToken(account.id)
+        if (pat.isNullOrBlank()) {
+            Messages.showErrorDialog(
+                null as com.intellij.openapi.project.Project?,
+                "No PAT found for this account. Please re-login.",
+                "Validation Failed"
+            )
+            return
+        }
+
+        ProgressManager.getInstance().run(object : Task.Modal(null, "Validating PAT...", false) {
+            var result: PatValidationService.ValidationResult? = null
+
+            override fun run(indicator: ProgressIndicator) {
+                indicator.isIndeterminate = true
+                indicator.text = "Checking permissions for ${account.displayName}..."
+                result = PatValidationService.getInstance().validate(account.serverUrl, pat)
+            }
+
+            override fun onSuccess() {
+                val r = result ?: return
+                accountManager.updatePatValidation(account.id, r.message)
+                loadAccounts()
+                updateAccountInfoPanel()
+
+                if (r.valid) {
+                    Messages.showInfoMessage(
+                        null as com.intellij.openapi.project.Project?,
+                        r.message,
+                        "PAT Valid"
+                    )
+                } else {
+                    Messages.showWarningDialog(
+                        null as com.intellij.openapi.project.Project?,
+                        r.message,
+                        "PAT Validation Warning"
                     )
                 }
             }
@@ -322,13 +360,12 @@ class AzureDevOpsAccountsConfigurable : Configurable {
         val account = accountWithStatus.account
         val result = Messages.showYesNoDialog(
             null,
-            "Re-authenticate with '${account.displayName}'?\nThis will open a browser window for authentication.",
+            "Re-authenticate with '${account.displayName}'?\nThis will open the login dialog.",
             "Re-authenticate",
             Messages.getQuestionIcon()
         )
 
         if (result == Messages.YES) {
-            // Remove old account and add new one through login flow
             accountManager.removeAccount(account.id)
             val dialog = AzureDevOpsLoginDialog(null)
             if (dialog.showAndGet()) {
@@ -339,7 +376,6 @@ class AzureDevOpsAccountsConfigurable : Configurable {
                     "Authentication Complete"
                 )
             } else {
-                // Restore if cancelled? Or leave removed?
                 Messages.showWarningDialog(
                     null as com.intellij.openapi.project.Project?,
                     "Authentication was cancelled. The account has been removed.",
@@ -398,13 +434,14 @@ class AzureDevOpsAccountsConfigurable : Configurable {
 
         override fun getRowCount(): Int = accounts.size
 
-        override fun getColumnCount(): Int = 4
+        override fun getColumnCount(): Int = 5
 
         override fun getColumnName(column: Int): String = when (column) {
             0 -> "Account"
             1 -> "URL"
-            2 -> "Status"
-            3 -> "Expires"
+            2 -> "Type"
+            3 -> "Status"
+            4 -> "Expires"
             else -> ""
         }
 
@@ -413,9 +450,12 @@ class AzureDevOpsAccountsConfigurable : Configurable {
             return when (columnIndex) {
                 0 -> item.account.displayName
                 1 -> item.account.serverUrl
-                2 -> item.state
-                3 -> {
-                    if (item.expiresAt > 0) {
+                2 -> item.account.authType
+                3 -> item.state
+                4 -> {
+                    if (item.account.authType == AuthType.PAT) {
+                        "N/A"
+                    } else if (item.expiresAt > 0) {
                         val date = Date(item.expiresAt)
                         SimpleDateFormat("MMM dd, yyyy HH:mm").format(date)
                     } else {
@@ -428,7 +468,7 @@ class AzureDevOpsAccountsConfigurable : Configurable {
     }
 
     /**
-     * Custom cell renderer for status column
+     * Custom cell renderer for status and type columns
      */
     private class AccountStatusCellRenderer : DefaultTableCellRenderer() {
         override fun getTableCellRendererComponent(
@@ -441,7 +481,22 @@ class AzureDevOpsAccountsConfigurable : Configurable {
         ): Component {
             val component = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column)
 
-            if (column == 2 && value is AzureDevOpsAccountManager.AccountAuthState) {
+            // Type column
+            if (column == 2 && value is AuthType) {
+                text = when (value) {
+                    AuthType.OAUTH -> "OAuth"
+                    AuthType.PAT -> "\uD83D\uDD11 PAT"
+                }
+                if (!isSelected) {
+                    foreground = when (value) {
+                        AuthType.PAT -> JBColor(0x0066CC, 0x4499FF)
+                        AuthType.OAUTH -> table?.foreground ?: foreground
+                    }
+                }
+            }
+
+            // Status column
+            if (column == 3 && value is AzureDevOpsAccountManager.AccountAuthState) {
                 text = when (value) {
                     AzureDevOpsAccountManager.AccountAuthState.VALID -> "✓ Valid"
                     AzureDevOpsAccountManager.AccountAuthState.EXPIRED -> "⚠ Expired"
@@ -452,19 +507,18 @@ class AzureDevOpsAccountsConfigurable : Configurable {
                 if (!isSelected) {
                     foreground = when (value) {
                         AzureDevOpsAccountManager.AccountAuthState.VALID ->
-                            JBColor(0x008000, 0x00A000)   // green (light, dark)
+                            JBColor(0x008000, 0x00A000)
 
                         AzureDevOpsAccountManager.AccountAuthState.EXPIRED ->
-                            JBColor(0xFF8C00, 0xFFA040)   // orange
+                            JBColor(0xFF8C00, 0xFFA040)
 
                         AzureDevOpsAccountManager.AccountAuthState.REVOKED ->
-                            JBColor(0xC80000, 0xFF4040)   // red
+                            JBColor(0xC80000, 0xFF4040)
 
                         AzureDevOpsAccountManager.AccountAuthState.UNKNOWN ->
-                            JBColor(0x808080, 0xA0A0A0)   // gray
+                            JBColor(0x808080, 0xA0A0A0)
                     }
                 }
-
             }
 
             return component

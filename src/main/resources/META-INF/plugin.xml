@@ -116,6 +116,8 @@
         <applicationService serviceImplementation="paol0b.azuredevops.checkout.AzureDevOpsAccountManager"/>
         <!-- OAuth authentication service -->
         <applicationService serviceImplementation="paol0b.azuredevops.checkout.AzureDevOpsOAuthService"/>
+        <!-- PAT validation service -->
+        <applicationService serviceImplementation="paol0b.azuredevops.services.PatValidationService"/>
         
         <!-- Avatar caching service -->
         <projectService serviceImplementation="paol0b.azuredevops.services.AvatarService"/>

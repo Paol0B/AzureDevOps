@@ -47,6 +47,8 @@ class AzureDevOpsOAuthService {
     private val SCOPES = "$RESOURCE_URI/.default offline_access"
 
     companion object {
+        private const val API_VERSION = "7.0"
+
         fun getInstance(): AzureDevOpsOAuthService {
             return ApplicationManager.getApplication().getService(AzureDevOpsOAuthService::class.java)
         }
@@ -355,7 +357,8 @@ class AzureDevOpsOAuthService {
 
     private fun testConnection(serverUrl: String, token: String): Boolean {
         return try {
-            val url = "$serverUrl/_apis/projects?api-version=7.0"
+            val normalizedUrl = serverUrl.trimEnd('/')
+            val url = "$normalizedUrl/_apis/projects?\$top=1&api-version=$API_VERSION"
             val connection = URI.create(url).toURL().openConnection() as java.net.HttpURLConnection
             
             try {

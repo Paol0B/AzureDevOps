@@ -6,6 +6,7 @@ import com.intellij.credentialStore.generateServiceName
 import com.intellij.ide.passwordSafe.PasswordSafe
 import com.intellij.openapi.components.*
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.util.xmlb.XmlSerializerUtil
 import paol0b.azuredevops.checkout.AzureDevOpsAccountManager
 import paol0b.azuredevops.checkout.AzureDevOpsOAuthService
@@ -99,6 +100,7 @@ class AzureDevOpsConfigService(private val project: com.intellij.openapi.project
         // First, try to match with global OAuth accounts
         val oauthToken = tryGetTokenFromOAuthAccount()
         if (oauthToken != null) {
+            if (isDevMode()) logger.info("Using token from OAuth account")
             return oauthToken
         }
         
@@ -108,11 +110,19 @@ class AzureDevOpsConfigService(private val project: com.intellij.openapi.project
         val savedToken = credentials?.getPasswordAsString() ?: ""
         
         if (savedToken.isNotBlank()) {
+            if (isDevMode()) logger.info("Using token from IDE PasswordSafe")
             return savedToken
         }
         
         // Third, try to retrieve it from Git Credential Helper
-        return tryGetTokenFromGitCredentialHelper() ?: ""
+        val gitToken = tryGetTokenFromGitCredentialHelper()
+        if (gitToken != null) {
+            if (isDevMode()) logger.info("Using token from Git Credential Helper")
+            return gitToken
+        }
+
+        if (isDevMode()) logger.warn("No token found from any source (OAuth, PasswordSafe, or Git credentials)")
+        return ""
     }
     
     /**
@@ -123,33 +133,47 @@ class AzureDevOpsConfigService(private val project: com.intellij.openapi.project
     private fun tryGetTokenFromOAuthAccount(): String? {
         try {
             val detector = AzureDevOpsRepositoryDetector.getInstance(project)
-            val repoInfo = detector.detectAzureDevOpsInfo() ?: return null
+            val repoInfo = detector.detectAzureDevOpsInfo() ?: return null.also {
+                if (isDevMode()) logger.info("No Azure DevOps repository info detected")
+            }
             
             // Get the organization from the repository
             val organization = repoInfo.organization
-            if (organization.isBlank()) return null
+            if (organization.isBlank()) {
+                if (isDevMode()) logger.info("No organization in repository info")
+                return null
+            }
+
+            if (isDevMode()) logger.info("Looking for OAuth account matching organization: $organization")
             
             // Check all OAuth accounts for a matching organization
             val accountManager = AzureDevOpsAccountManager.getInstance()
             val accounts = accountManager.getAccounts()
             
+            if (isDevMode()) logger.info("Found ${accounts.size} accounts in account manager")
+            
             for (account in accounts) {
                 // Extract organization from account server URL
                 val accountOrg = extractOrganizationFromUrl(account.serverUrl)
+                if (isDevMode()) logger.info("Checking account: ${account.displayName}, org from URL: $accountOrg")
+                
                 if (accountOrg.equals(organization, ignoreCase = true)) {
+                    if (isDevMode()) logger.info("Found matching account: ${account.displayName} for organization $organization")
+                    
                     // Found matching account
                     val authState = accountManager.getAccountAuthState(account.id)
+                    if (isDevMode()) logger.info("Account auth state: $authState")
                     
                     // If token is expired, try to refresh it
                     if (authState == AzureDevOpsAccountManager.AccountAuthState.EXPIRED) {
-                        logger.info("Token expired for account ${account.id}, attempting automatic refresh")
+                        if (isDevMode()) logger.info("Token expired for account ${account.id}, attempting automatic refresh")
                         val refreshToken = accountManager.getRefreshToken(account.id)
                         if (refreshToken != null) {
                             // Try to refresh the token
                             val oauthService = AzureDevOpsOAuthService.getInstance()
                             val result = oauthService.refreshAccessToken(refreshToken, account.serverUrl)
                             if (result != null) {
-                                logger.info("Successfully refreshed token for account ${account.id}")
+                                if (isDevMode()) logger.info("Successfully refreshed token for account ${account.id}")
                                 // Update the account with new tokens
                                 accountManager.updateToken(
                                     account.id,
@@ -159,23 +183,36 @@ class AzureDevOpsConfigService(private val project: com.intellij.openapi.project
                                 )
                                 return result.accessToken
                             } else {
-                                logger.warn("Failed to refresh token for account ${account.id}")
+                                if (isDevMode()) logger.warn("Failed to refresh token for account ${account.id}")
                             }
                         } else {
-                            logger.warn("No refresh token available for account ${account.id}")
+                            if (isDevMode()) logger.warn("No refresh token available for account ${account.id}")
                         }
                     }
                     
                     // Return the token (valid or after refresh)
-                    return accountManager.getToken(account.id)
+                    val token = accountManager.getToken(account.id)
+                    if (isDevMode()) logger.info("Returning token from account ${account.id}, token present: ${!token.isNullOrBlank()}")
+                    return token
                 }
             }
+            
+            if (isDevMode()) logger.info("No matching OAuth account found for organization: $organization")
         } catch (e: Exception) {
-            // Log but don't fail
+            if (isDevMode()) logger.warn("Exception in tryGetTokenFromOAuthAccount", e)
             return null
         }
         
         return null
+    }
+
+    private fun isDevMode(): Boolean {
+        return try {
+            val app = ApplicationManager.getApplication()
+            app != null && app.isInternal
+        } catch (t: Throwable) {
+            false
+        }
     }
     
     /**

@@ -34,7 +34,10 @@ class AzureDevOpsAccountManager : PersistentStateComponent<AzureDevOpsAccountMan
         var serverUrl: String = "",
         var displayName: String = "",
         var expiresAt: Long = 0,  // Unix timestamp (millis) when token expires
-        var lastRefreshed: Long = 0  // Unix timestamp (millis) of last token refresh
+        var lastRefreshed: Long = 0,  // Unix timestamp (millis) of last token refresh
+        var authType: String = "OAUTH",  // OAUTH or PAT
+        var lastValidatedAt: Long = 0,  // Unix timestamp (millis) of last PAT validation
+        var validationMessage: String = ""  // Last validation result message
     )
     
     enum class AccountAuthState {
@@ -66,7 +69,8 @@ class AzureDevOpsAccountManager : PersistentStateComponent<AzureDevOpsAccountMan
             AzureDevOpsAccount(
                 id = it.id,
                 serverUrl = it.serverUrl,
-                displayName = it.displayName
+                displayName = it.displayName,
+                authType = try { AuthType.valueOf(it.authType) } catch (_: Exception) { AuthType.OAUTH }
             )
         }
     }
@@ -91,7 +95,8 @@ class AzureDevOpsAccountManager : PersistentStateComponent<AzureDevOpsAccountMan
             serverUrl = serverUrl,
             displayName = displayName,
             expiresAt = expiresAt,
-            lastRefreshed = now
+            lastRefreshed = now,
+            authType = AuthType.OAUTH.name
         )
         myState.accounts.add(accountData)
 
@@ -103,7 +108,34 @@ class AzureDevOpsAccountManager : PersistentStateComponent<AzureDevOpsAccountMan
 
         logger.info("Added Azure DevOps account: $displayName (expires: ${if (expiresAt > 0) java.util.Date(expiresAt) else "unknown"})")
 
-        return AzureDevOpsAccount(id, serverUrl, displayName)
+        return AzureDevOpsAccount(id, serverUrl, displayName, AuthType.OAUTH)
+    }
+
+    /**
+     * Add a new Azure DevOps account authenticated with a Personal Access Token.
+     */
+    fun addPatAccount(serverUrl: String, pat: String, validationMessage: String = ""): AzureDevOpsAccount {
+        val id = generateAccountId(serverUrl)
+        val displayName = extractDisplayName(serverUrl)
+        val now = System.currentTimeMillis()
+
+        val accountData = AccountData(
+            id = id,
+            serverUrl = serverUrl,
+            displayName = displayName,
+            expiresAt = 0,  // PAT expiry is not known from the token itself
+            lastRefreshed = now,
+            authType = AuthType.PAT.name,
+            lastValidatedAt = now,
+            validationMessage = validationMessage
+        )
+        myState.accounts.add(accountData)
+
+        saveToken(id, pat)
+
+        logger.info("Added Azure DevOps PAT account: $displayName")
+
+        return AzureDevOpsAccount(id, serverUrl, displayName, AuthType.PAT)
     }
 
     /**
@@ -251,13 +283,50 @@ class AzureDevOpsAccountManager : PersistentStateComponent<AzureDevOpsAccountMan
     fun getAccountAuthState(accountId: String): AccountAuthState {
         val account = myState.accounts.find { it.id == accountId } ?: return AccountAuthState.UNKNOWN
         val token = getToken(accountId) ?: return AccountAuthState.REVOKED
+        if (token.isBlank()) return AccountAuthState.REVOKED
         
-        // Check if token is expired
+        // PAT accounts: rely on last validation result
+        if (account.authType == AuthType.PAT.name) {
+            return if (account.lastValidatedAt > 0) AccountAuthState.VALID else AccountAuthState.UNKNOWN
+        }
+        
+        // OAuth: check if token is expired
         if (account.expiresAt > 0 && System.currentTimeMillis() > account.expiresAt) {
             return AccountAuthState.EXPIRED
         }
         
         return AccountAuthState.VALID
+    }
+
+    /**
+     * Returns the [AuthType] for the given account.
+     */
+    fun getAccountAuthType(accountId: String): AuthType {
+        val account = myState.accounts.find { it.id == accountId } ?: return AuthType.OAUTH
+        return try { AuthType.valueOf(account.authType) } catch (_: Exception) { AuthType.OAUTH }
+    }
+
+    /**
+     * Update the PAT validation state for an account.
+     */
+    fun updatePatValidation(accountId: String, validationMessage: String) {
+        val account = myState.accounts.find { it.id == accountId } ?: return
+        account.lastValidatedAt = System.currentTimeMillis()
+        account.validationMessage = validationMessage
+    }
+
+    /**
+     * Returns the last validation timestamp for a PAT account.
+     */
+    fun getLastValidatedAt(accountId: String): Long {
+        return myState.accounts.find { it.id == accountId }?.lastValidatedAt ?: 0
+    }
+
+    /**
+     * Returns the last validation message for a PAT account.
+     */
+    fun getValidationMessage(accountId: String): String {
+        return myState.accounts.find { it.id == accountId }?.validationMessage ?: ""
     }
 
     private fun saveToken(accountId: String, token: String) {
