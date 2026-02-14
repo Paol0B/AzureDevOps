@@ -735,28 +735,11 @@ The plugin will automatically use your authenticated account for this repository
     fun getPullRequestChanges(pullRequestId: Int): List<PullRequestChange> {
         val configService = AzureDevOpsConfigService.getInstance(project)
         val config = configService.getConfig()
-        
-        // First get the PR to have the last iteration
-        getPullRequest(pullRequestId)
-        
-        // Now get the changes of the last iteration
-        val url = buildApiUrl(
-            config.project,
-            config.repository,
-            "/pullRequests/$pullRequestId/iterations/1/changes"
-        ) + "?api-version=$API_VERSION"
-
-        logger.info("Getting PR changes from: $url")
-
-        val response = executeGet(url, config.personalAccessToken)
-
-        return try {
-            val changesResponse = gson.fromJson(response, PullRequestChanges::class.java)
-            changesResponse.changeEntries ?: emptyList()
-        } catch (e: JsonSyntaxException) {
-            logger.error("Failed to parse PR changes response", e)
-            emptyList()
-        }
+        return getPullRequestChangesPaged(
+            pullRequestId = pullRequestId,
+            projectName = config.project,
+            repositoryId = config.repository
+        )
     }
 
     /**
@@ -775,24 +758,69 @@ The plugin will automatically use your authenticated account for this repository
         val effectiveProject = projectName ?: config.project
         val effectiveRepo = repositoryId ?: config.repository
 
-        // Now get the changes of the last iteration
-        val url = buildApiUrl(
-            effectiveProject,
-            effectiveRepo,
-            "/pullRequests/$pullRequestId/iterations/1/changes"
-        ) + "?api-version=$API_VERSION"
+        return getPullRequestChangesPaged(
+            pullRequestId = pullRequestId,
+            projectName = effectiveProject,
+            repositoryId = effectiveRepo
+        )
+    }
 
-        logger.info("Getting PR changes from: $url")
-        
-        val response = executeGet(url, config.personalAccessToken)
-        
-        return try {
-            val changesResponse = gson.fromJson(response, PullRequestChanges::class.java)
-            changesResponse.changeEntries ?: emptyList()
-        } catch (e: JsonSyntaxException) {
-            logger.error("Failed to parse PR changes response", e)
-            emptyList()
+    private fun getPullRequestChangesPaged(
+        pullRequestId: Int,
+        projectName: String,
+        repositoryId: String
+    ): List<PullRequestChange> {
+        val configService = AzureDevOpsConfigService.getInstance(project)
+        val config = configService.getConfig()
+
+        val iterationId = try {
+            getLatestIterationId(pullRequestId, projectName, repositoryId)
+        } catch (e: Exception) {
+            logger.warn("Failed to resolve latest iteration id: ${e.message}. Falling back to 1")
+            1
         }
+
+        val pageSize = 1000
+        var skip = 0
+        val allChanges = mutableListOf<PullRequestChange>()
+        var totalCount: Int? = null
+
+        while (true) {
+            val url = buildApiUrl(
+                projectName,
+                repositoryId,
+                "/pullRequests/$pullRequestId/iterations/$iterationId/changes"
+            ) + "?api-version=$API_VERSION&\$top=$pageSize&\$skip=$skip"
+
+            logger.info("Getting PR changes from: $url")
+
+            val response = executeGet(url, config.personalAccessToken)
+
+            val changesResponse = try {
+                gson.fromJson(response, PullRequestChanges::class.java)
+            } catch (e: JsonSyntaxException) {
+                logger.error("Failed to parse PR changes response", e)
+                break
+            }
+
+            val entries = changesResponse.changeEntries.orEmpty()
+            totalCount = changesResponse.count ?: totalCount
+            allChanges.addAll(entries)
+
+            skip += entries.size
+
+            if (entries.isEmpty()) {
+                break
+            }
+            if (entries.size < pageSize) {
+                break
+            }
+            if (totalCount != null && allChanges.size >= totalCount) {
+                break
+            }
+        }
+
+        return allChanges
     }
 
     /**

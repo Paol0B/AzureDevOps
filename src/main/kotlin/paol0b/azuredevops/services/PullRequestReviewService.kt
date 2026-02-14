@@ -52,8 +52,11 @@ class PullRequestReviewService(private val project: Project) {
                 val fileChanges = changes.filter { change ->
                     val changeType = change.changeType?.lowercase() ?: ""
                     val hasPath = change.item?.path?.isNotBlank() == true
-                    val isFileChange = changeType in listOf("edit", "add", "rename", "delete")
-                    
+                    val tokens = changeType.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+                    val isFileChange = tokens.any { token ->
+                        token in listOf("edit", "add", "rename", "delete")
+                    }
+
                     hasPath && isFileChange
                 }
                 
