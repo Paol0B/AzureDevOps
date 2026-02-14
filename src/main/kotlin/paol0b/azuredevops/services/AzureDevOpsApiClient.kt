@@ -16,6 +16,7 @@ import java.net.HttpURLConnection
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.util.Base64
+import com.intellij.openapi.application.ApplicationManager
 
 /**
  * Client for communicating with Azure DevOps REST API
@@ -65,7 +66,7 @@ The plugin will automatically use your authenticated account for this repository
             val responseBody = response.body?.string() ?: ""
 
             if (response.isSuccessful) {
-                responseBody
+                ensureJsonResponse(responseBody, urlString)
             } else {
                 throw handleErrorResponse(response.code, responseBody)
             }
@@ -171,12 +172,16 @@ The plugin will automatically use your authenticated account for this repository
         if (token.isBlank()) {
             throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
         }
+        val isJwt = isJwtToken(token)
+        if (isDevMode()) {
+            logger.info("Token type: ${if (isJwt) "JWT (OAuth)" else "PAT"}, length: ${token.length}, starts with: ${token.take(10)}...")
+        }
 
-        return if (isJwtToken(token)) {
-            logger.debug("Using Bearer authentication (OAuth token)")
+        return if (isJwt) {
+            if (isDevMode()) logger.info("Using Bearer authentication (OAuth token)")
             "Bearer $token"
         } else {
-            logger.debug("Using Basic authentication (PAT)")
+            if (isDevMode()) logger.info("Using Basic authentication (PAT)")
             val credentials = ":$token"
             val encodedCredentials = Base64.getEncoder().encodeToString(credentials.toByteArray(StandardCharsets.UTF_8))
             "Basic $encodedCredentials"
@@ -192,6 +197,33 @@ The plugin will automatically use your authenticated account for this repository
         if (!token.startsWith("eyJ")) return false
         val parts = token.split('.')
         return parts.size == 3 && parts.all { it.isNotEmpty() }
+    }
+
+    private fun isDevMode(): Boolean {
+        return try {
+            val app = ApplicationManager.getApplication()
+            app != null && app.isInternal
+        } catch (t: Throwable) {
+            false
+        }
+    }
+
+    private fun ensureJsonResponse(body: String, urlString: String): String {
+        val trimmed = body.trim()
+        if (trimmed.isNotEmpty() && !looksLikeJsonObjectOrArray(trimmed)) {
+            val preview = trimmed.take(300)
+            logger.warn("Unexpected non-JSON response from $urlString: $preview")
+            throw AzureDevOpsApiException(
+                "Unexpected response from Azure DevOps. The server returned non-JSON content. " +
+                    "Please check authentication, permissions, and server URL."
+            )
+        }
+
+        return body
+    }
+
+    private fun looksLikeJsonObjectOrArray(trimmed: String): Boolean {
+        return trimmed.startsWith("{") || trimmed.startsWith("[")
     }
 
     /**
