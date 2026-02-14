@@ -164,12 +164,34 @@ The plugin will automatically use your authenticated account for this repository
     }
 
     /**
-     * Creates the Basic Auth header with the PAT
+     * Creates the appropriate Authorization header.
+     * Uses Bearer for OAuth JWT tokens and Basic for PATs.
      */
     private fun createAuthHeader(token: String): String {
-        val credentials = ":$token"
-        val encodedCredentials = Base64.getEncoder().encodeToString(credentials.toByteArray(StandardCharsets.UTF_8))
-        return "Basic $encodedCredentials"
+        if (token.isBlank()) {
+            throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
+        }
+
+        return if (isJwtToken(token)) {
+            logger.debug("Using Bearer authentication (OAuth token)")
+            "Bearer $token"
+        } else {
+            logger.debug("Using Basic authentication (PAT)")
+            val credentials = ":$token"
+            val encodedCredentials = Base64.getEncoder().encodeToString(credentials.toByteArray(StandardCharsets.UTF_8))
+            "Basic $encodedCredentials"
+        }
+    }
+
+    /**
+     * Detects whether the token is a JWT (OAuth) token.
+     * JWT format: header.payload.signature — all three parts are non-empty
+     * and the header is a base64-encoded JSON object starting with "eyJ".
+     */
+    private fun isJwtToken(token: String): Boolean {
+        if (!token.startsWith("eyJ")) return false
+        val parts = token.split('.')
+        return parts.size == 3 && parts.all { it.isNotEmpty() }
     }
 
     /**

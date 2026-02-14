@@ -13,220 +13,256 @@ import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import paol0b.azuredevops.AzureDevOpsIcons
+import paol0b.azuredevops.services.PatValidationService
 import java.awt.BorderLayout
+import java.awt.CardLayout
 import javax.swing.*
 
 /**
  * Dialog for logging into Azure DevOps with OAuth 2.0 or Personal Access Token.
- * 
- * OAuth Flow:
- * 1. User enters their Azure DevOps organization URL
- * 2. Clicks "Sign in with Browser"
- * 3. Browser opens for OAuth authentication
- * 4. After successful auth, credentials are saved globally in the IDE
+ *
+ * The dialog shows a toggle that lets the user switch between OAuth (device-code
+ * flow) and PAT authentication inside the same panel.
+ *
+ * For PAT login the token is validated before being accepted:
+ *   - Clone permission (list repos)
+ *   - Pull Request permission (list PRs)
+ *
+ * All server URLs are accepted without a hardcoded domain check so that
+ * self-hosted Azure DevOps Server instances will work in the future.
  */
 class AzureDevOpsLoginDialog(private val project: Project?) : DialogWrapper(project, true) {
 
     private val serverUrlField = JBTextField("https://dev.azure.com/", 60)
     private val tokenField = JBPasswordField()
     private val oauthButton = JButton("Sign in with Browser (OAuth)")
-    // private val usePATCheckbox = JCheckBox("Use Personal Access Token instead", false)
-    
+    private val patLoginButton = JButton("Validate & Sign In")
+    private val toggleLink = JButton("Use Personal Access Token instead")
+
+    private val cardLayout = CardLayout()
+    private val cardPanel = JPanel(cardLayout)
+    private val patInfoLabel = JBLabel()
+
     private var account: AzureDevOpsAccount? = null
     private var useOAuth = true
 
     init {
         title = "Sign In to Azure DevOps"
-        
-        // OAuth button action
-        oauthButton.addActionListener {
-            performOAuthLogin()
-        }
-        
-        // Toggle between OAuth and PAT mode
-        /*
-        usePATCheckbox.addActionListener {
-            useOAuth = !usePATCheckbox.isSelected
-            updateUIMode()
-        }
-        */
-        
+
+        oauthButton.addActionListener { performOAuthLogin() }
+        patLoginButton.addActionListener { performPatLogin() }
+        toggleLink.addActionListener { toggleMode() }
+
+        // Borderless link-like appearance for the toggle
+        toggleLink.isBorderPainted = false
+        toggleLink.isContentAreaFilled = false
+        toggleLink.foreground = JBUI.CurrentTheme.Link.Foreground.ENABLED
+        toggleLink.cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
+
         init()
-        updateUIMode()
     }
 
-    override fun createActions(): Array<Action> {
-        return arrayOf(cancelAction)   // solo Cancel
-    }
+    // -------- actions --------
 
+    override fun createActions(): Array<Action> = arrayOf(cancelAction)
+
+    // -------- UI --------
 
     override fun createCenterPanel(): JComponent {
         val mainPanel = JPanel(BorderLayout(0, 15))
-        
-        // Header with centered icon and title
+
+        // --- Header ---
         val headerPanel = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            
-            // Logo centered and scaled
+
             val originalIcon = AzureDevOpsIcons.Logo
             val scaledIcon = com.intellij.util.IconUtil.scale(originalIcon, null, 2.5f)
-            val logoLabel = JBLabel(scaledIcon).apply {
-                alignmentX = JComponent.CENTER_ALIGNMENT
-            }
-            add(logoLabel)
+            add(JBLabel(scaledIcon).apply { alignmentX = JComponent.CENTER_ALIGNMENT })
             add(Box.createVerticalStrut(20))
-            
-            // Title centered
-            val titleLabel = JBLabel("<html><div style='text-align: center;'><b style='font-size: 16px;'>Sign In to Azure DevOps</b></div></html>").apply {
+
+            add(JBLabel("<html><div style='text-align:center;'><b style='font-size:16px;'>Sign In to Azure DevOps</b></div></html>").apply {
                 alignmentX = JComponent.CENTER_ALIGNMENT
                 foreground = UIUtil.getLabelForeground()
-            }
-            add(titleLabel)
+            })
             add(Box.createVerticalStrut(8))
-            
-            // Subtitle centered
-            val subtitleLabel = JBLabel("<html><div style='text-align: center; color: gray;'>Connect your Azure DevOps account to get started</div></html>").apply {
+
+            add(JBLabel("<html><div style='text-align:center;color:gray;'>Connect your Azure DevOps account to get started</div></html>").apply {
                 alignmentX = JComponent.CENTER_ALIGNMENT
                 foreground = UIUtil.getLabelInfoForeground()
-            }
-            add(subtitleLabel)
-            
+            })
+
             border = JBUI.Borders.empty(10, 20)
         }
 
-        // Content panel with form
-        val contentPanel = JPanel().apply {
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            
-            // Organization URL section with card-like appearance
-            val urlCard = JPanel(BorderLayout(10, 10)).apply {
-                border = JBUI.Borders.compound(
-                    JBUI.Borders.empty(0, 20),
-                    JBUI.Borders.empty(10)
-                )
-                
-                val urlLabelPanel = JPanel(BorderLayout()).apply {
-                    val label = JBLabel("Organization URL").apply {
-                        font = font.deriveFont(java.awt.Font.BOLD)
-                    }
-                    add(label, BorderLayout.WEST)
-                }
-                
-                val urlFieldPanel = JPanel(BorderLayout()).apply {
-                    add(serverUrlField, BorderLayout.CENTER)
-                    serverUrlField.apply {
-                        putClientProperty("JTextField.placeholderText", "https://dev.azure.com/YourOrganization")
-                    }
-                }
-                
-                val examplesLabel = JBLabel("<html><div style='font-size: 11px; color: gray; margin-top: 5px;'>" +
-                        "Examples: dev.azure.com/contoso or contoso.visualstudio.com</div></html>").apply {
-                    foreground = UIUtil.getLabelInfoForeground()
-                }
-                
-                val innerPanel = JPanel().apply {
-                    layout = BoxLayout(this, BoxLayout.Y_AXIS)
-                    add(urlLabelPanel)
-                    add(Box.createVerticalStrut(8))
-                    add(urlFieldPanel)
-                    add(Box.createVerticalStrut(5))
-                    add(examplesLabel)
-                }
-                
-                add(innerPanel, BorderLayout.CENTER)
-            }
-            
-            add(urlCard)
-            add(Box.createVerticalStrut(20))
-            
-            // OAuth button - prominent and centered
-            val buttonPanel = JPanel().apply {
+        // --- Organization URL (shared by both modes) ---
+        val urlCard = JPanel(BorderLayout(10, 10)).apply {
+            border = JBUI.Borders.compound(JBUI.Borders.empty(0, 20), JBUI.Borders.empty(10))
+
+            val inner = JPanel().apply {
                 layout = BoxLayout(this, BoxLayout.Y_AXIS)
-                
+
+                add(JPanel(BorderLayout()).apply {
+                    add(JBLabel("Organization URL").apply { font = font.deriveFont(java.awt.Font.BOLD) }, BorderLayout.WEST)
+                })
+                add(Box.createVerticalStrut(8))
+                add(JPanel(BorderLayout()).apply {
+                    add(serverUrlField, BorderLayout.CENTER)
+                    serverUrlField.putClientProperty("JTextField.placeholderText", "https://dev.azure.com/YourOrganization")
+                })
+                add(Box.createVerticalStrut(5))
+                add(JBLabel("<html><div style='font-size:11px;color:gray;'>Examples: dev.azure.com/contoso or contoso.visualstudio.com</div></html>").apply {
+                    foreground = UIUtil.getLabelInfoForeground()
+                })
+            }
+            add(inner, BorderLayout.CENTER)
+        }
+
+        // --- OAuth card ---
+        val oauthCard = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+
+            val btnPanel = JPanel().apply {
+                layout = BoxLayout(this, BoxLayout.Y_AXIS)
                 oauthButton.apply {
                     preferredSize = JBUI.size(280, 40)
                     maximumSize = JBUI.size(280, 40)
                     font = font.deriveFont(java.awt.Font.BOLD, 14f)
                     alignmentX = JComponent.CENTER_ALIGNMENT
                 }
-                
                 add(oauthButton)
                 border = JBUI.Borders.empty(0, 20, 10, 20)
             }
-            
-            add(buttonPanel)
-            
-            // Info footer
-            val infoPanel = JPanel().apply {
-                layout = BoxLayout(this, BoxLayout.Y_AXIS)
-                
-                val infoLabel = JBLabel("<html><div style='text-align: center; font-size: 11px; color: gray;'>" +
-                        "You'll be redirected to your browser to complete the sign-in process.<br>" +
-                        "Your credentials are stored securely in the IDE.</div></html>").apply {
-                    alignmentX = JComponent.CENTER_ALIGNMENT
-                    foreground = UIUtil.getLabelInfoForeground()
+            add(btnPanel)
+
+            add(JBLabel("<html><div style='text-align:center;font-size:11px;color:gray;'>" +
+                    "You'll be redirected to your browser to complete the sign-in process.<br>" +
+                    "Your credentials are stored securely in the IDE.</div></html>").apply {
+                alignmentX = JComponent.CENTER_ALIGNMENT
+                foreground = UIUtil.getLabelInfoForeground()
+                border = JBUI.Borders.empty(10, 30, 5, 30)
+            })
+        }
+
+        // --- PAT card ---
+        val patCard = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+
+            val tokenPanel = JPanel(BorderLayout(10, 10)).apply {
+                border = JBUI.Borders.compound(JBUI.Borders.empty(0, 20), JBUI.Borders.empty(10))
+                val inner = JPanel().apply {
+                    layout = BoxLayout(this, BoxLayout.Y_AXIS)
+                    add(JPanel(BorderLayout()).apply {
+                        add(JBLabel("Personal Access Token").apply { font = font.deriveFont(java.awt.Font.BOLD) }, BorderLayout.WEST)
+                    })
+                    add(Box.createVerticalStrut(8))
+                    add(JPanel(BorderLayout()).apply {
+                        add(tokenField, BorderLayout.CENTER)
+                        tokenField.putClientProperty("JTextField.placeholderText", "Paste your PAT here")
+                    })
+                    add(Box.createVerticalStrut(5))
+                    add(JBLabel("<html><div style='font-size:11px;color:gray;'>Required scopes: Code (Read), Pull Requests (Read)</div></html>").apply {
+                        foreground = UIUtil.getLabelInfoForeground()
+                    })
                 }
-                
-                add(infoLabel)
-                border = JBUI.Borders.empty(15, 30, 10, 30)
+                add(inner, BorderLayout.CENTER)
             }
-            
-            add(infoPanel)
+            add(tokenPanel)
+            add(Box.createVerticalStrut(10))
+
+            val btnPanel = JPanel().apply {
+                layout = BoxLayout(this, BoxLayout.Y_AXIS)
+                patLoginButton.apply {
+                    preferredSize = JBUI.size(280, 40)
+                    maximumSize = JBUI.size(280, 40)
+                    font = font.deriveFont(java.awt.Font.BOLD, 14f)
+                    alignmentX = JComponent.CENTER_ALIGNMENT
+                }
+                add(patLoginButton)
+                border = JBUI.Borders.empty(0, 20, 5, 20)
+            }
+            add(btnPanel)
+
+            // Validation result label
+            patInfoLabel.apply {
+                alignmentX = JComponent.CENTER_ALIGNMENT
+                foreground = UIUtil.getLabelInfoForeground()
+                border = JBUI.Borders.empty(5, 30, 5, 30)
+            }
+            add(patInfoLabel)
+        }
+
+        // --- Card container ---
+        cardPanel.add(oauthCard, "OAUTH")
+        cardPanel.add(patCard, "PAT")
+
+        // --- Toggle link at the bottom ---
+        val togglePanel = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.X_AXIS)
+            add(Box.createHorizontalGlue())
+            add(toggleLink)
+            add(Box.createHorizontalGlue())
+            border = JBUI.Borders.empty(5, 20, 10, 20)
+        }
+
+        // --- Content ---
+        val contentPanel = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            add(urlCard)
+            add(Box.createVerticalStrut(15))
+            add(cardPanel)
+            add(togglePanel)
         }
 
         mainPanel.add(headerPanel, BorderLayout.NORTH)
         mainPanel.add(contentPanel, BorderLayout.CENTER)
         mainPanel.border = JBUI.Borders.empty(15)
-        mainPanel.preferredSize = JBUI.size(500, 420)
+        mainPanel.preferredSize = JBUI.size(500, 480)
 
         return mainPanel
     }
 
-    private fun updateUIMode() {
-        // OAuth mode only - always enabled
-        serverUrlField.isEnabled = true
-        oauthButton.isEnabled = true
-        // tokenField.isEnabled = false
-        
-        // Update OK button (Cancel for OAuth mode)
-        setOKButtonText("Cancel")
+    // -------- mode toggle --------
+
+    private fun toggleMode() {
+        useOAuth = !useOAuth
+        if (useOAuth) {
+            cardLayout.show(cardPanel, "OAUTH")
+            toggleLink.text = "Use Personal Access Token instead"
+        } else {
+            cardLayout.show(cardPanel, "PAT")
+            toggleLink.text = "Use OAuth (Sign in with Browser) instead"
+        }
     }
+
+    // -------- OAuth flow --------
 
     private fun performOAuthLogin() {
         val serverUrl = serverUrlField.text.trim().removeSuffix("/")
-        
-        if (serverUrl.isBlank() || !isValidAzureDevOpsUrl(serverUrl)) {
+
+        if (serverUrl.isBlank() || !isValidServerUrl(serverUrl)) {
             Messages.showErrorDialog(
                 contentPanel,
                 "Please enter a valid Azure DevOps organization URL.\n\n" +
-                "Examples:\n" +
-                "• https://dev.azure.com/YourOrganization\n" +
-                "• https://YourOrganization.visualstudio.com",
+                        "Examples:\n" +
+                        "• https://dev.azure.com/YourOrganization\n" +
+                        "• https://YourOrganization.visualstudio.com",
                 "Invalid URL"
             )
             return
         }
 
-        // Request device code first (blocking)
-        ProgressManager.getInstance().run(object : Task.Modal(
-            project,
-            "Requesting Authentication Code...",
-            true
-        ) {
+        ProgressManager.getInstance().run(object : Task.Modal(project, "Requesting Authentication Code...", true) {
             var deviceCodeResponse: AzureDevOpsOAuthService.DeviceCodeResponse? = null
-            
+
             override fun run(indicator: ProgressIndicator) {
                 indicator.isIndeterminate = true
                 indicator.text = "Connecting to Microsoft..."
-                
-                val oauthService = AzureDevOpsOAuthService.getInstance()
-                deviceCodeResponse = oauthService.requestDeviceCodeSync()
+                deviceCodeResponse = AzureDevOpsOAuthService.getInstance().requestDeviceCodeSync()
             }
-            
+
             override fun onSuccess() {
                 val response = deviceCodeResponse
                 if (response != null) {
-                    // Show device code dialog with pre-loaded code
                     val deviceCodeDialog = DeviceCodeAuthDialog(project, serverUrl, response)
                     if (deviceCodeDialog.showAndGet()) {
                         val authenticatedAccount = deviceCodeDialog.getAuthenticatedAccount()
@@ -239,97 +275,89 @@ class AzureDevOpsLoginDialog(private val project: Project?) : DialogWrapper(proj
                     Messages.showErrorDialog(
                         contentPanel,
                         "Failed to request authentication code from Microsoft.\n\n" +
-                        "Please check your internet connection and try again.",
+                                "Please check your internet connection and try again.",
                         "Authentication Error"
                     )
                 }
             }
-            
+
             override fun onThrowable(error: Throwable) {
-                Messages.showErrorDialog(
-                    contentPanel,
-                    "Error: ${error.message}",
-                    "Authentication Error"
-                )
+                Messages.showErrorDialog(contentPanel, "Error: ${error.message}", "Authentication Error")
             }
         })
     }
 
-    override fun doValidate(): ValidationInfo? {
-        // Only validate if using PAT mode
-        if (useOAuth) {
-            return null
+    // -------- PAT flow --------
+
+    private fun performPatLogin() {
+        val serverUrl = serverUrlField.text.trim().removeSuffix("/")
+        val pat = String(tokenField.password).trim()
+
+        if (serverUrl.isBlank() || !isValidServerUrl(serverUrl)) {
+            Messages.showErrorDialog(contentPanel, "Please enter a valid Azure DevOps URL.", "Invalid URL")
+            return
+        }
+        if (pat.isBlank()) {
+            Messages.showErrorDialog(contentPanel, "Please enter your Personal Access Token.", "Token Required")
+            return
         }
 
-        val serverUrl = serverUrlField.text.trim()
-        val token = String(tokenField.password).trim()
+        patLoginButton.isEnabled = false
+        patInfoLabel.text = "<html><div style='color:gray;'>Validating PAT…</div></html>"
 
-        if (serverUrl.isBlank()) {
-            return ValidationInfo("Organization URL is required", serverUrlField)
-        }
+        ProgressManager.getInstance().run(object : Task.Modal(project, "Validating Personal Access Token...", true) {
+            var result: PatValidationService.ValidationResult? = null
 
-        if (!isValidAzureDevOpsUrl(serverUrl)) {
-            return ValidationInfo("Invalid Azure DevOps URL format", serverUrlField)
-        }
+            override fun run(indicator: ProgressIndicator) {
+                indicator.isIndeterminate = true
+                indicator.text = "Checking permissions on $serverUrl..."
+                result = PatValidationService.getInstance().validate(serverUrl, pat)
+            }
 
-        if (token.isBlank()) {
-            return ValidationInfo("Personal Access Token is required", tokenField)
-        }
+            override fun onSuccess() {
+                patLoginButton.isEnabled = true
+                val r = result ?: return
 
-        return null
+                if (r.valid) {
+                    patInfoLabel.text = "<html><div style='color:green;'>✓ ${escapeHtml(r.message)}</div></html>"
+                    val accountManager = AzureDevOpsAccountManager.getInstance()
+                    account = accountManager.addPatAccount(serverUrl, pat, r.message)
+                    close(OK_EXIT_CODE)
+                } else {
+                    patInfoLabel.text = "<html><div style='color:red;'>✗ ${escapeHtml(r.message)}</div></html>"
+                }
+            }
+
+            override fun onThrowable(error: Throwable) {
+                patLoginButton.isEnabled = true
+                patInfoLabel.text = "<html><div style='color:red;'>Error: ${escapeHtml(error.message ?: "Unknown error")}</div></html>"
+            }
+        })
     }
 
+    // -------- validation --------
+
+    override fun doValidate(): ValidationInfo? = null
+
     override fun doOKAction() {
-        // Only handle PAT mode here, OAuth is handled by the button
-        if (useOAuth) {
-            super.doOKAction()
-            return
-        }
-
-        val serverUrl = serverUrlField.text.trim().removeSuffix("/")
-        val token = String(tokenField.password).trim()
-
-        // Test connection before saving
-        if (!testConnection(serverUrl, token)) {
-            Messages.showErrorDialog(
-                project,
-                "Failed to connect to Azure DevOps.\n\n" +
-                "Please verify:\n" +
-                "• Server URL is correct\n" +
-                "• Personal Access Token is valid\n" +
-                "• Token has 'Code (Read)' permission",
-                "Connection Failed"
-            )
-            return
-        }
-
-        // Save account
-        val accountManager = AzureDevOpsAccountManager.getInstance()
-        account = accountManager.addAccount(serverUrl, token, null, null)
-
         super.doOKAction()
     }
 
-    private fun isValidAzureDevOpsUrl(url: String): Boolean {
+    // -------- helpers --------
+
+    /**
+     * Accepts any HTTPS URL so that self-hosted instances work too.
+     */
+    private fun isValidServerUrl(url: String): Boolean {
         return try {
             val uri = java.net.URI(url)
-            val host = uri.host?.lowercase() ?: ""
-            host.contains("dev.azure.com") || 
-            host.contains("visualstudio.com") ||
-            host.contains("azure.com")
+            uri.scheme?.lowercase()?.startsWith("http") == true && uri.host != null
         } catch (_: Exception) {
             false
         }
     }
 
-    private fun testConnection(serverUrl: String, token: String): Boolean {
-        return try {
-            // Use OAuth service for consistent testing
-            val oauthService = AzureDevOpsOAuthService.getInstance()
-            val result = oauthService.authenticateWithPAT(serverUrl, token)
-            result != null
-        } catch (_: Exception) {
-            false
-        }
+    private fun escapeHtml(text: String): String {
+        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     }
 }
