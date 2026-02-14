@@ -17,17 +17,6 @@
 
 ---
 
-## IMPORTANT MIGRATION NOTICE (READ BEFORE UPGRADING)
-
-> If you are upgrading from Azure DevOps Integration 1.x to 2.x and you use the new sign-in location (Tools → Azure DevOps Accounts), you may see one or more accounts listed that appear to be non-functional. These are likely leftover accounts created by the old manual Personal Access Token (PAT) authentication and are missing refresh tokens required by the new OAuth 2.0 flow.
-
-- **Why this happens:** old PAT-based accounts do not include a refresh token, so the new OAuth-based flow cannot refresh them and they will not work correctly.
-- **Recommended action:** open Tools → Azure DevOps Accounts, remove any existing accounts that came from the previous 1.x authentication, then sign in again using the new OAuth 2.0 sign-in (Tools → Azure DevOps Accounts → Sign In). This ensures tokens are stored with refresh capability and will be maintained automatically.
-- **If you must keep PATs:** re-add them intentionally and understand they do not support refresh tokens and may expire.
-
-Please perform this cleanup before using the new authentication features to avoid broken accounts and unexpected authentication failures.
-
-
 ## ✨ Features
 
 <table>
@@ -135,3 +124,4 @@ Documentation: [Azure DevOps REST API Reference](https://learn.microsoft.com/en-
 ---
 
 **Happy coding! 🚀**
+
