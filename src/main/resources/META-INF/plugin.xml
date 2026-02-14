@@ -3,7 +3,7 @@
     <idea-version since-build="251" />
     <!-- Unique identifier of the plugin. It should be FQN. It cannot be changed between the plugin versions. -->
     <id>paol0b.AzureDevOps</id>
-    <version>3.0</version>
+    <version>3.1</version>
 
     <!-- Public plugin name should be written in Title Case.
          Guidelines: https://plugins.jetbrains.com/docs/marketplace/best-practices-for-listing.html#plugin-name -->
@@ -59,10 +59,12 @@
         <h4>🔐 Authentication & Security</h4>
         <ul>
             <li><b>OAuth 2.0:</b> Sign in with your Microsoft account (no token copy/paste needed)</li>
+            <li><b>Personal Access Token (PAT):</b> Authenticate with PAT for manual control and self-hosted instances</li>
+            <li><b>Azure DevOps On-Premise:</b> Full support for self-hosted Azure DevOps Server instances</li>
             <li><b>Multiple Accounts:</b> Add and switch between different organizations</li>
             <li><b>Auto-Detection:</b> Plugin automatically finds the right account for your repository</li>
             <li><b>Secure Storage:</b> Credentials safely stored in IDE's password manager</li>
-            <li><b>Token Refresh:</b> Tokens update automatically - no manual renewal</li>
+            <li><b>Token Refresh:</b> OAuth tokens update automatically - no manual renewal</li>
         </ul>
 
         <h3>📋 Requirements:</h3>
