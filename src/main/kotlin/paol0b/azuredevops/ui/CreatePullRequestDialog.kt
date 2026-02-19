@@ -185,7 +185,7 @@ class CreatePullRequestDialog private constructor(
         // Description area setup
         descriptionArea.lineWrap = true
         descriptionArea.wrapStyleWord = true
-        descriptionArea.rows = 8
+        descriptionArea.rows = 12
 
         // Setup changes tree with initial data
         val rootNode = DefaultMutableTreeNode("Changes")
@@ -468,23 +468,46 @@ class CreatePullRequestDialog private constructor(
     }
 
     override fun createCenterPanel(): JComponent {
-        val descriptionScroll = JScrollPane(descriptionArea).apply {
-            preferredSize = Dimension(500, 150)
+        val descriptionScroll = JScrollPane(descriptionArea)
+
+        val insertCommitsBtn = JButton("Insert Commits", AllIcons.Actions.Commit).apply {
+            toolTipText = "Insert commit messages into description"
+            addActionListener { insertCommitsIntoDescription() }
         }
 
-        // Details Panel
-        val detailsPanel = FormBuilder.createFormBuilder()
-            .addLabeledComponent(JBLabel("Source Branch:"), sourceBranchCombo, 1, false)
-            .addTooltip("The branch to start the Pull Request from")
-            .addLabeledComponent(JBLabel("Target Branch:"), targetBranchCombo, 1, false)
-            .addTooltip("The destination branch (usually main or master)")
-            .addSeparator()
-            .addLabeledComponent(JBLabel("Title:"), titleField, 1, false)
-            .addTooltip("Pull Request title (required)")
-            .addLabeledComponent(JBLabel("Description:"), descriptionScroll, 1, true)
-            .addTooltip("Optional Pull Request description")
-            .addComponentFillVertically(JPanel(), 0)
-            .panel
+        val descriptionItemPanel = JPanel(BorderLayout(0, 5)).apply {
+            border = JBUI.Borders.empty(0, 0, 5, 0)
+            val topBar = JPanel(FlowLayout(FlowLayout.RIGHT, 0, 0)).apply {
+                add(insertCommitsBtn)
+            }
+            add(topBar, BorderLayout.NORTH)
+            add(descriptionScroll, BorderLayout.CENTER)
+        }
+
+        // Details Panel - using BorderLayout for better layout control
+        val detailsPanel = JPanel(BorderLayout(0, 10)).apply {
+            border = JBUI.Borders.empty(10)
+            
+            // Top section: source, target, title
+            val topSection = FormBuilder.createFormBuilder()
+                .addLabeledComponent(JBLabel("Source Branch:"), sourceBranchCombo, 1, false)
+                .addTooltip("The branch to start the Pull Request from")
+                .addLabeledComponent(JBLabel("Target Branch:"), targetBranchCombo, 1, false)
+                .addTooltip("The destination branch (usually main or master)")
+                .addSeparator()
+                .addLabeledComponent(JBLabel("Title:"), titleField, 1, false)
+                .addTooltip("Pull Request title (required)")
+                .panel
+            
+            add(topSection, BorderLayout.NORTH)
+            
+            // Bottom section: description (fills remaining space)
+            val descriptionContainer = JPanel(BorderLayout()).apply {
+                add(JBLabel("Description:"), BorderLayout.NORTH)
+                add(descriptionItemPanel, BorderLayout.CENTER)
+            }
+            add(descriptionContainer, BorderLayout.CENTER)
+        }
 
         // Changes Panel
         val changesPanel = JPanel(BorderLayout()).apply {
@@ -567,7 +590,7 @@ class CreatePullRequestDialog private constructor(
             addTab("Changes", changesPanel)
             addTab("Commits", commitsPanel)
             addTab("Reviewers", reviewersPanel)
-            preferredSize = Dimension(600, 400)
+            preferredSize = Dimension(600, 550)
         }
 
         return tabbedPane
@@ -594,6 +617,30 @@ class CreatePullRequestDialog private constructor(
         }
 
         return null
+    }
+
+    /**
+     * Inserts the current commits list into the description area in a formatted way
+     */
+    private fun insertCommitsIntoDescription() {
+        if (commitsListModel.isEmpty
+            || commitsListModel.getElementAt(0) == "No commits"
+            || commitsListModel.getElementAt(0).startsWith("Error:")) {
+            return
+        }
+
+        val sb = StringBuilder()
+        sb.append("## Commits\n\n")
+        for (i in 0 until commitsListModel.size()) {
+            sb.append("- ${commitsListModel.getElementAt(i)}\n")
+        }
+
+        val existing = descriptionArea.text.trim()
+        descriptionArea.text = if (existing.isNotBlank()) {
+            "$existing\n\n${sb.toString().trimEnd()}"
+        } else {
+            sb.toString().trimEnd()
+        }
     }
 
     /**
