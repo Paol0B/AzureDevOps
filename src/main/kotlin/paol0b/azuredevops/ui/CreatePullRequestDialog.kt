@@ -24,12 +24,13 @@ import git4idea.history.GitHistoryUtils
 import git4idea.repo.GitRepository
 import paol0b.azuredevops.model.GitBranch
 import paol0b.azuredevops.model.Identity
+import paol0b.azuredevops.services.AvatarService
 import paol0b.azuredevops.services.AzureDevOpsApiClient
 import paol0b.azuredevops.services.GitRepositoryService
 import java.awt.*
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
-import javax.imageio.ImageIO
+import java.awt.geom.Ellipse2D
 import javax.swing.*
 import javax.swing.event.DocumentEvent
 import javax.swing.event.DocumentListener
@@ -58,6 +59,7 @@ class CreatePullRequestDialog private constructor(
 ) : DialogWrapper(project) {
 
     private val logger = Logger.getInstance(CreatePullRequestDialog::class.java)
+    private val avatarService = AvatarService.getInstance(project)
     private val sourceBranchCombo: ComboBox<GitBranch>
     private val targetBranchCombo: ComboBox<GitBranch>
     private val titleField = JBTextField()
@@ -371,45 +373,89 @@ class CreatePullRequestDialog private constructor(
     }
     
     /**
-     * Creates a panel for an added reviewer
+     * Creates a panel for an added reviewer with circular avatar
      */
     private fun createReviewerPanel(identity: Identity, required: Boolean): JPanel {
-        val panel = JPanel(BorderLayout(5, 0)).apply {
+        val panel = JPanel(BorderLayout(JBUI.scale(10), 0)).apply {
             name = "added_reviewer_${identity.id}"
             border = JBUI.Borders.compound(
                 JBUI.Borders.customLine(JBColor.border(), 0, 0, 1, 0),
-                JBUI.Borders.empty(5)
+                JBUI.Borders.empty(JBUI.scale(8))
             )
-            maximumSize = Dimension(Int.MAX_VALUE, 45)
+            maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(50))
         }
         
-        // Avatar + Name + Badge
-        val leftPanel = JPanel(FlowLayout(FlowLayout.LEFT, 5, 0))
+        // Left: Avatar (circular)
+        val avatarPanel = object : JPanel() {
+            private var avatarIcon: Icon? = null
+            
+            init {
+                preferredSize = Dimension(JBUI.scale(36), JBUI.scale(36))
+                isOpaque = false
+                // Load avatar asynchronously
+                avatarIcon = avatarService.getAvatar(identity.imageUrl, JBUI.scale(36)) {
+                    repaint()
+                }
+            }
+            
+            override fun paintComponent(g: Graphics) {
+                super.paintComponent(g)
+                val g2 = g.create() as Graphics2D
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+                
+                // Draw circular border (light gray)
+                g2.color = JBColor(Color(200, 200, 200), Color(80, 80, 80))
+                g2.stroke = BasicStroke(JBUI.scale(1f))
+                g2.drawOval(0, 0, width - JBUI.scale(1), height - JBUI.scale(1))
+                
+                // Draw avatar if available
+                avatarIcon?.let { icon ->
+                    val x = (width - icon.iconWidth) / 2
+                    val y = (height - icon.iconHeight) / 2
+                    
+                    // Clip to circle
+                    val clip = Ellipse2D.Float(JBUI.scale(1f), JBUI.scale(1f), 
+                        (width - JBUI.scale(2)).toFloat(), (height - JBUI.scale(2)).toFloat())
+                    g2.clip = clip
+                    icon.paintIcon(this, g2, x, y)
+                }
+                g2.dispose()
+            }
+        }
         
-        val avatarLabel = JLabel()
-        avatarLabel.preferredSize = Dimension(28, 28)
-        loadAvatar(identity.imageUrl, avatarLabel)
-        leftPanel.add(avatarLabel)
+        // Center: Name + Badge
+        val centerPanel = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            isOpaque = false
+            alignmentY = Component.CENTER_ALIGNMENT
+        }
         
-        val nameLabel = JLabel(identity.displayName ?: "Unknown")
-        leftPanel.add(nameLabel)
+        val nameLabel = JLabel(identity.displayName ?: "Unknown").apply {
+            font = UIUtil.getLabelFont().deriveFont(Font.BOLD, UIUtil.getFontSize(UIUtil.FontSize.NORMAL))
+            alignmentX = Component.LEFT_ALIGNMENT
+        }
+        centerPanel.add(nameLabel)
         
         val badge = JLabel(if (required) "REQUIRED" else "OPTIONAL").apply {
             isOpaque = true
             background = if (required) JBColor(Color(220, 53, 69), Color(200, 35, 51)) 
                          else JBColor(Color(108, 117, 125), Color(90, 98, 104))
             foreground = Color.WHITE
-            border = JBUI.Borders.empty(2, 8)
-            font = font.deriveFont(Font.BOLD, 10f)
+            border = JBUI.Borders.empty(JBUI.scale(2), JBUI.scale(6), JBUI.scale(2), JBUI.scale(6))
+            font = UIUtil.getLabelFont().deriveFont(Font.BOLD, JBUI.scaleFontSize(9f).toFloat())
+            alignmentX = Component.LEFT_ALIGNMENT
+            maximumSize = Dimension(Int.MAX_VALUE, JBUI.scale(18))
         }
-        leftPanel.add(badge)
+        centerPanel.add(Box.createVerticalStrut(JBUI.scale(2)))
+        centerPanel.add(badge)
         
-        panel.add(leftPanel, BorderLayout.CENTER)
+        panel.add(avatarPanel, BorderLayout.WEST)
+        panel.add(centerPanel, BorderLayout.CENTER)
         
-        // Remove button
+        // Right: Remove button
         val removeBtn = JButton(AllIcons.Actions.Close).apply {
             toolTipText = "Remove reviewer"
-            preferredSize = Dimension(24, 24)
+            preferredSize = Dimension(JBUI.scale(28), JBUI.scale(28))
             isContentAreaFilled = false
             isBorderPainted = false
             addActionListener {
@@ -432,38 +478,6 @@ class CreatePullRequestDialog private constructor(
             requiredReviewers.remove(identity)
         } else {
             optionalReviewers.remove(identity)
-        }
-    }
-    
-    /**
-     * Loads a user's avatar asynchronously
-     */
-    private fun loadAvatar(imageUrl: String?, targetLabel: JLabel) {
-        if (imageUrl.isNullOrBlank()) {
-            targetLabel.icon = AllIcons.General.User
-            return
-        }
-        
-        ApplicationManager.getApplication().executeOnPooledThread {
-            try {
-                val uri = java.net.URI(imageUrl)
-                val url = uri.toURL()
-                val image = ImageIO.read(url)
-                val scaledImage = image.getScaledInstance(
-                    targetLabel.preferredSize.width,
-                    targetLabel.preferredSize.height,
-                    Image.SCALE_SMOOTH
-                )
-                
-                ApplicationManager.getApplication().invokeLater {
-                    targetLabel.icon = ImageIcon(scaledImage)
-                }
-            } catch (e: Exception) {
-                logger.debug("Failed to load avatar", e)
-                ApplicationManager.getApplication().invokeLater {
-                    targetLabel.icon = AllIcons.General.User
-                }
-            }
         }
     }
 
@@ -524,8 +538,8 @@ class CreatePullRequestDialog private constructor(
         }
         
         // Reviewers Panel
-        val reviewersPanel = JPanel(BorderLayout(0, 10)).apply {
-            border = JBUI.Borders.empty(10)
+        val reviewersPanel = JPanel(BorderLayout(0, JBUI.scale(12))).apply {
+            border = JBUI.Borders.empty(JBUI.scale(10))
         }
         
         val reviewersTopPanel = JPanel(BorderLayout()).apply {
@@ -534,15 +548,15 @@ class CreatePullRequestDialog private constructor(
             add(infoLabel, BorderLayout.NORTH)
         }
         
-        val selectionPanel = JPanel(BorderLayout(0, 5)).apply {
-            border = JBUI.Borders.empty(5, 0)
+        val selectionPanel = JPanel(BorderLayout(0, JBUI.scale(5))).apply {
+            border = JBUI.Borders.empty(JBUI.scale(5), 0)
         }
         
-        val comboPanel = JPanel(BorderLayout(5, 0))
+        val comboPanel = JPanel(BorderLayout(JBUI.scale(5), 0))
         comboPanel.add(JBLabel("Select User:"), BorderLayout.WEST)
         comboPanel.add(reviewerCombo, BorderLayout.CENTER)
         
-        val buttonsPanel = JPanel(FlowLayout(FlowLayout.LEFT, 5, 0))
+        val buttonsPanel = JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(5), 0))
         val addRequiredButton = JButton("Add as Required").apply {
             addActionListener {
                 val selected = reviewerCombo.selectedItem as? Identity
@@ -566,17 +580,21 @@ class CreatePullRequestDialog private constructor(
         selectionPanel.add(buttonsPanel, BorderLayout.CENTER)
         
         // Added reviewers section
+        val addedReviewersLabel = JBLabel("<html><b>Added Reviewers:</b> <span style='color:gray;'>(${requiredReviewers.size + optionalReviewers.size})</span></html>").apply {
+            border = JBUI.Borders.empty(JBUI.scale(5), 0)
+        }
+        
         val addedReviewersContainer = JPanel(BorderLayout()).apply {
             border = JBUI.Borders.compound(
                 JBUI.Borders.customLine(JBColor.border(), 1),
-                JBUI.Borders.empty(5)
+                JBUI.Borders.empty(JBUI.scale(5))
             )
-            add(JBLabel("<html><b>Added Reviewers:</b></html>"), BorderLayout.NORTH)
+            add(addedReviewersLabel, BorderLayout.NORTH)
             add(reviewerListPanel, BorderLayout.CENTER)
         }
         
         val reviewersScrollPane = JBScrollPane(addedReviewersContainer).apply {
-            preferredSize = Dimension(500, 200)
+            preferredSize = Dimension(500, JBUI.scale(200))
             border = null
         }
         
