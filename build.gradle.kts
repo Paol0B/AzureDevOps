@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "paol0b"
-version = "3.1"
+version = "3.2"
 
 repositories {
     mavenCentral()
@@ -39,6 +39,17 @@ intellijPlatform {
         }
 
         changeNotes = """
+            <h2>Version 3.2 - Polish & UX Improvements</h2>
+            
+            <h3>Improvements</h3>
+            <ul>
+                <li><b>SVG Icons Consistency</b> – Updated icon dimensions to 16x16 across all resources for consistent visual design</li>
+                <li><b>Commit Button</b> – Added commit button to streamline workflow</li>
+                <li><b>PR ToolWindow Enhancement</b> – Improved Pull Request tool window UI and functionality</li>
+            </ul>
+            
+            <hr>
+            
             <h2>Version 3.1 - On-Premise & PAT Authentication</h2>
             
             <h3>New Features</h3>
