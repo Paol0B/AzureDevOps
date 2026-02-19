@@ -51,7 +51,7 @@ class PullRequestToolWindowFactory : ToolWindowFactory, DumbAware {
             val panel = PrReviewTabPanel(project, pullRequest)
             reviewTabs[pullRequest.pullRequestId] = panel
 
-            val tabTitle = "PR #${pullRequest.pullRequestId}"
+            val tabTitle = "#${pullRequest.pullRequestId}"
             val content = contentManager.factory.createContent(panel, tabTitle, false).apply {
                 isCloseable = true
                 description = pullRequest.title

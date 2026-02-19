@@ -11,6 +11,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.JBPopupMenu
 import com.intellij.ui.ColoredTreeCellRenderer
 import com.intellij.ui.JBColor
+import com.intellij.ui.SearchTextField
 import com.intellij.ui.SimpleTextAttributes
 import com.intellij.ui.TreeUIHelper
 import com.intellij.ui.components.JBScrollPane
@@ -29,6 +30,8 @@ import java.awt.Font
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import javax.swing.*
+import javax.swing.event.DocumentEvent
+import javax.swing.event.DocumentListener
 import javax.swing.event.TreeSelectionListener
 import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.DefaultTreeModel
@@ -53,8 +56,10 @@ class PullRequestListPanel(
     private var currentFilter = "active"
     private var showAllOrganizationPrs = false
     private val statusLabel: JLabel
+    private val searchField = SearchTextField()
     private var lastSelectedPrId: Int? = null  // Backup of last selected PR ID
     private var cachedPullRequests: List<PullRequest> = emptyList()  // Cache for comparison
+    private var lastLoadedPullRequests: List<PullRequest> = emptyList()
     private var isErrorState: Boolean = false  // Track if the tree is currently showing an error
     private val expandedNodes = mutableSetOf<String>()  // Track expanded project nodes
 
@@ -121,11 +126,23 @@ class PullRequestListPanel(
             foreground = JBColor.GRAY
         }
 
+        searchField.textEditor.emptyText.text = "Search by title or author"
+        searchField.textEditor.document.addDocumentListener(object : DocumentListener {
+            override fun insertUpdate(e: DocumentEvent?) = applySearchFilter()
+            override fun removeUpdate(e: DocumentEvent?) = applySearchFilter()
+            override fun changedUpdate(e: DocumentEvent?) = applySearchFilter()
+        })
+
         panel = JPanel(BorderLayout()).apply {
+            val topPanel = JPanel(BorderLayout()).apply {
+                border = JBUI.Borders.empty(8, 10, 6, 10)
+                add(searchField, BorderLayout.CENTER)
+            }
             val scrollPane = JBScrollPane(tree).apply {
                 border = JBUI.Borders.empty()
                 verticalScrollBar.unitIncrement = 16
             }
+            add(topPanel, BorderLayout.NORTH)
             add(scrollPane, BorderLayout.CENTER)
             add(statusLabel, BorderLayout.SOUTH)
             minimumSize = Dimension(250, 0)
@@ -179,13 +196,22 @@ class PullRequestListPanel(
                         // Only update UI if data has changed or if recovering from an error
                         if (isErrorState || hasDataChanged(pullRequests)) {
                             cachedPullRequests = pullRequests
-                            updateTreeWithPullRequests(pullRequests, selectedPrId)
-                            statusLabel.text = "Loaded ${pullRequests.size} Pull Request(s)"
-                            statusLabel.icon = AllIcons.General.InspectionsOK
+                            lastLoadedPullRequests = pullRequests
+                            val filtered = filterPullRequests(pullRequests, searchField.text.trim())
+                            updateTreeWithPullRequests(filtered, selectedPrId)
+                            updateStatusForFilter(filtered.size, pullRequests.size, searchField.text.trim())
                         } else {
-                            // Data hasn't changed, just update status without tree refresh
-                            statusLabel.text = "${pullRequests.size} Pull Request(s) (up to date)"
-                            statusLabel.icon = AllIcons.General.InspectionsOK
+                            lastLoadedPullRequests = pullRequests
+                            val query = searchField.text.trim()
+                            if (query.isNotBlank()) {
+                                val filtered = filterPullRequests(pullRequests, query)
+                                updateTreeWithPullRequests(filtered, selectedPrId)
+                                updateStatusForFilter(filtered.size, pullRequests.size, query)
+                            } else {
+                                // Data hasn't changed, just update status without tree refresh
+                                statusLabel.text = "${pullRequests.size} Pull Request(s) (up to date)"
+                                statusLabel.icon = AllIcons.General.InspectionsOK
+                            }
                         }
                     }
                 } catch (e: Exception) {
@@ -473,6 +499,41 @@ class PullRequestListPanel(
         val errorNode = DefaultMutableTreeNode("Error: $errorMessage")
         rootNode.add(errorNode)
         treeModel.reload()
+    }
+
+    private fun applySearchFilter() {
+        if (isErrorState) {
+            return
+        }
+
+        val query = searchField.text.trim()
+        val selectedPrId = getSelectedPullRequest()?.pullRequestId ?: lastSelectedPrId
+        val filtered = filterPullRequests(lastLoadedPullRequests, query)
+        updateTreeWithPullRequests(filtered, selectedPrId)
+        updateStatusForFilter(filtered.size, lastLoadedPullRequests.size, query)
+    }
+
+    private fun filterPullRequests(pullRequests: List<PullRequest>, query: String): List<PullRequest> {
+        if (query.isBlank()) {
+            return pullRequests
+        }
+
+        val normalizedQuery = query.lowercase()
+        return pullRequests.filter { pr ->
+            val title = pr.title.lowercase()
+            val author = pr.createdBy?.displayName?.lowercase() ?: ""
+            val uniqueName = pr.createdBy?.uniqueName?.lowercase() ?: ""
+            title.contains(normalizedQuery) || author.contains(normalizedQuery) || uniqueName.contains(normalizedQuery)
+        }
+    }
+
+    private fun updateStatusForFilter(filteredCount: Int, totalCount: Int, query: String) {
+        statusLabel.icon = AllIcons.General.InspectionsOK
+        statusLabel.text = if (query.isNotBlank()) {
+            "Showing $filteredCount of $totalCount Pull Request(s)"
+        } else {
+            "Loaded $totalCount Pull Request(s)"
+        }
     }
 
     /**
