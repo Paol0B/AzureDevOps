@@ -28,6 +28,11 @@ import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
 import paol0b.azuredevops.model.CommentThread
 import paol0b.azuredevops.model.PullRequestChange
+import paol0b.azuredevops.model.diffSideTitles
+import paol0b.azuredevops.model.displayChangeLabel
+import paol0b.azuredevops.model.hasChangeType
+import paol0b.azuredevops.model.previousPath
+import paol0b.azuredevops.model.primaryChangeType
 import paol0b.azuredevops.services.AzureDevOpsApiClient
 import java.awt.BorderLayout
 import java.awt.Dimension
@@ -280,6 +285,7 @@ class DiffViewerPanel(
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
                 val (oldContent, newContent) = fetchFileContents(change)
+                val primaryChangeType = change.primaryChangeType()
                 
                 // Also fetch comment threads for this file
                 val threads = fetchCommentThreads(filePath)
@@ -287,7 +293,7 @@ class DiffViewerPanel(
                 
                 // Update UI on EDT
                 ApplicationManager.getApplication().invokeLater {
-                    displayDiff(filePath, oldContent, newContent, change.changeType ?: "edit")
+                    displayDiff(filePath, oldContent, newContent, primaryChangeType)
                 }
             } catch (e: Exception) {
                 logger.error("Failed to load diff for file: $filePath", e)
@@ -319,7 +325,6 @@ class DiffViewerPanel(
      */
     private fun fetchFileContents(change: PullRequestChange): Pair<String, String> {
         val filePath = change.item?.path ?: ""
-        val changeType = change.changeType?.lowercase() ?: "edit"
         
         logger.info("fetchFileContents: filePath=$filePath, externalProject=$externalProjectName, externalRepo=$externalRepositoryId")
         
@@ -333,8 +338,8 @@ class DiffViewerPanel(
         val sourceCommit = pr.lastMergeSourceCommit?.commitId
         val targetCommit = pr.lastMergeTargetCommit?.commitId
         
-        return when (changeType) {
-            "add" -> {
+        return when {
+            change.hasChangeType("add") && !change.hasChangeType("delete") -> {
                 // New file - no old content
                 val newContent = if (sourceCommit != null) {
                     try {
@@ -346,11 +351,12 @@ class DiffViewerPanel(
                 } else ""
                 "" to newContent
             }
-            "delete" -> {
+            change.hasChangeType("delete") && !change.hasChangeType("add") -> {
                 // Deleted file - no new content
+                val oldPath = change.previousPath()
                 val oldContent = if (targetCommit != null) {
                     try {
-                        apiClient.getFileContent(targetCommit, filePath, externalProjectName, externalRepositoryId)
+                        apiClient.getFileContent(targetCommit, oldPath, externalProjectName, externalRepositoryId)
                     } catch (e: Exception) {
                         logger.info("Failed to get old content: ${e.message}")
                         ""
@@ -358,9 +364,9 @@ class DiffViewerPanel(
                 } else ""
                 oldContent to ""
             }
-            "edit", "rename" -> {
+            change.hasChangeType("edit") || change.hasChangeType("rename") -> {
                 // Modified file - fetch both versions
-                val oldPath = change.originalPath ?: filePath
+                val oldPath = change.previousPath()
                 
                 val oldContent = if (targetCommit != null) {
                     try {
@@ -383,7 +389,7 @@ class DiffViewerPanel(
                 oldContent to newContent
             }
             else -> {
-                logger.warn("Unknown change type: $changeType")
+                logger.warn("Unknown change type: ${change.changeType}")
                 "" to ""
             }
         }
@@ -411,14 +417,17 @@ class DiffViewerPanel(
         val pr = cachedPullRequest
         val targetBranch = pr?.targetRefName?.substringAfterLast('/') ?: "Base"
         val sourceBranch = pr?.sourceRefName?.substringAfterLast('/') ?: "Changes"
+        val (leftTitle, rightTitle) = currentChange?.diffSideTitles(targetBranch, sourceBranch)
+            ?: ("Base ($targetBranch)" to "Changes ($sourceBranch)")
+        val diffTitleSuffix = currentChange?.displayChangeLabel()?.let { " [$it]" }.orEmpty()
         
         // Create diff request with appropriate titles
         val diffRequest = SimpleDiffRequest(
-            "PR #$pullRequestId: $fileName",
+            "PR #$pullRequestId: $fileName$diffTitleSuffix",
             content1,
             content2,
-            "Base ($targetBranch)",
-            "Changes ($sourceBranch)"
+            leftTitle,
+            rightTitle
         )
         
         // Create diff panel

@@ -5,6 +5,7 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import paol0b.azuredevops.model.PullRequest
+import paol0b.azuredevops.model.changeTypeTokens
 import paol0b.azuredevops.ui.PullRequestReviewDialog
 
 /**
@@ -50,9 +51,8 @@ class PullRequestReviewService(private val project: Project) {
                 
                 // Filter only files (they have a path and a valid changeType)
                 val fileChanges = changes.filter { change ->
-                    val changeType = change.changeType?.lowercase() ?: ""
                     val hasPath = change.item?.path?.isNotBlank() == true
-                    val tokens = changeType.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+                    val tokens = change.changeTypeTokens()
                     val isFileChange = tokens.any { token ->
                         token in listOf("edit", "add", "rename", "delete")
                     }

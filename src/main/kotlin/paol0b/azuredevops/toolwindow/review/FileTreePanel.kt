@@ -11,12 +11,15 @@ import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.ui.JBUI
 import paol0b.azuredevops.model.CommentThread
 import paol0b.azuredevops.model.PullRequestChange
+import paol0b.azuredevops.model.displayChangeLabel
+import paol0b.azuredevops.model.primaryChangeType
 import paol0b.azuredevops.services.PrReviewStateService
 import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Component
 import java.awt.Dimension
 import java.awt.Font
+import java.awt.FlowLayout
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import javax.swing.*
@@ -435,7 +438,7 @@ class FileTreePanel(
             get() = change.item?.path ?: ""
         
         val changeType: String
-            get() = change.changeType ?: "unknown"
+            get() = change.primaryChangeType()
         
         var isReviewed: Boolean
             get() = reviewStateService.isFileReviewed(pullRequestId, filePath)
@@ -509,12 +512,24 @@ class FileTreePanel(
                         if (userObject.changeType.equals("delete", ignoreCase = true)) {
                             // Strike-through logic could go here, but simple color is safe
                         }
+
+                        toolTipText = buildString {
+                            append(userObject.filePath)
+                            append("\n")
+                            append("Status: ")
+                            append(userObject.change.displayChangeLabel())
+                        }
                     }
                     
                     panel.add(checkbox, BorderLayout.WEST)
                     panel.add(nameLabel, BorderLayout.CENTER)
 
-                    // Comment count badge
+                    val badgesPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0)).apply {
+                        isOpaque = false
+                    }
+
+                    badgesPanel.add(createStatusBadge(userObject.change))
+
                     val commentCount = getCommentCount(userObject.filePath)
                     if (commentCount > 0) {
                         val badge = JBLabel(" $commentCount ").apply {
@@ -524,8 +539,10 @@ class FileTreePanel(
                             font = font.deriveFont(Font.BOLD, 10f)
                             border = JBUI.Borders.empty(1, 4, 1, 4)
                         }
-                        panel.add(badge, BorderLayout.EAST)
+                        badgesPanel.add(badge)
                     }
+
+                    panel.add(badgesPanel, BorderLayout.EAST)
                     
                     return panel
                 }
@@ -538,6 +555,24 @@ class FileTreePanel(
             }
             
             return component
+        }
+
+        private fun createStatusBadge(change: PullRequestChange): JComponent {
+            val label = change.displayChangeLabel().uppercase()
+            val (backgroundColor, foregroundColor) = when (change.primaryChangeType().lowercase()) {
+                "add" -> JBColor(Color(225, 245, 234), Color(34, 70, 45)) to JBColor(Color(32, 110, 65), Color(170, 235, 185))
+                "delete" -> JBColor(Color(255, 232, 232), Color(78, 32, 32)) to JBColor(Color(170, 45, 45), Color(255, 182, 182))
+                "rename" -> JBColor(Color(232, 240, 255), Color(30, 44, 76)) to JBColor(Color(52, 98, 196), Color(186, 208, 255))
+                else -> JBColor(Color(235, 238, 242), Color(52, 52, 52)) to JBColor(Color(90, 90, 90), Color(210, 210, 210))
+            }
+
+            return JBLabel(" $label ").apply {
+                isOpaque = true
+                background = backgroundColor
+                foreground = foregroundColor
+                font = font.deriveFont(Font.BOLD, 10f)
+                border = JBUI.Borders.empty(1, 6, 1, 6)
+            }
         }
     }
 }

@@ -22,6 +22,66 @@ data class PullRequestChange(
     val originalPath: String? // For rename/move
 )
 
+private val FILE_CHANGE_TYPE_PRIORITY = listOf("add", "delete", "rename", "edit")
+
+fun PullRequestChange.changeTypeTokens(): Set<String> {
+    return changeType
+        ?.split(',')
+        ?.asSequence()
+        ?.map { it.trim().lowercase() }
+        ?.filter { it.isNotEmpty() }
+        ?.toSet()
+        .orEmpty()
+}
+
+fun PullRequestChange.hasChangeType(type: String): Boolean {
+    return changeTypeTokens().contains(type.lowercase())
+}
+
+fun PullRequestChange.primaryChangeType(): String {
+    val tokens = changeTypeTokens()
+    return FILE_CHANGE_TYPE_PRIORITY.firstOrNull(tokens::contains)
+        ?: changeType?.substringBefore(',')?.trim()?.lowercase()
+        ?: "unknown"
+}
+
+fun PullRequestChange.isAddedFile(): Boolean {
+    return hasChangeType("add") && !hasChangeType("delete")
+}
+
+fun PullRequestChange.isRemovedFile(): Boolean {
+    return hasChangeType("delete") && !hasChangeType("add")
+}
+
+fun PullRequestChange.displayChangeLabel(): String {
+    return when {
+        isAddedFile() -> "Added"
+        isRemovedFile() -> "Removed"
+        hasChangeType("rename") && hasChangeType("edit") -> "Renamed + Modified"
+        hasChangeType("rename") -> "Renamed"
+        hasChangeType("edit") -> "Modified"
+        else -> primaryChangeType().replaceFirstChar { char ->
+            if (char.isLowerCase()) char.titlecase() else char.toString()
+        }
+    }
+}
+
+fun PullRequestChange.diffSideTitles(targetBranch: String, sourceBranch: String): Pair<String, String> {
+    return when {
+        isAddedFile() -> "Base ($targetBranch) - file absent" to "Changes ($sourceBranch) - added file"
+        isRemovedFile() -> "Base ($targetBranch) - removed file" to "Changes ($sourceBranch) - file absent"
+        else -> "Base ($targetBranch)" to "Changes ($sourceBranch)"
+    }
+}
+
+fun PullRequestChange.previousPath(): String {
+    return if (hasChangeType("rename")) {
+        originalPath ?: item?.path.orEmpty()
+    } else {
+        item?.path.orEmpty()
+    }
+}
+
 data class GitItem(
     @SerializedName("objectId")
     val objectId: String?, // SHA object

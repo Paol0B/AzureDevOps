@@ -1,7 +1,7 @@
 plugins {
     id("java")
-    id("org.jetbrains.kotlin.jvm") version "2.1.0"
-    id("org.jetbrains.intellij.platform") version "2.7.1"
+    id("org.jetbrains.kotlin.jvm") version "2.3.10"
+    id("org.jetbrains.intellij.platform") version "2.12.0"
 }
 
 group = "paol0b"
@@ -18,13 +18,13 @@ repositories {
 // Read more: https://plugins.jetbrains.com/docs/intellij/tools-intellij-platform-gradle-plugin.html
 dependencies {
     // Gson for JSON parsing
-    implementation("com.google.code.gson:gson:2.11.0")
+    implementation("com.google.code.gson:gson:2.13.2")
     // OkHttp for robust HTTP requests with native PATCH support
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.squareup.okhttp3:okhttp:5.3.2")
     testImplementation("junit:junit:4.13.2")
     
     intellijPlatform {
-        create("IC", "2025.1.4.1")
+        intellijIdea("2025.3.3")
         testFramework(org.jetbrains.intellij.platform.gradle.TestFrameworkType.Platform)
 
         // Git plugin dependency
@@ -35,7 +35,7 @@ dependencies {
 intellijPlatform {
     pluginConfiguration {
         ideaVersion {
-            sinceBuild = "251"
+            sinceBuild = "253"
         }
 
         changeNotes = """
@@ -93,7 +93,7 @@ intellijPlatform {
                 <li>Delta log streaming for 70%+ bandwidth savings on logs</li>
                 <li>Smart avatar caching to reduce API calls</li>
                 <li>Lazy-loaded UI for PRs with 100+ file changes</li>
-                <li>OkHttp 4.12.0 for better PATCH support</li>
+                <li>OkHttp 5.3.2 for better PATCH support</li>
             </ul>
             
             <h3>🐛 Bug Fixes</h3>
@@ -144,6 +144,12 @@ intellijPlatform {
             - Tool window now always visible and positioned on the right
             - Improved PR review workflow with combined diff support
         """.trimIndent()
+    }
+
+    pluginVerification {
+        ides {
+            recommended()
+        }
     }
 }
 
