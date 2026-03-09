@@ -1121,6 +1121,40 @@ The plugin will automatically use your authenticated account for this repository
     }
 
     /**
+     * Abandons a Pull Request.
+     * API: PATCH https://dev.azure.com/{organization}/{project}/_apis/git/repositories/{repositoryId}/pullrequests/{pullRequestId}?api-version=7.0
+     *
+     * Supports PRs coming from the organization-wide list by resolving the target project/repository from the PR itself.
+     */
+    @Throws(AzureDevOpsApiException::class)
+    fun abandonPullRequest(pullRequest: PullRequest): PullRequest {
+        val configService = AzureDevOpsConfigService.getInstance(project)
+        val config = configService.getConfig()
+
+        if (!config.isValid()) {
+            throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
+        }
+
+        val effectiveProject = pullRequest.repository?.project?.name ?: config.project
+        val effectiveRepo = pullRequest.repository?.id ?: pullRequest.repository?.name ?: config.repository
+        val url = buildApiUrl(effectiveProject, effectiveRepo, "/pullrequests/${pullRequest.pullRequestId}?api-version=$API_VERSION")
+
+        logger.info("Abandoning Pull Request #${pullRequest.pullRequestId} from $effectiveProject/$effectiveRepo")
+
+        return try {
+            val requestBody = gson.toJson(mapOf("status" to "abandoned"))
+            val response = executePatch(url, requestBody, config.personalAccessToken)
+            val abandonedPr = gson.fromJson(response, PullRequest::class.java)
+
+            logger.info("Successfully abandoned Pull Request #${pullRequest.pullRequestId}")
+            abandonedPr
+        } catch (e: Exception) {
+            logger.error("Failed to abandon pull request #${pullRequest.pullRequestId}", e)
+            throw AzureDevOpsApiException("Error abandoning Pull Request: ${e.message}", e)
+        }
+    }
+
+    /**
      * Gets the current authenticated user
      * Uses the connectionData endpoint to get the identity ID that Azure DevOps Git API expects
      * API: GET https://dev.azure.com/{organization}/_apis/connectionData
@@ -1352,11 +1386,10 @@ The plugin will automatically use your authenticated account for this repository
      *
      * @param pullRequestId PR ID
      * @param projectName Optional project name for cross-repo PRs
-     * @param repositoryId Optional repository ID for cross-repo PRs
      * @return List of policy evaluations
      */
     @Throws(AzureDevOpsApiException::class)
-    fun getPolicyEvaluations(pullRequestId: Int, projectName: String? = null, repositoryId: String? = null): List<PolicyEvaluation> {
+    fun getPolicyEvaluations(pullRequestId: Int, projectName: String? = null): List<PolicyEvaluation> {
         val configService = AzureDevOpsConfigService.getInstance(project)
         val config = configService.getConfig()
 

@@ -17,6 +17,7 @@ import com.intellij.ui.TreeUIHelper
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.ui.JBUI
+import paol0b.azuredevops.actions.AbandonPullRequestAction
 import paol0b.azuredevops.actions.CompletePullRequestAction
 import paol0b.azuredevops.actions.EnterPullRequestBranchAction
 import paol0b.azuredevops.actions.SetAutoCompletePullRequestAction
@@ -62,6 +63,7 @@ class PullRequestListPanel(
     private var lastLoadedPullRequests: List<PullRequest> = emptyList()
     private var isErrorState: Boolean = false  // Track if the tree is currently showing an error
     private val expandedNodes = mutableSetOf<String>()  // Track expanded project nodes
+    private var currentUserId: String? = null
 
     init {
         rootNode = DefaultMutableTreeNode("Pull Requests")
@@ -191,8 +193,10 @@ class PullRequestListPanel(
                     } else {
                         apiClient.getPullRequests(status = currentFilter)
                     }
+                    val resolvedCurrentUserId = apiClient.getCurrentUserIdCached()
 
                     ApplicationManager.getApplication().invokeLater {
+                        currentUserId = resolvedCurrentUserId
                         // Only update UI if data has changed or if recovering from an error
                         if (isErrorState || hasDataChanged(pullRequests)) {
                             cachedPullRequests = pullRequests
@@ -455,13 +459,25 @@ class PullRequestListPanel(
             branchService.enterPullRequestBranch(pr)
         }
         popup.add(enterBranchItem)
-        
-        // Determine which completion action to show based on PR state
+
+        val showAbandonPr = pr.isCreatedByUser(currentUserId)
         val showCompletePR = pr.isReadyToComplete()  // Show Complete if all checks passed and ready
         val showAutoComplete = !pr.hasAutoComplete() && !pr.isReadyToComplete()  // Show Auto-Complete if not set and not ready
-        
-        if (showCompletePR || showAutoComplete) {
+        val hasSecondaryActions = showAbandonPr || showCompletePR || showAutoComplete
+
+        if (hasSecondaryActions) {
             popup.addSeparator()
+        }
+
+        if (showAbandonPr) {
+            val abandonPrItem = JMenuItem("Abandon PR...")
+            abandonPrItem.addActionListener {
+                val abandonPrAction = AbandonPullRequestAction(pr, currentUserId) {
+                    refreshPullRequests()
+                }
+                abandonPrAction.performAbandonPR(project)
+            }
+            popup.add(abandonPrItem)
         }
         
         // Add "Complete PR..." action - only if mergeable
