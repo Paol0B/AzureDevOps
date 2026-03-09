@@ -19,6 +19,9 @@ import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.ui.JBUI
 import paol0b.azuredevops.model.PullRequest
 import paol0b.azuredevops.model.PullRequestChange
+import paol0b.azuredevops.model.hasChangeType
+import paol0b.azuredevops.model.previousPath
+import paol0b.azuredevops.model.primaryChangeType
 import paol0b.azuredevops.services.AzureDevOpsApiClient
 import java.awt.BorderLayout
 import java.awt.Color
@@ -146,15 +149,16 @@ class PullRequestReviewDialog(
                 
                 // Get new content (source commit)
                 val sourceCommit = pullRequest.lastMergeSourceCommit?.commitId
-                val newContent = if (sourceCommit != null && change.changeType?.lowercase() != "delete") {
+                val newContent = if (sourceCommit != null && !change.hasChangeType("delete")) {
                     apiClient.getFileContent(sourceCommit, path)
                 } else ""
                 
                 // Get old content (target commit)
                 val targetCommit = pullRequest.lastMergeTargetCommit?.commitId
-                val oldContent = if (targetCommit != null && change.changeType?.lowercase() != "add") {
+                val oldPath = change.previousPath()
+                val oldContent = if (targetCommit != null && !change.hasChangeType("add")) {
                     try {
-                        apiClient.getFileContent(targetCommit, path)
+                        apiClient.getFileContent(targetCommit, oldPath)
                     } catch (e: Exception) {
                         logger.info("File is new (doesn't exist in base): ${e.message}")
                         ""
@@ -189,8 +193,8 @@ class PullRequestReviewDialog(
             "PR #${pullRequest.pullRequestId}: $fileName",
             oldDiffContent,
             newDiffContent,
-            "Base (${pullRequest.targetRefName?.substringAfterLast('/')})",
-            "Changes (${pullRequest.sourceRefName?.substringAfterLast('/')})"
+            "Base (${pullRequest.targetRefName.substringAfterLast('/')})",
+            "Changes (${pullRequest.sourceRefName.substringAfterLast('/')})"
         )
         
         DiffManager.getInstance().showDiff(project, diffRequest)
@@ -361,9 +365,10 @@ class PullRequestReviewDialog(
         var deleted = 0
 
         fileChanges.forEach { change ->
-            when (change.changeType?.lowercase()) {
+            when (change.primaryChangeType()) {
                 "add" -> added += 1
                 "edit" -> modified += 1
+                "rename" -> modified += 1
                 "delete" -> deleted += 1
             }
         }
@@ -400,7 +405,7 @@ class PullRequestReviewDialog(
                 FileNode(
                     fileName = fileName,
                     folderPath = dirSegments.joinToString("/"),
-                    changeType = change.changeType ?: "unknown",
+                    changeType = change.primaryChangeType(),
                     change = change,
                     fullPath = path
                 )

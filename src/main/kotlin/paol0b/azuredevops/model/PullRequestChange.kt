@@ -22,6 +22,37 @@ data class PullRequestChange(
     val originalPath: String? // For rename/move
 )
 
+private val FILE_CHANGE_TYPE_PRIORITY = listOf("add", "delete", "rename", "edit")
+
+fun PullRequestChange.changeTypeTokens(): Set<String> {
+    return changeType
+        ?.split(',')
+        ?.asSequence()
+        ?.map { it.trim().lowercase() }
+        ?.filter { it.isNotEmpty() }
+        ?.toSet()
+        .orEmpty()
+}
+
+fun PullRequestChange.hasChangeType(type: String): Boolean {
+    return changeTypeTokens().contains(type.lowercase())
+}
+
+fun PullRequestChange.primaryChangeType(): String {
+    val tokens = changeTypeTokens()
+    return FILE_CHANGE_TYPE_PRIORITY.firstOrNull(tokens::contains)
+        ?: changeType?.substringBefore(',')?.trim()?.lowercase()
+        ?: "unknown"
+}
+
+fun PullRequestChange.previousPath(): String {
+    return if (hasChangeType("rename")) {
+        originalPath ?: item?.path.orEmpty()
+    } else {
+        item?.path.orEmpty()
+    }
+}
+
 data class GitItem(
     @SerializedName("objectId")
     val objectId: String?, // SHA object

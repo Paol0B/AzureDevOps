@@ -11,6 +11,7 @@ import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.ui.JBUI
 import paol0b.azuredevops.model.CommentThread
 import paol0b.azuredevops.model.PullRequestChange
+import paol0b.azuredevops.model.primaryChangeType
 import paol0b.azuredevops.services.PrReviewStateService
 import java.awt.BorderLayout
 import java.awt.Color
@@ -435,7 +436,7 @@ class FileTreePanel(
             get() = change.item?.path ?: ""
         
         val changeType: String
-            get() = change.changeType ?: "unknown"
+            get() = change.primaryChangeType()
         
         var isReviewed: Boolean
             get() = reviewStateService.isFileReviewed(pullRequestId, filePath)
