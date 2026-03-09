@@ -48,4 +48,52 @@ class PullRequestChangeTest {
         assertEquals("edit", change.primaryChangeType())
         assertEquals("/src/Existing.kt", change.previousPath())
     }
+
+    @Test
+    fun `display helpers highlight added files clearly`() {
+        val change = PullRequestChange(
+            changeId = 3,
+            changeTrackingId = 30,
+            changeType = "add",
+            item = GitItem(
+                objectId = "sha-added",
+                path = "/src/NewFile.kt",
+                gitObjectType = "blob",
+                commitId = "source-commit",
+                url = null
+            ),
+            originalPath = null
+        )
+
+        assertTrue(change.isAddedFile())
+        assertEquals("Added", change.displayChangeLabel())
+        assertEquals(
+            "Base (main) - file absent" to "Changes (feature) - added file",
+            change.diffSideTitles("main", "feature")
+        )
+    }
+
+    @Test
+    fun `display helpers highlight removed files clearly`() {
+        val change = PullRequestChange(
+            changeId = 4,
+            changeTrackingId = 40,
+            changeType = "delete",
+            item = GitItem(
+                objectId = "sha-removed",
+                path = "/src/OldFile.kt",
+                gitObjectType = "blob",
+                commitId = "target-commit",
+                url = null
+            ),
+            originalPath = null
+        )
+
+        assertTrue(change.isRemovedFile())
+        assertEquals("Removed", change.displayChangeLabel())
+        assertEquals(
+            "Base (main) - removed file" to "Changes (feature) - file absent",
+            change.diffSideTitles("main", "feature")
+        )
+    }
 }

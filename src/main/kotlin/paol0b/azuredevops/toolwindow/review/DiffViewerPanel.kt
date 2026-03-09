@@ -28,6 +28,8 @@ import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
 import paol0b.azuredevops.model.CommentThread
 import paol0b.azuredevops.model.PullRequestChange
+import paol0b.azuredevops.model.diffSideTitles
+import paol0b.azuredevops.model.displayChangeLabel
 import paol0b.azuredevops.model.hasChangeType
 import paol0b.azuredevops.model.previousPath
 import paol0b.azuredevops.model.primaryChangeType
@@ -415,14 +417,17 @@ class DiffViewerPanel(
         val pr = cachedPullRequest
         val targetBranch = pr?.targetRefName?.substringAfterLast('/') ?: "Base"
         val sourceBranch = pr?.sourceRefName?.substringAfterLast('/') ?: "Changes"
+        val (leftTitle, rightTitle) = currentChange?.diffSideTitles(targetBranch, sourceBranch)
+            ?: ("Base ($targetBranch)" to "Changes ($sourceBranch)")
+        val diffTitleSuffix = currentChange?.displayChangeLabel()?.let { " [$it]" }.orEmpty()
         
         // Create diff request with appropriate titles
         val diffRequest = SimpleDiffRequest(
-            "PR #$pullRequestId: $fileName",
+            "PR #$pullRequestId: $fileName$diffTitleSuffix",
             content1,
             content2,
-            "Base ($targetBranch)",
-            "Changes ($sourceBranch)"
+            leftTitle,
+            rightTitle
         )
         
         // Create diff panel

@@ -45,6 +45,35 @@ fun PullRequestChange.primaryChangeType(): String {
         ?: "unknown"
 }
 
+fun PullRequestChange.isAddedFile(): Boolean {
+    return hasChangeType("add") && !hasChangeType("delete")
+}
+
+fun PullRequestChange.isRemovedFile(): Boolean {
+    return hasChangeType("delete") && !hasChangeType("add")
+}
+
+fun PullRequestChange.displayChangeLabel(): String {
+    return when {
+        isAddedFile() -> "Added"
+        isRemovedFile() -> "Removed"
+        hasChangeType("rename") && hasChangeType("edit") -> "Renamed + Modified"
+        hasChangeType("rename") -> "Renamed"
+        hasChangeType("edit") -> "Modified"
+        else -> primaryChangeType().replaceFirstChar { char ->
+            if (char.isLowerCase()) char.titlecase() else char.toString()
+        }
+    }
+}
+
+fun PullRequestChange.diffSideTitles(targetBranch: String, sourceBranch: String): Pair<String, String> {
+    return when {
+        isAddedFile() -> "Base ($targetBranch) - file absent" to "Changes ($sourceBranch) - added file"
+        isRemovedFile() -> "Base ($targetBranch) - removed file" to "Changes ($sourceBranch) - file absent"
+        else -> "Base ($targetBranch)" to "Changes ($sourceBranch)"
+    }
+}
+
 fun PullRequestChange.previousPath(): String {
     return if (hasChangeType("rename")) {
         originalPath ?: item?.path.orEmpty()

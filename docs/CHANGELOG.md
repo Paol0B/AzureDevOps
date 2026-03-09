@@ -159,10 +159,10 @@ All notable changes to the Azure DevOps Integration plugin are documented in thi
 
 ### 📦 Dependencies
 
-- Updated: OkHttp to 4.12.0 (improved PATCH request support)
-- Updated: Gson to 2.11.0
-- IntelliJ Platform: 2025.1.4.1+
-- Kotlin: 2.1.0
+- Updated: OkHttp to 5.3.2 (improved PATCH request support)
+- Updated: Gson to 2.13.2
+- IntelliJ Platform: 2025.3.3+
+- Kotlin: 2.3.10
 
 ### 🔄 Refactoring
 

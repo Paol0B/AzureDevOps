@@ -5,7 +5,7 @@
 ### Seamless Pull Request Management for JetBrains IDEs
 
 [![JetBrains Plugin](https://img.shields.io/badge/JetBrains-Plugin-blue?logo=jetbrains)](https://plugins.jetbrains.com/)
-[![Kotlin](https://img.shields.io/badge/Kotlin-2.1.0-7F52FF?logo=kotlin)](https://kotlinlang.org/)
+[![Kotlin](https://img.shields.io/badge/Kotlin-2.3.10-7F52FF?logo=kotlin)](https://kotlinlang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
@@ -109,9 +109,9 @@ cd azuredevops-plugin
 
 ### Dependencies
 
-- **Kotlin**: 2.1.0
-- **IntelliJ Platform**: 2025.1
-- **Gson**: 2.11.0 (for JSON parsing)
+- **Kotlin**: 2.3.10
+- **IntelliJ Platform**: 2025.3
+- **Gson**: 2.13.2 (for JSON parsing)
 - **Git4Idea**: Plugin bundled
 
 ### Azure DevOps APIs Used
