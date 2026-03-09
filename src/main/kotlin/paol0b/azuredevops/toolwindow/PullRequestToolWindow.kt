@@ -2,52 +2,33 @@ package paol0b.azuredevops.toolwindow
 
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.*
-import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.SimpleToolWindowPanel
-import com.intellij.ui.JBSplitter
 import paol0b.azuredevops.actions.CreatePullRequestAction
 import paol0b.azuredevops.model.PullRequest
 import paol0b.azuredevops.services.AzureDevOpsApiClient
 import paol0b.azuredevops.services.AzureDevOpsConfigService
-import paol0b.azuredevops.services.GitRepositoryService
-import paol0b.azuredevops.services.PullRequestCommentsService
 import java.awt.BorderLayout
 import javax.swing.JPanel
 
 /**
  * Main panel of the Pull Request ToolWindow.
- * Filters are now fully managed inside PullRequestListPanel via PullRequestFilterPanel.
+ * Uses a flat JBList with GitHub-style cell rendering.
+ * Details panel has been removed — double-click opens the review tab.
  */
 class PullRequestToolWindow(private val project: Project) {
 
     private val mainPanel: SimpleToolWindowPanel
     private val pullRequestListPanel: PullRequestListPanel
-    private val pullRequestDetailsPanel: PullRequestDetailsPanel
     private val pollingService = paol0b.azuredevops.services.PullRequestsPollingService.getInstance(project)
     private var isInitialLoadDone: Boolean = false
 
     init {
-        pullRequestListPanel = PullRequestListPanel(project) { selectedPR ->
-            onPullRequestSelected(selectedPR)
-        }
-
-        pullRequestDetailsPanel = PullRequestDetailsPanel(project)
-
-        val splitter = JBSplitter(true, 0.4f).apply {
-            firstComponent = pullRequestListPanel.getComponent()
-            secondComponent = pullRequestDetailsPanel.getComponent()
-            setResizeEnabled(true)
-            setShowDividerControls(true)
-            setShowDividerIcon(true)
-            setHonorComponentsMinimumSize(true)
-        }
+        pullRequestListPanel = PullRequestListPanel(project) { _ -> }
 
         mainPanel = SimpleToolWindowPanel(true, true).apply {
             toolbar = createToolbar()
-            setContent(splitter)
+            setContent(pullRequestListPanel.getComponent())
         }
 
         pollingService.startPolling {
@@ -95,6 +76,7 @@ class PullRequestToolWindow(private val project: Project) {
                 override fun update(e: AnActionEvent) {
                     e.presentation.isEnabled = pullRequestListPanel.getSelectedPullRequest() != null
                 }
+                override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
             })
         }
 
@@ -106,101 +88,18 @@ class PullRequestToolWindow(private val project: Project) {
         }
     }
 
-    private fun onPullRequestSelected(pullRequest: PullRequest?) {
-        pullRequestDetailsPanel.setPullRequest(pullRequest)
-    }
-
-    /**
-     * Shows the comments of the PR associated with the current branch
-     */
-    private fun showCurrentBranchPRComments() {
-        val gitService = GitRepositoryService.getInstance(project)
-        val currentBranch = gitService.getCurrentBranch()
-
-        if (currentBranch == null) {
-            Messages.showWarningDialog(
-                project,
-                "No active Git branch.",
-                "Unable to Show Comments"
-            )
-            return
-        }
-
-        ApplicationManager.getApplication().executeOnPooledThread {
-            try {
-                val apiClient = AzureDevOpsApiClient.getInstance(project)
-                val pullRequest = apiClient.findPullRequestForBranch(currentBranch.displayName)
-
-                ApplicationManager.getApplication().invokeLater {
-                    if (pullRequest == null) {
-                        Messages.showMessageDialog(
-                            project,
-                            "The branch '${currentBranch.displayName}' does not have an active Pull Request.\n\n" +
-                                    "Create a Pull Request for this branch to view comments.",
-                            "No Pull Request",
-                            Messages.getInformationIcon()
-                        )
-                    } else {
-                        // Load comments in the open editor
-                        val fileEditorManager = FileEditorManager.getInstance(project)
-                        val selectedEditor = fileEditorManager.selectedTextEditor
-                        val selectedFile = fileEditorManager.selectedFiles.firstOrNull()
-
-                        if (selectedEditor != null && selectedFile != null) {
-                            val commentsService = PullRequestCommentsService.getInstance(project)
-                            commentsService.loadCommentsInEditor(selectedEditor, selectedFile, pullRequest)
-
-                            Messages.showMessageDialog(
-                                project,
-                                "Comments loaded for PR #${pullRequest.pullRequestId}:\n${pullRequest.title}\n\n" +
-                                        "Comments are highlighted in the code.\n" +
-                                        "Click the icon in the gutter to view and reply.",
-                                "Comments Loaded",
-                                Messages.getInformationIcon()
-                            )
-                        } else {
-                            Messages.showMessageDialog(
-                                project,
-                                "PR found: #${pullRequest.pullRequestId} - ${pullRequest.title}\n\n" +
-                                        "Open a file to view comments.",
-                                "Pull Request Found",
-                                Messages.getInformationIcon()
-                            )
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                ApplicationManager.getApplication().invokeLater {
-                    Messages.showErrorDialog(
-                        project,
-                        "Error while searching for the Pull Request:\n${e.message}",
-                        "Error"
-                    )
-                }
-            }
-        }
-    }
-
-    /**
-     * Generates the web URL for a Pull Request (not the API URL)
-     * Supports cross-repository PRs by using the PR's repository information
-     */
     private fun getPullRequestWebUrl(pr: PullRequest): String? {
         val apiClient = AzureDevOpsApiClient.getInstance(project)
 
-        // For cross-repository support, use the PR's repository information
         pr.repository?.let { repo ->
             if (repo.name != null && repo.project?.name != null) {
                 return apiClient.buildPullRequestWebUrl(repo.project.name, repo.name, pr.pullRequestId)
             }
         }
 
-        // Fallback: use project config if repository info is not available
         val configService = AzureDevOpsConfigService.getInstance(project)
         val config = configService.getConfig()
-
         if (!config.isValid()) return null
-
         return apiClient.buildPullRequestWebUrl(config.project, config.repository, pr.pullRequestId)
     }
 
@@ -209,19 +108,12 @@ class PullRequestToolWindow(private val project: Project) {
             if (java.awt.Desktop.isDesktopSupported()) {
                 java.awt.Desktop.getDesktop().browse(java.net.URI(url))
             }
-        } catch (e: Exception) {
-            // Log error
-        }
+        } catch (_: Exception) { }
     }
 
-    /**
-     * Called when the tool window is being disposed or the plugin is unloaded to stop polling.
-     */
     fun dispose() {
         try {
             pollingService.stopPolling()
-        } catch (e: Exception) {
-            // ignore
-        }
+        } catch (_: Exception) { }
     }
 }
