@@ -340,7 +340,10 @@ class PrReviewTabPanel(
                 }
 
                 // Load policy evaluations
-                val policies = apiClient.getPolicyEvaluations(pullRequest.pullRequestId, projectName)
+                val policies = apiClient.getPolicyEvaluations(
+                    pullRequest.pullRequestId, projectName,
+                    pullRequest.repository?.project?.id
+                )
 
                 ApplicationManager.getApplication().invokeLater {
                     // Update file tree
@@ -615,9 +618,10 @@ class PrReviewTabPanel(
             try {
                 val updatedPr = apiClient.getPullRequest(pullRequest.pullRequestId, projectName, repositoryId)
                 val threads = apiClient.getCommentThreads(pullRequest.pullRequestId, projectName, repositoryId)
-                val policies = apiClient.getPolicyEvaluations(pullRequest.pullRequestId, projectName)
-                
-                // Filter active (non-resolved) comment threads
+                val policies = apiClient.getPolicyEvaluations(
+                    pullRequest.pullRequestId, projectName,
+                    pullRequest.repository?.project?.id
+                )
                 activeCommentThreads = threads.filter { 
                     it.isDeleted != true && it.isActive()
                 }
