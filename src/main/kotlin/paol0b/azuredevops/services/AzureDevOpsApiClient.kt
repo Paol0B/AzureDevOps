@@ -1389,7 +1389,7 @@ The plugin will automatically use your authenticated account for this repository
      * @return List of policy evaluations
      */
     @Throws(AzureDevOpsApiException::class)
-    fun getPolicyEvaluations(pullRequestId: Int, projectName: String? = null): List<PolicyEvaluation> {
+    fun getPolicyEvaluations(pullRequestId: Int, projectName: String? = null, projectId: String? = null): List<PolicyEvaluation> {
         val configService = AzureDevOpsConfigService.getInstance(project)
         val config = configService.getConfig()
 
@@ -1398,15 +1398,18 @@ The plugin will automatically use your authenticated account for this repository
         }
 
         val effectiveProject = projectName ?: config.project
-
-        // We need the project ID. If accessible from the PR, use it. Otherwise, we use the project name in the URL.
-        // The artifactId format: vstfs:///CodeReview/CodeReviewId/{projectId}/{pullRequestId}
-        // Since we may not have projectId directly, we use the project-scoped policy evaluations endpoint instead
         val encodedProject = encodePathSegment(effectiveProject)
         val baseUrl = configService.getApiBaseUrl()
-        val artifactId = "vstfs:///CodeReview/CodeReviewId/$encodedProject/$pullRequestId"
+
+        // The artifactId MUST use the project GUID, not the project name.
+        // If we have it from the PR model, use it directly; otherwise resolve it via the projects API.
+        val resolvedProjectId = projectId
+            ?: getProjectId(effectiveProject, baseUrl, config.personalAccessToken)
+            ?: effectiveProject  // last-resort fallback (will likely fail, but we tried)
+
+        val artifactId = "vstfs:///CodeReview/CodeReviewId/$resolvedProjectId/$pullRequestId"
         val encodedArtifactId = URLEncoder.encode(artifactId, StandardCharsets.UTF_8.toString())
-        val url = "$baseUrl/$encodedProject/_apis/policy/evaluations?artifactId=$encodedArtifactId&api-version=$API_VERSION"
+        val url = "$baseUrl/$encodedProject/_apis/policy/evaluations?artifactId=$encodedArtifactId&api-version=7.0-preview"
 
         logger.info("Fetching policy evaluations for PR #$pullRequestId")
 
@@ -1417,6 +1420,19 @@ The plugin will automatically use your authenticated account for this repository
         } catch (e: Exception) {
             logger.warn("Failed to fetch policy evaluations for PR #$pullRequestId: ${e.message}")
             emptyList()
+        }
+    }
+
+    /** Resolves a project GUID from its name using the projects API. Result is cached implicitly by the call site. */
+    private fun getProjectId(projectName: String, baseUrl: String, token: String): String? {
+        return try {
+            val url = "$baseUrl/_apis/projects/${encodePathSegment(projectName)}?api-version=$API_VERSION"
+            val response = executeGet(url, token)
+            val obj = gson.fromJson(response, com.google.gson.JsonObject::class.java)
+            obj.getAsJsonPrimitive("id")?.asString
+        } catch (e: Exception) {
+            logger.warn("Could not resolve project ID for '$projectName': ${e.message}")
+            null
         }
     }
 

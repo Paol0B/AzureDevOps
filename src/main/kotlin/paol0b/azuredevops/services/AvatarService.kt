@@ -5,17 +5,16 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
-import com.intellij.util.ImageLoader
-import com.intellij.util.ui.ImageUtil
-import com.intellij.util.ui.JBUI
-import java.awt.Image
+import java.awt.Component
+import java.awt.Graphics
+import java.awt.Graphics2D
+import java.awt.RenderingHints
 import java.awt.image.BufferedImage
 import java.net.URI
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import javax.imageio.ImageIO
 import javax.swing.Icon
-import javax.swing.ImageIcon
 
 /**
  * Service for loading, caching, and serving user avatars from Azure DevOps.
@@ -36,6 +35,10 @@ class AvatarService(private val project: Project) {
 
     companion object {
         private const val DEFAULT_SIZE = 24
+        // Fetch at 2× the logical size so avatars are crisp on HiDPI / Retina displays.
+        // The custom icon reports the logical size to Swing, but holds the 2× physical pixels,
+        // which map 1:1 on a 2× screen and are BICUBIC-downscaled on 1× screens.
+        private const val FETCH_SCALE = 2
         private val PLACEHOLDER_ICON: Icon = AllIcons.General.User
 
         fun getInstance(project: Project): AvatarService {
@@ -56,8 +59,8 @@ class AvatarService(private val project: Project) {
     fun getAvatar(imageUrl: String?, size: Int = DEFAULT_SIZE, onLoaded: (() -> Unit)? = null): Icon {
         if (imageUrl.isNullOrBlank()) return PLACEHOLDER_ICON
 
-        // Append size parameter to the URL if not already present
-        val sizedUrl = appendSizeParam(imageUrl, size)
+        val physicalSize = size * FETCH_SCALE
+        val sizedUrl = appendSizeParam(imageUrl, physicalSize)
 
         // Return cached icon if available
         cache[sizedUrl]?.let { return it }
@@ -78,9 +81,9 @@ class AvatarService(private val project: Project) {
         if (loading.add(sizedUrl)) {
             ApplicationManager.getApplication().executeOnPooledThread {
                 try {
-                    val image = loadImage(sizedUrl, size)
+                    val image = loadImage(sizedUrl, physicalSize)
                     if (image != null) {
-                        val icon = ImageIcon(image)
+                        val icon = createHiDpiIcon(image, size)
                         cache[sizedUrl] = icon
                     }
                 } catch (e: Exception) {
@@ -110,13 +113,14 @@ class AvatarService(private val project: Project) {
     fun getAvatarSync(imageUrl: String?, size: Int = DEFAULT_SIZE): Icon {
         if (imageUrl.isNullOrBlank()) return PLACEHOLDER_ICON
 
-        val sizedUrl = appendSizeParam(imageUrl, size)
+        val physicalSize = size * FETCH_SCALE
+        val sizedUrl = appendSizeParam(imageUrl, physicalSize)
         cache[sizedUrl]?.let { return it }
 
         return try {
-            val image = loadImage(sizedUrl, size)
+            val image = loadImage(sizedUrl, physicalSize)
             if (image != null) {
-                val icon = ImageIcon(image)
+                val icon = createHiDpiIcon(image, size)
                 cache[sizedUrl] = icon
                 icon
             } else {
@@ -147,12 +151,11 @@ class AvatarService(private val project: Project) {
     /**
      * Load and scale an image from a URL.
      */
-    private fun loadImage(url: String, size: Int): Image? {
+    private fun loadImage(url: String, size: Int): BufferedImage? {
         return try {
             val configService = AzureDevOpsConfigService.getInstance(project)
             val token = configService.getConfig().personalAccessToken
-            
-            // Azure DevOps avatar URLs may need authentication
+
             val connection = URI(url).toURL().openConnection()
             if (token.isNotBlank()) {
                 val credentials = ":$token"
@@ -161,23 +164,49 @@ class AvatarService(private val project: Project) {
             }
             connection.connectTimeout = 5000
             connection.readTimeout = 5000
-            
-            val bufferedImage = connection.getInputStream().use { stream ->
+
+            val raw = connection.getInputStream().use { stream ->
                 ImageIO.read(stream)
             } ?: return null
 
-            // Scale to desired size with smooth scaling
-            val scaled = bufferedImage.getScaledInstance(size, size, Image.SCALE_SMOOTH)
+            // Scale to target size using high-quality BICUBIC interpolation.
+            // Drawing into a fresh ARGB buffer avoids ColorModel issues.
             val result = BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB)
             val g2d = result.createGraphics()
-            g2d.drawImage(scaled, 0, 0, null)
+            g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC)
+            g2d.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
+            g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+            g2d.drawImage(raw, 0, 0, size, size, null)
             g2d.dispose()
-            
-            // Make it circular
+
             makeCircular(result)
         } catch (e: Exception) {
             logger.debug("Error loading image from $url: ${e.message}")
             null
+        }
+    }
+
+    /**
+     * Creates an icon that reports [logicalSize] × [logicalSize] to Swing layout,
+     * but paints the full-resolution [image] (which is [logicalSize] × FETCH_SCALE pixels).
+     * On HiDPI screens the rendering pipeline maps logical → physical at the system scale,
+     * so the 2× image lands 1:1 on physical pixels — no upscaling, no blur.
+     */
+    private fun createHiDpiIcon(image: BufferedImage, logicalSize: Int): Icon {
+        return object : Icon {
+            override fun getIconWidth() = logicalSize
+            override fun getIconHeight() = logicalSize
+            override fun paintIcon(c: Component?, g: Graphics, x: Int, y: Int) {
+                val g2 = g.create() as Graphics2D
+                try {
+                    g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC)
+                    g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+                    g2.drawImage(image, x, y, logicalSize, logicalSize, null)
+                } finally {
+                    g2.dispose()
+                }
+            }
         }
     }
 
@@ -188,10 +217,8 @@ class AvatarService(private val project: Project) {
         val size = image.width
         val result = BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB)
         val g2d = result.createGraphics()
-        g2d.setRenderingHint(
-            java.awt.RenderingHints.KEY_ANTIALIASING,
-            java.awt.RenderingHints.VALUE_ANTIALIAS_ON
-        )
+        g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+        g2d.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
         val clip = java.awt.geom.Ellipse2D.Float(0f, 0f, size.toFloat(), size.toFloat())
         g2d.clip = clip
         g2d.drawImage(image, 0, 0, null)

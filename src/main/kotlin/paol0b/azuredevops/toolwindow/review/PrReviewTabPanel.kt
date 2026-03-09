@@ -9,6 +9,7 @@ import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.JBSplitter
+import com.intellij.ui.scale.JBUIScale
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import paol0b.azuredevops.model.*
@@ -245,14 +246,16 @@ class PrReviewTabPanel(
     private fun createPolicyChecksSection(): JPanel {
         val section = JPanel(BorderLayout()).apply {
             background = UIUtil.getPanelBackground()
-            border = JBUI.Borders.empty(2, 14, 2, 14)
+            border = JBUI.Borders.empty(4, 14, 4, 14)
             alignmentX = Component.LEFT_ALIGNMENT
-            maximumSize = Dimension(Int.MAX_VALUE, 80)
+            maximumSize = Dimension(Int.MAX_VALUE, 34)
+            minimumSize = Dimension(0, 34)
         }
 
         section.add(policyChecksContainer, BorderLayout.CENTER)
 
         // Initial loading state
+        policyChecksContainer.layout = FlowLayout(FlowLayout.LEFT, 4, 0)
         policyChecksContainer.add(JBLabel("Loading checks...").apply {
             foreground = JBColor.GRAY
             font = font.deriveFont(11f)
@@ -340,7 +343,10 @@ class PrReviewTabPanel(
                 }
 
                 // Load policy evaluations
-                val policies = apiClient.getPolicyEvaluations(pullRequest.pullRequestId, projectName)
+                val policies = apiClient.getPolicyEvaluations(
+                    pullRequest.pullRequestId, projectName,
+                    pullRequest.repository?.project?.id
+                )
 
                 ApplicationManager.getApplication().invokeLater {
                     // Update file tree
@@ -366,87 +372,159 @@ class PrReviewTabPanel(
 
     private fun updatePolicyChecksUI(policies: List<PolicyEvaluation>, pr: PullRequest, threads: List<CommentThread> = emptyList()) {
         policyChecksContainer.removeAll()
-        policyChecksContainer.layout = FlowLayout(FlowLayout.LEFT, 12, 2)
+        policyChecksContainer.layout = FlowLayout(FlowLayout.LEFT, 4, 0)
 
-        // Check for active comments that need to be resolved
-        val hasActiveComments = threads.isNotEmpty()
-        if (hasActiveComments) {
-            policyChecksContainer.add(createCompactCheckItem("💬 Comments must be resolved", false, isBuild = false))
+        // Build the full list of check items (icon, short label, rich tooltip)
+        data class CheckItem(val icon: Icon, val label: String, val tooltip: String, val passed: Boolean)
+        val items = mutableListOf<CheckItem>()
+
+        // Active comments check
+        if (threads.isNotEmpty()) {
+            val count = threads.count { it.isDeleted != true && it.isActive() }
+            val tooltip = buildString {
+                append("<html><b>Comments must be resolved</b><br>")
+                append("<span style='color:orange;'>$count active comment thread(s) still open.</span><br>")
+                append("Resolve all threads before merging.</html>")
+            }
+            items += CheckItem(AllIcons.General.Balloon, "$count", tooltip, false)
         }
 
         if (policies.isEmpty()) {
-            // Fallback: show compact info from PR data
             val hasConflicts = pr.hasConflicts()
             if (hasConflicts) {
-                policyChecksContainer.add(createCompactCheckItem("⚠ Conflicts", false))
+                items += CheckItem(
+                    AllIcons.General.Warning, "",
+                    "<html><b>Merge conflicts</b><br>This PR has conflicts that must be resolved before merging.</html>",
+                    false
+                )
             }
-            // Show merge status compactly
-            val statusText = if (pr.mergeStatus == "succeeded") "✓ All checks passed" else "⚠ Checks pending"
-            policyChecksContainer.add(createCompactCheckItem(statusText, pr.mergeStatus == "succeeded"))
+            val allPassed = pr.mergeStatus == "succeeded"
+            items += CheckItem(
+                if (allPassed) AllIcons.RunConfigurations.TestPassed else AllIcons.General.Warning,
+                if (allPassed) "All checks" else "Pending",
+                if (allPassed) "<html><b>All checks passed</b></html>"
+                else "<html><b>Checks pending or not available.</b><br>Merge status: ${pr.mergeStatus ?: "unknown"}</html>",
+                allPassed
+            )
         } else {
-            // Show policies compactly - prioritize build status
-            val buildPolicies = policies.filter { it.getDisplayName().contains("build", ignoreCase = true) }
-            val otherPolicies = policies.filter { !it.getDisplayName().contains("build", ignoreCase = true) }
-            
-            // Show build policies first with emphasis
-            buildPolicies.forEach { policy ->
+            // Build status checks: builds first, then blocking, then others
+            val sorted = policies.sortedWith(
+                compareByDescending<PolicyEvaluation> { it.getDisplayName().contains("build", ignoreCase = true) }
+                    .thenByDescending { it.configuration?.isBlocking == true }
+            )
+
+            sorted.forEach { policy ->
                 val name = policy.getDisplayName()
                 val approved = policy.isApproved()
                 val running = policy.isRunning()
-                
-                val displayName = when {
-                    running -> "⏳ ${name}"
-                    approved -> "✓ ${name}"
-                    else -> "✗ ${name}"
+                val blocking = policy.configuration?.isBlocking == true
+                val settings = policy.configuration?.settings
+
+                val icon = when {
+                    approved -> AllIcons.RunConfigurations.TestPassed
+                    else -> if (blocking) AllIcons.RunConfigurations.TestFailed else AllIcons.General.Warning
                 }
-                
-                policyChecksContainer.add(createCompactCheckItem(displayName, approved, isBuild = true))
-            }
-            
-            // Then show other policies
-            otherPolicies.forEach { policy ->
-                val name = policy.getDisplayName()
-                val approved = policy.isApproved()
-                val running = policy.isRunning()
-                
-                val displayName = when {
-                    running -> "⏳ ${name}"
-                    approved -> "✓ ${name}"
-                    else -> "✗ ${name}"
+
+                // Short label: only for build policies (show build name if available)
+                val shortLabel = when {
+                    name.contains("build", ignoreCase = true) ->
+                        policy.context?.buildDefinitionName?.take(12) ?: "Build"
+                    else -> ""
                 }
-                
-                policyChecksContainer.add(createCompactCheckItem(displayName, approved, isBuild = false))
+
+                // Rich tooltip
+                val statusWord = when {
+                    running -> "<span style='color:#e8a838;'>Running / Queued</span>"
+                    approved -> "<span style='color:#3fb950;'>Passed</span>"
+                    else -> if (blocking)
+                        "<span style='color:#f85149;'>Failed (blocking)</span>"
+                    else
+                        "<span style='color:#e8a838;'>Failed (non-blocking)</span>"
+                }
+                val tooltip = buildString {
+                    append("<html><b>${escapeHtml(name)}</b><br>")
+                    append("Status: $statusWord<br>")
+                    if (blocking) append("<i>Blocking — must pass before merge</i><br>")
+                    if (settings?.minimumApproverCount != null)
+                        append("Minimum approvers: ${settings.minimumApproverCount}<br>")
+                    if (settings?.buildDefinitionId != null)
+                        append("Build definition ID: ${settings.buildDefinitionId}<br>")
+                    if (policy.context?.buildDefinitionName != null)
+                        append("Build: ${escapeHtml(policy.context.buildDefinitionName)}<br>")
+                    if (settings?.resetOnSourcePush == true)
+                        append("Resets on push<br>")
+                    append("</html>")
+                }
+
+                items += CheckItem(icon, shortLabel, tooltip, approved)
             }
+        }
+
+        // Render all items as compact pills
+        items.forEach { item ->
+            policyChecksContainer.add(createPolicyPill(item.icon, item.label, item.tooltip, item.passed))
         }
 
         policyChecksContainer.revalidate()
         policyChecksContainer.repaint()
     }
 
-    private fun createCheckItem(text: String, passed: Boolean): JComponent {
-        return JBLabel(text).apply {
-            icon = if (passed) AllIcons.RunConfigurations.TestPassed else AllIcons.RunConfigurations.TestFailed
-            foreground = if (passed) JBColor(Color(34, 139, 34), Color(50, 200, 50))
-                else JBColor(Color(220, 53, 69), Color(200, 35, 51))
-            font = font.deriveFont(11f)
-            alignmentX = Component.LEFT_ALIGNMENT
-            border = JBUI.Borders.empty(2, 0)
+    /**
+     * A compact icon pill:
+     *   • coloured icon on the left
+     *   • optional short text on the right (only for build entries)
+     *   • full rich HTML tooltip on mouse-over
+     *   • subtle rounded background matching the current theme
+     */
+    private fun createPolicyPill(icon: Icon, label: String, tooltip: String, passed: Boolean): JComponent {
+        val pill = JPanel(FlowLayout(FlowLayout.LEFT, 2, 0)).apply {
+            isOpaque = true
+            background = when {
+                passed -> JBColor(Color(183, 235, 201), Color(25, 55, 35))
+                else   -> JBColor(Color(255, 215, 215), Color(60, 25, 25))
+            }
+            border = JBUI.Borders.empty(2, 5, 2, 5)
+            toolTipText = tooltip
+            cursor = Cursor.getPredefinedCursor(Cursor.DEFAULT_CURSOR)
         }
-    }
-    
-    private fun createCompactCheckItem(text: String, passed: Boolean, isBuild: Boolean = false): JComponent {
-        return JBLabel(text).apply {
-            foreground = if (passed) JBColor(Color(34, 139, 34), Color(50, 200, 50))
-                else JBColor(Color(220, 53, 69), Color(200, 35, 51))
-            font = if (isBuild) font.deriveFont(Font.BOLD, 11f) else font.deriveFont(11f)
-            border = JBUI.Borders.empty(1, 6, 1, 6)
-            
-            // Add subtle background for build items
-            if (isBuild) {
-                isOpaque = true
-                background = if (passed) 
-                    JBColor(Color(230, 255, 230), Color(30, 60, 30))
-                    else JBColor(Color(255, 230, 230), Color(60, 30, 30))
+
+        val iconLabel = JBLabel(icon).apply { toolTipText = tooltip }
+        pill.add(iconLabel)
+
+        if (label.isNotBlank()) {
+            val textLabel = JBLabel(label).apply {
+                font = JBUI.Fonts.smallFont()
+                foreground = if (passed)
+                    JBColor(Color(20, 100, 40), Color(90, 210, 120))
+                else
+                    JBColor(Color(160, 40, 40), Color(220, 100, 100))
+                toolTipText = tooltip
+            }
+            pill.add(textLabel)
+        }
+
+        // Make the whole pill a rounded shape
+        return object : JPanel(BorderLayout()) {
+            init {
+                isOpaque = false
+                add(pill)
+                toolTipText = tooltip
+                // Enable HTML tooltips with longer display time
+                ToolTipManager.sharedInstance().let { mgr ->
+                    pill.addMouseListener(object : java.awt.event.MouseAdapter() {
+                        override fun mouseEntered(e: java.awt.event.MouseEvent) {
+                            mgr.initialDelay = 300
+                            mgr.dismissDelay = 15000
+                        }
+                    })
+                }
+            }
+            override fun paintComponent(g: Graphics) {
+                val g2 = g.create() as Graphics2D
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+                g2.color = pill.background
+                g2.fillRoundRect(0, 0, width, height, JBUIScale.scale(8), JBUIScale.scale(8))
+                g2.dispose()
             }
         }
     }
@@ -615,9 +693,10 @@ class PrReviewTabPanel(
             try {
                 val updatedPr = apiClient.getPullRequest(pullRequest.pullRequestId, projectName, repositoryId)
                 val threads = apiClient.getCommentThreads(pullRequest.pullRequestId, projectName, repositoryId)
-                val policies = apiClient.getPolicyEvaluations(pullRequest.pullRequestId, projectName)
-                
-                // Filter active (non-resolved) comment threads
+                val policies = apiClient.getPolicyEvaluations(
+                    pullRequest.pullRequestId, projectName,
+                    pullRequest.repository?.project?.id
+                )
                 activeCommentThreads = threads.filter { 
                     it.isDeleted != true && it.isActive()
                 }
