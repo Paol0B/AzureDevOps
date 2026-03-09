@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "paol0b"
-version = "3.2"
+version = "3.5"
 
 repositories {
     mavenCentral()
@@ -39,6 +39,17 @@ intellijPlatform {
         }
 
         changeNotes = """
+            <h2>Version 3.5 - PR Visualization & Filtering Enhancements</h2>
+            
+            <h3>Improvements</h3>
+            <ul>
+                <li><b>Enhanced PR Tool Window Visualization</b> – Optimized layout and display of pull request information for better readability</li>
+                <li><b>Advanced PR Filtering</b> – New filter options for improved PR discovery and organization</li>
+                <li><b>Improved UI Responsiveness</b> – Better performance and visual consistency across tool windows</li>
+            </ul>
+            
+            <hr>
+            
             <h2>Version 3.2 - Polish & UX Improvements</h2>
             
             <h3>Improvements</h3>

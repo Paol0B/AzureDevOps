@@ -2,6 +2,17 @@
 
 All notable changes to the Azure DevOps Integration plugin are documented in this file.
 
+## [3.5] - 2026-03-10
+
+### ✨ Enhancements
+
+#### Pull Request Tool Window Improvements
+- **Enhanced Visualization** — Optimized layout and display for improved readability of PR information
+- **Advanced Filtering** — New filter options for more precise PR discovery and organization
+- **UI Responsiveness** — Better performance and visual consistency across all tool window components
+
+---
+
 ## [3.0] - 2026-02-08
 
 ### 🎉 Major Features
