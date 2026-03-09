@@ -37,6 +37,8 @@ class PullRequestFilterPanel(
 
     // Filter chips
     private val stateChip: FilterChipComponent
+    private val projectChip: FilterChipComponent
+    private val repositoryChip: FilterChipComponent
     private val authorChip: FilterChipComponent
     private val reviewChip: FilterChipComponent
     private val sortChip: FilterChipComponent
@@ -44,8 +46,10 @@ class PullRequestFilterPanel(
     // Quick filter button
     private val quickFilterButton: JButton
 
-    // Cached author list (populated on first use)
+    // Cached lists (populated from loaded PR data)
     private var cachedAuthors: List<PullRequestSearchValue.AuthorFilter>? = null
+    private var cachedProjects: List<PullRequestSearchValue.ProjectFilter> = emptyList()
+    private var cachedRepositories: List<PullRequestSearchValue.RepositoryFilter> = emptyList()
 
     init {
         // Create quick filter button (funnel icon)
@@ -70,6 +74,18 @@ class PullRequestFilterPanel(
         )
         // Set default state
         stateChip.setValue(PullRequestSearchValue.State.OPEN.displayName)
+
+        // Project filter
+        projectChip = FilterChipComponent("Project",
+            onShowPopup = { chip -> showProjectPopup(chip) },
+            onClear = { updateFilter(currentValue.copy(projectFilter = null, repositoryFilter = null)); repositoryChip.clearValue() }
+        )
+
+        // Repository filter
+        repositoryChip = FilterChipComponent("Repository",
+            onShowPopup = { chip -> showRepositoryPopup(chip) },
+            onClear = { updateFilter(currentValue.copy(repositoryFilter = null)) }
+        )
 
         // Author filter
         authorChip = FilterChipComponent("Author",
@@ -102,6 +118,10 @@ class PullRequestFilterPanel(
             layout = BoxLayout(this, BoxLayout.X_AXIS)
             isOpaque = false
             add(stateChip)
+            add(Box.createHorizontalStrut(JBUIScale.scale(4)))
+            add(projectChip)
+            add(Box.createHorizontalStrut(JBUIScale.scale(4)))
+            add(repositoryChip)
             add(Box.createHorizontalStrut(JBUIScale.scale(4)))
             add(authorChip)
             add(Box.createHorizontalStrut(JBUIScale.scale(4)))
@@ -157,6 +177,33 @@ class PullRequestFilterPanel(
             .distinctBy { it.id ?: it.displayName }
             .sortedBy { it.displayName.lowercase() }
         cachedAuthors = authors
+
+        // Extract distinct projects from PR data
+        cachedProjects = pullRequests
+            .mapNotNull { pr ->
+                pr.repository?.project?.let { proj ->
+                    PullRequestSearchValue.ProjectFilter(
+                        id = proj.id,
+                        name = proj.name ?: "Unknown"
+                    )
+                }
+            }
+            .distinctBy { it.id ?: it.name }
+            .sortedBy { it.name.lowercase() }
+
+        // Extract distinct repositories from PR data
+        cachedRepositories = pullRequests
+            .mapNotNull { pr ->
+                pr.repository?.let { repo ->
+                    PullRequestSearchValue.RepositoryFilter(
+                        id = repo.id,
+                        name = repo.name ?: "Unknown",
+                        projectName = repo.project?.name
+                    )
+                }
+            }
+            .distinctBy { it.id ?: it.name }
+            .sortedBy { it.name.lowercase() }
     }
 
     // ---- Popup handlers ----
@@ -283,6 +330,63 @@ class PullRequestFilterPanel(
         )
     }
 
+    private fun showProjectPopup(chip: FilterChipComponent) {
+        if (cachedProjects.isEmpty()) {
+            FilterPopupUtil.showSimplePopup(
+                component = chip,
+                items = listOf("No projects available"),
+                presenter = { it },
+                onSelected = {}
+            )
+            return
+        }
+        FilterPopupUtil.showSearchablePopup(
+            component = chip,
+            items = cachedProjects,
+            presenter = { it.name },
+            icon = AllIcons.Nodes.Project,
+            onSelected = { proj ->
+                chip.setValue(proj.name)
+                // When project changes, clear repository filter since repos may differ
+                repositoryChip.clearValue()
+                updateFilter(currentValue.copy(projectFilter = proj, repositoryFilter = null))
+            }
+        )
+    }
+
+    private fun showRepositoryPopup(chip: FilterChipComponent) {
+        // If a project filter is active, only show repos from that project
+        val repos = currentValue.projectFilter?.let { proj ->
+            cachedRepositories.filter { it.projectName == proj.name }
+        } ?: cachedRepositories
+
+        if (repos.isEmpty()) {
+            FilterPopupUtil.showSimplePopup(
+                component = chip,
+                items = listOf("No repositories available"),
+                presenter = { it },
+                onSelected = {}
+            )
+            return
+        }
+        FilterPopupUtil.showSearchablePopup(
+            component = chip,
+            items = repos,
+            presenter = { repo ->
+                if (currentValue.projectFilter == null && repo.projectName != null) {
+                    "${repo.name}  (${repo.projectName})"
+                } else {
+                    repo.name
+                }
+            },
+            icon = AllIcons.Vcs.Branch,
+            onSelected = { repo ->
+                chip.setValue(repo.name)
+                updateFilter(currentValue.copy(repositoryFilter = repo))
+            }
+        )
+    }
+
     private fun updateFilter(newValue: PullRequestSearchValue) {
         currentValue = newValue
         onFilterChanged(currentValue)
@@ -319,6 +423,18 @@ class PullRequestFilterPanel(
             sortChip.setValue(v.sort.displayName)
         } else {
             sortChip.clearValue()
+        }
+
+        if (v.projectFilter != null) {
+            projectChip.setValue(v.projectFilter.name)
+        } else {
+            projectChip.clearValue()
+        }
+
+        if (v.repositoryFilter != null) {
+            repositoryChip.setValue(v.repositoryFilter.name)
+        } else {
+            repositoryChip.clearValue()
         }
 
         if (v.searchQuery != null) {

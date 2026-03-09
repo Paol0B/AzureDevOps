@@ -248,6 +248,22 @@ class PullRequestListPanel(
             }
         }
 
+        // Project filter
+        val projFilter = sv.projectFilter
+        if (projFilter != null) {
+            result = result.filter { pr ->
+                pr.repository?.project?.id == projFilter.id || pr.repository?.project?.name == projFilter.name
+            }
+        }
+
+        // Repository filter
+        val repoFilter = sv.repositoryFilter
+        if (repoFilter != null) {
+            result = result.filter { pr ->
+                pr.repository?.id == repoFilter.id || pr.repository?.name == repoFilter.name
+            }
+        }
+
         // Review filter
         val review = sv.review
         if (review != null) {

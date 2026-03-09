@@ -10,6 +10,8 @@ data class PullRequestSearchValue(
     val author: AuthorFilter? = null,
     val review: ReviewState? = null,
     val sort: Sort? = null,
+    val projectFilter: ProjectFilter? = null,
+    val repositoryFilter: RepositoryFilter? = null,
     val showAllOrg: Boolean = false
 ) {
     val filterCount: Int
@@ -20,6 +22,8 @@ data class PullRequestSearchValue(
             if (author != null) count++
             if (review != null) count++
             if (sort != null) count++
+            if (projectFilter != null) count++
+            if (repositoryFilter != null) count++
             return count
         }
 
@@ -60,6 +64,23 @@ data class PullRequestSearchValue(
         RECENTLY_UPDATED("Recently updated");
 
         override fun toString(): String = displayName
+    }
+
+    /** Project filter: allows filtering PRs by Azure DevOps project. */
+    data class ProjectFilter(
+        val id: String?,
+        val name: String
+    ) {
+        override fun toString(): String = name
+    }
+
+    /** Repository filter: allows filtering PRs by repository within a project. */
+    data class RepositoryFilter(
+        val id: String?,
+        val name: String,
+        val projectName: String?
+    ) {
+        override fun toString(): String = name
     }
 
     companion object {
