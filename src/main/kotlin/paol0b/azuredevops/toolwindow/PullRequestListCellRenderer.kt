@@ -29,7 +29,7 @@ class PullRequestListCellRenderer(
     // ── Components ──
     private val statusDot = JLabel()
     private val titleLabel = JLabel().apply {
-        minimumSize = Dimension(JBUIScale.scale(30), 0)
+        minimumSize = Dimension(0, 0)
     }
     private val stateLabel = StateBadgeLabel()
     private val draftLabel = StateBadgeLabel()
@@ -40,14 +40,57 @@ class PullRequestListCellRenderer(
     private val infoLabel = JLabel()
 
     // First line: left side (dot + title) and right side (badges, avatars, comments)
-    private val firstLinePanel = JPanel(BorderLayout(JBUIScale.scale(6), 0)).apply { isOpaque = false }
+    //
+    // Custom firstLinePanel: rightPanel ALWAYS gets its preferred width from the right;
+    // leftPanel fills whatever remains (can be 0) — so the title clips, never the badges.
+    private val firstLinePanel = object : JPanel(null) {
+        private val hgap = JBUIScale.scale(6)
+        init { isOpaque = false }
+        override fun doLayout() {
+            val ins = insets
+            val totalW = width - ins.left - ins.right
+            val totalH = height - ins.top - ins.bottom
+            val rightW = minOf(rightPanel.preferredSize.width, totalW)
+            val leftW = maxOf(0, totalW - rightW - hgap)
+            leftPanel.setBounds(ins.left, ins.top, leftW, totalH)
+            rightPanel.setBounds(ins.left + leftW + hgap, ins.top, rightW, totalH)
+        }
+        override fun getPreferredSize(): Dimension {
+            val l = leftPanel.preferredSize
+            val r = rightPanel.preferredSize
+            return Dimension(l.width + hgap + r.width, maxOf(l.height, r.height))
+        }
+    }
     private val leftPanel = JPanel().apply {
         layout = BoxLayout(this, BoxLayout.X_AXIS)
         isOpaque = false
     }
-    private val rightPanel = JPanel().apply {
-        layout = BoxLayout(this, BoxLayout.X_AXIS)
-        isOpaque = false
+    // Custom rightPanel: gaps only between *visible* components; size never shrinks below preferred.
+    private val rightPanel = object : JPanel(null) {
+        private val gap = JBUIScale.scale(4)
+        init { isOpaque = false }
+        private fun visibleItems() = listOf(stateLabel, draftLabel, autoCompleteIcon, conflictIcon, reviewersLabel, commentsLabel)
+            .filter { it.isVisible }
+        override fun doLayout() {
+            val totalH = height
+            var x = 0
+            val visible = visibleItems()
+            visible.forEachIndexed { i, c ->
+                val cPref = c.preferredSize
+                val cy = maxOf(0, (totalH - cPref.height) / 2)
+                c.setBounds(x, cy, cPref.width, cPref.height)
+                x += cPref.width + if (i < visible.size - 1) gap else 0
+            }
+        }
+        override fun getPreferredSize(): Dimension {
+            val visible = visibleItems()
+            if (visible.isEmpty()) return Dimension(0, 0)
+            val w = visible.sumOf { it.preferredSize.width } + (visible.size - 1) * gap
+            val h = visible.maxOf { it.preferredSize.height }
+            return Dimension(w, h)
+        }
+        override fun getMinimumSize() = preferredSize
+        override fun getMaximumSize() = preferredSize
     }
 
     init {
@@ -63,21 +106,16 @@ class PullRequestListCellRenderer(
         leftPanel.add(Box.createHorizontalStrut(JBUIScale.scale(6)))
         leftPanel.add(titleLabel)
 
-        // Assemble right panel with gaps
+        // Assemble right panel — custom doLayout handles gaps between visible components only
         rightPanel.add(stateLabel)
-        rightPanel.add(Box.createHorizontalStrut(JBUIScale.scale(4)))
         rightPanel.add(draftLabel)
-        rightPanel.add(Box.createHorizontalStrut(JBUIScale.scale(4)))
         rightPanel.add(autoCompleteIcon)
-        rightPanel.add(Box.createHorizontalStrut(JBUIScale.scale(2)))
         rightPanel.add(conflictIcon)
-        rightPanel.add(Box.createHorizontalStrut(JBUIScale.scale(6)))
         rightPanel.add(reviewersLabel)
-        rightPanel.add(Box.createHorizontalStrut(JBUIScale.scale(6)))
         rightPanel.add(commentsLabel)
 
-        firstLinePanel.add(leftPanel, BorderLayout.CENTER)
-        firstLinePanel.add(rightPanel, BorderLayout.EAST)
+        firstLinePanel.add(leftPanel)
+        firstLinePanel.add(rightPanel)
 
         add(firstLinePanel, BorderLayout.CENTER)
         add(infoLabel, BorderLayout.SOUTH)
