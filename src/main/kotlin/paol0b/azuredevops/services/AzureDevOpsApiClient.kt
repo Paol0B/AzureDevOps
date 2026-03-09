@@ -1406,7 +1406,7 @@ The plugin will automatically use your authenticated account for this repository
         val baseUrl = configService.getApiBaseUrl()
         val artifactId = "vstfs:///CodeReview/CodeReviewId/$encodedProject/$pullRequestId"
         val encodedArtifactId = URLEncoder.encode(artifactId, StandardCharsets.UTF_8.toString())
-        val url = "$baseUrl/$encodedProject/_apis/policy/evaluations?artifactId=$encodedArtifactId&api-version=$API_VERSION"
+        val url = "$baseUrl/$encodedProject/_apis/policy/evaluations?artifactId=$encodedArtifactId&api-version=7.0-preview"
 
         logger.info("Fetching policy evaluations for PR #$pullRequestId")
 
