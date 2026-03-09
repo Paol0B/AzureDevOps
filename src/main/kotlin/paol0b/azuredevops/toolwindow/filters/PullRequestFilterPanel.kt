@@ -265,9 +265,7 @@ class PullRequestFilterPanel(
             presenter = { it.displayName },
             onSelected = { state ->
                 chip.setValue(state.displayName)
-                // When selecting Active, enable org view. When other states, disable it.
-                val showOrg = state == PullRequestSearchValue.State.OPEN
-                updateFilter(currentValue.copy(state = state, showAllOrg = showOrg))
+                updateFilter(currentValue.copy(state = state))
             }
         )
     }
