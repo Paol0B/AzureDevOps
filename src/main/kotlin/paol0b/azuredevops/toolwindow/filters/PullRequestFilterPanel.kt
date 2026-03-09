@@ -8,10 +8,16 @@ import com.intellij.ui.SearchTextField
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBThinOverlappingScrollBar
 import com.intellij.ui.scale.JBUIScale
+import com.intellij.openapi.ui.popup.JBPopupFactory
+import com.intellij.openapi.ui.popup.ListSeparator
+import com.intellij.openapi.ui.popup.PopupStep
+import com.intellij.openapi.ui.popup.util.BaseListPopupStep
+import com.intellij.ui.awt.RelativePoint
 import com.intellij.util.ui.JBUI
 import paol0b.azuredevops.model.PullRequest
 import paol0b.azuredevops.services.AvatarService
 import java.awt.*
+import java.awt.geom.Ellipse2D
 import javax.swing.*
 
 /**
@@ -44,6 +50,7 @@ class PullRequestFilterPanel(
     private val sortChip: FilterChipComponent
 
     // Quick filter button
+    private val filterBadgeIcon = FilterBadgeIcon(AllIcons.General.Filter)
     private val quickFilterButton: JButton
 
     // Cached lists (populated from loaded PR data)
@@ -54,7 +61,7 @@ class PullRequestFilterPanel(
     init {
         // Create quick filter button (funnel icon)
         quickFilterButton = JButton().apply {
-            icon = AllIcons.General.Filter
+            icon = filterBadgeIcon
             toolTipText = "Quick Filters"
             isFocusPainted = false
             isContentAreaFilled = false
@@ -209,53 +216,76 @@ class PullRequestFilterPanel(
     // ---- Popup handlers ----
 
     private fun showQuickFilterPopup(button: JComponent) {
-        FilterPopupUtil.showSimplePopup(
-            component = button,
-            items = PullRequestQuickFilter.entries.toList(),
-            presenter = { it.displayName },
-            onSelected = { quickFilter ->
-                when (quickFilter) {
-                    PullRequestQuickFilter.OPEN -> applyQuickFilter(
-                        PullRequestSearchValue(state = PullRequestSearchValue.State.OPEN, showAllOrg = true)
-                    )
-                    PullRequestQuickFilter.YOUR_PULL_REQUESTS -> {
-                        // Filter by current user as author – we mark this with a special author
-                        applyQuickFilter(
+        val diffCount = diffFromDefaultCount()
+        val activeQuickFilter = getActiveQuickFilter()
+
+        val items = mutableListOf<QuickFilterMenuItem>(
+            QuickFilterMenuItem.Filter(PullRequestQuickFilter.OPEN),
+            QuickFilterMenuItem.Filter(PullRequestQuickFilter.YOUR_PULL_REQUESTS),
+            QuickFilterMenuItem.Filter(PullRequestQuickFilter.ASSIGNED_TO_YOU),
+            QuickFilterMenuItem.Filter(PullRequestQuickFilter.REVIEW_REQUESTS)
+        )
+        if (diffCount > 0) items += QuickFilterMenuItem.ClearFilters(diffCount)
+
+        val step = object : BaseListPopupStep<QuickFilterMenuItem>("Quick Filters", items) {
+            override fun getTextFor(value: QuickFilterMenuItem): String = when (value) {
+                is QuickFilterMenuItem.Filter -> {
+                    val checked = value.filter == activeQuickFilter
+                    if (checked) "\u2713 ${value.filter.displayName}" else "  ${value.filter.displayName}"
+                }
+                is QuickFilterMenuItem.ClearFilters -> "Clear ${value.count} Filters"
+            }
+
+            override fun getSeparatorAbove(value: QuickFilterMenuItem): ListSeparator? =
+                if (value is QuickFilterMenuItem.ClearFilters) ListSeparator() else null
+
+            override fun onChosen(selectedValue: QuickFilterMenuItem, finalChoice: Boolean): PopupStep<*>? {
+                when (selectedValue) {
+                    is QuickFilterMenuItem.Filter -> when (selectedValue.filter) {
+                        PullRequestQuickFilter.OPEN -> applyQuickFilter(
+                            PullRequestSearchValue(state = PullRequestSearchValue.State.OPEN, showAllOrg = true)
+                        )
+                        PullRequestQuickFilter.YOUR_PULL_REQUESTS -> applyQuickFilter(
                             PullRequestSearchValue(
                                 state = PullRequestSearchValue.State.OPEN,
                                 author = PullRequestSearchValue.AuthorFilter(
-                                    id = "@me",
-                                    displayName = "Your pull requests",
-                                    uniqueName = null,
-                                    imageUrl = null
+                                    id = "@me", displayName = "Your pull requests",
+                                    uniqueName = null, imageUrl = null
                                 ),
                                 showAllOrg = true
                             )
                         )
+                        PullRequestQuickFilter.ASSIGNED_TO_YOU -> applyQuickFilter(
+                            PullRequestSearchValue(
+                                state = PullRequestSearchValue.State.OPEN,
+                                review = PullRequestSearchValue.ReviewState.REVIEWED_BY_YOU,
+                                showAllOrg = true
+                            )
+                        )
+                        PullRequestQuickFilter.REVIEW_REQUESTS -> applyQuickFilter(
+                            PullRequestSearchValue(
+                                state = PullRequestSearchValue.State.OPEN,
+                                review = PullRequestSearchValue.ReviewState.NO_REVIEW,
+                                showAllOrg = true
+                            )
+                        )
                     }
-                    PullRequestQuickFilter.ASSIGNED_TO_YOU -> applyQuickFilter(
-                        PullRequestSearchValue(
-                            state = PullRequestSearchValue.State.OPEN,
-                            review = PullRequestSearchValue.ReviewState.REVIEWED_BY_YOU,
-                            showAllOrg = true
-                        )
-                    )
-                    PullRequestQuickFilter.REVIEW_REQUESTS -> applyQuickFilter(
-                        PullRequestSearchValue(
-                            state = PullRequestSearchValue.State.OPEN,
-                            review = PullRequestSearchValue.ReviewState.NO_REVIEW,
-                            showAllOrg = true
-                        )
-                    )
+                    is QuickFilterMenuItem.ClearFilters -> applyQuickFilter(PullRequestSearchValue.DEFAULT)
                 }
+                return PopupStep.FINAL_CHOICE
             }
-        )
+        }
+
+        val popup = JBPopupFactory.getInstance().createListPopup(step)
+        val point = RelativePoint(button, Point(0, button.height + JBUIScale.scale(2)))
+        popup.show(point)
     }
 
     private fun applyQuickFilter(value: PullRequestSearchValue) {
         currentValue = value
         syncChipsFromValue()
         onFilterChanged(currentValue)
+        updateBadge()
     }
 
     private fun showStatePopup(chip: FilterChipComponent) {
@@ -388,6 +418,7 @@ class PullRequestFilterPanel(
     private fun updateFilter(newValue: PullRequestSearchValue) {
         currentValue = newValue
         onFilterChanged(currentValue)
+        updateBadge()
     }
 
     /**
@@ -441,4 +472,76 @@ class PullRequestFilterPanel(
             searchField.text = ""
         }
     }
+
+    /** Count how many active filters differ from the DEFAULT state. */
+    private fun diffFromDefaultCount(): Int {
+        val def = PullRequestSearchValue.DEFAULT
+        var count = 0
+        if (currentValue.state != def.state) count++
+        if (currentValue.author != null) count++
+        if (currentValue.review != null) count++
+        if (currentValue.sort != null) count++
+        if (currentValue.projectFilter != null) count++
+        if (currentValue.repositoryFilter != null) count++
+        if (currentValue.searchQuery != null) count++
+        return count
+    }
+
+    /** Returns which quick filter preset matches the current filter value, or null. */
+    private fun getActiveQuickFilter(): PullRequestQuickFilter? {
+        val v = currentValue
+        return when {
+            v.state == PullRequestSearchValue.State.OPEN &&
+                v.author?.id == "@me" && v.review == null ->
+                PullRequestQuickFilter.YOUR_PULL_REQUESTS
+            v.state == PullRequestSearchValue.State.OPEN &&
+                v.review == PullRequestSearchValue.ReviewState.REVIEWED_BY_YOU && v.author == null ->
+                PullRequestQuickFilter.ASSIGNED_TO_YOU
+            v.state == PullRequestSearchValue.State.OPEN &&
+                v.review == PullRequestSearchValue.ReviewState.NO_REVIEW && v.author == null ->
+                PullRequestQuickFilter.REVIEW_REQUESTS
+            v.state == PullRequestSearchValue.State.OPEN &&
+                v.author == null && v.review == null ->
+                PullRequestQuickFilter.OPEN
+            else -> null
+        }
+    }
+
+    private fun updateBadge() {
+        filterBadgeIcon.showBadge = diffFromDefaultCount() > 0
+        quickFilterButton.repaint()
+    }
+}
+
+/**
+ * Wraps a base icon and paints a small blue dot badge in the top-right corner
+ * when [showBadge] is true — replicating the JetBrains GitHub plugin's
+ * filter-active indicator on the funnel button.
+ */
+private class FilterBadgeIcon(private val base: Icon) : Icon {
+    var showBadge: Boolean = false
+
+    override fun getIconWidth(): Int = base.iconWidth
+    override fun getIconHeight(): Int = base.iconHeight
+
+    override fun paintIcon(c: Component?, g: Graphics, x: Int, y: Int) {
+        base.paintIcon(c, g, x, y)
+        if (!showBadge) return
+        val g2 = g.create() as Graphics2D
+        try {
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+            val dotSize = JBUIScale.scale(6)
+            val dotX = (x + getIconWidth() - dotSize).toDouble()
+            val dotY = y.toDouble()
+            g2.color = JBColor(Color(71, 136, 227), Color(75, 110, 175))
+            g2.fill(Ellipse2D.Double(dotX, dotY, dotSize.toDouble(), dotSize.toDouble()))
+        } finally {
+            g2.dispose()
+        }
+    }
+}
+
+private sealed class QuickFilterMenuItem {
+    data class Filter(val filter: PullRequestQuickFilter) : QuickFilterMenuItem()
+    data class ClearFilters(val count: Int) : QuickFilterMenuItem()
 }
