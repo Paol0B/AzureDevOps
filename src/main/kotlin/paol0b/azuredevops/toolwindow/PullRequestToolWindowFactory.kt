@@ -1,5 +1,10 @@
 package paol0b.azuredevops.toolwindow
 
+import com.intellij.icons.AllIcons
+import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.actionSystem.ActionUpdateThread
+import com.intellij.openapi.actionSystem.AnAction
+import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindow
@@ -7,6 +12,7 @@ import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.ui.content.ContentManagerEvent
 import com.intellij.ui.content.ContentManagerListener
+import paol0b.azuredevops.actions.CreatePullRequestAction
 import paol0b.azuredevops.model.PullRequest
 import paol0b.azuredevops.toolwindow.review.PrReviewTabPanel
 import java.util.concurrent.ConcurrentHashMap
@@ -71,6 +77,33 @@ class PullRequestToolWindowFactory : ToolWindowFactory, DumbAware {
             isCloseable = false          // main list tab is never closable
         }
         toolWindow.contentManager.addContent(content)
+
+        // Place actions in the native tool window title bar (like JetBrains GitHub plugin)
+        toolWindow.setTitleActions(listOf(
+            object : AnAction("New Pull Request", "Create a new Pull Request", AllIcons.General.Add) {
+                override fun actionPerformed(e: AnActionEvent) {
+                    val createPRAction = CreatePullRequestAction()
+                    ActionManager.getInstance().tryToExecute(
+                        createPRAction, e.inputEvent, null, e.place, true
+                    )
+                    pullRequestToolWindow.refreshPullRequests()
+                }
+            },
+            object : AnAction("Refresh", "Refresh Pull Requests", AllIcons.Actions.Refresh) {
+                override fun actionPerformed(e: AnActionEvent) {
+                    pullRequestToolWindow.refreshPullRequests()
+                }
+            },
+            object : AnAction("Open in Browser", "Open selected PR in browser", AllIcons.Ide.External_link_arrow) {
+                override fun actionPerformed(e: AnActionEvent) {
+                    pullRequestToolWindow.openSelectedPrInBrowser()
+                }
+                override fun update(e: AnActionEvent) {
+                    e.presentation.isEnabled = pullRequestToolWindow.getSelectedPullRequest() != null
+                }
+                override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
+            }
+        ))
 
         // Load PRs when the list tab becomes visible
         toolWindow.addContentManagerListener(object : ContentManagerListener {

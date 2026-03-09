@@ -228,7 +228,9 @@
                     class="paol0b.azuredevops.actions.CreatePullRequestAction"
                     text="Create Pull Request..."
                     description="Create a Pull Request on Azure DevOps"
-                    icon="paol0b.azuredevops.AzureDevOpsIcons.ToolWindow"/>
+                    icon="paol0b.azuredevops.AzureDevOpsIcons.ToolWindow">
+                <keyboard-shortcut first-keystroke="alt INSERT" keymap="$default"/>
+            </action>
 
             <action
                     id="AzureDevOps.OpenInBrowser"
