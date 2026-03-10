@@ -11,6 +11,7 @@ import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
+import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.TextFieldWithBrowseButton
 import com.intellij.openapi.ui.TextBrowseFolderListener
@@ -32,6 +33,7 @@ import git4idea.commands.Git
 import git4idea.commands.GitCommand
 import git4idea.commands.GitLineHandler
 import paol0b.azuredevops.AzureDevOpsIcons
+import paol0b.azuredevops.services.GitTokenManager
 import java.awt.BorderLayout
 import java.awt.FlowLayout
 import java.io.File
@@ -238,7 +240,7 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
         val isShallowClone = shallowCloneCheckbox.isSelected
         val shallowDepth = shallowCloneDepthField.text.toIntOrNull() ?: 1
 
-        ProgressManager.getInstance().run(object : Task.Backgroundable(
+        ProgressManager.getInstance().run(object : Task.Modal(
             project,
             "Cloning ${repo.name} from Azure DevOps...",
             true
@@ -288,14 +290,23 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
                     indicator.fraction = 1.0
 
                     if (result.success()) {
+                        // Persist auth token directly in the repo's local git config so that
+                        // all subsequent git operations (pull, push, fetch) are authenticated
+                        // without relying on the OS credential store, and so the token can be
+                        // refreshed automatically when it expires.
+                        val gitTokenManager = GitTokenManager.getInstance()
+                        gitTokenManager.registerRepo(checkoutDir.absolutePath, account.id)
                         if (token != null) {
-                            saveCredentialsToGit(checkoutDir, cloneUrl, token)
+                            gitTokenManager.writeAuthHeader(checkoutDir.absolutePath, token)
                         }
 
-                        ApplicationManager.getApplication().invokeLater {
-                            checkoutListener.directoryCheckedOut(checkoutDir, GitVcs.getKey())
-                            checkoutListener.checkoutCompleted()
-                        }
+                        // Refresh VFS so IntelliJ picks up the new directory, then notify the
+                        // framework listener directly from the background thread — this is the
+                        // same pattern used by GitCheckoutProvider.doClone.  The listener
+                        // implementations internally dispatch close() onto the EDT.
+                        VfsUtil.markDirtyAndRefresh(false, true, true, checkoutDir.parentFile)
+                        checkoutListener.directoryCheckedOut(checkoutDir, GitVcs.getKey())
+                        checkoutListener.checkoutCompleted()
 
                         NotificationGroupManager.getInstance()
                             .getNotificationGroup("AzureDevOps.Notifications")
@@ -536,34 +547,6 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
         if (loginDialog.showAndGet()) {
             // Reload accounts after login
             loadAccounts()
-        }
-    }
-
-    private fun saveCredentialsToGit(repoDir: File, url: String, token: String) {
-        try {
-            val processBuilder = ProcessBuilder("git", "credential", "approve")
-            processBuilder.directory(repoDir)
-            processBuilder.redirectErrorStream(true)
-
-            val process = processBuilder.start()
-
-            process.outputStream.bufferedWriter().use { writer ->
-                val uri = URI(url)
-                writer.write("protocol=${uri.scheme}\n")
-                writer.write("host=${uri.host}\n")
-                val path = uri.path?.removePrefix("/")?.removeSuffix(".git") ?: ""
-                if (path.isNotBlank()) {
-                    writer.write("path=$path\n")
-                }
-                writer.write("username=oauth\n")
-                writer.write("password=$token\n")
-                writer.write("\n")
-                writer.flush()
-            }
-
-            process.waitFor()
-        } catch (e: Exception) {
-            logger.warn("Failed to save credentials to git", e)
         }
     }
 
