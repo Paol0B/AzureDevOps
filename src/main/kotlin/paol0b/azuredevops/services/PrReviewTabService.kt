@@ -6,6 +6,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import paol0b.azuredevops.model.PullRequest
 import paol0b.azuredevops.model.PullRequestChange
+import paol0b.azuredevops.model.effectivePath
 import paol0b.azuredevops.toolwindow.review.editor.PrDiffFileEditor
 import paol0b.azuredevops.toolwindow.review.editor.PrDiffVirtualFile
 import paol0b.azuredevops.toolwindow.review.editor.PrReviewKey
@@ -63,7 +64,7 @@ class PrReviewTabService(private val project: Project) {
 
     fun openDiffTab(pullRequest: PullRequest, change: PullRequestChange) {
         val editorManager = FileEditorManager.getInstance(project)
-        val filePath = change.item?.path ?: return
+        val filePath = change.effectivePath().takeIf { it.isNotBlank() } ?: return
         // Use only PR ID as key - reuse the same tab for different files in the same PR
         val diffKey = "${pullRequest.pullRequestId}"
 

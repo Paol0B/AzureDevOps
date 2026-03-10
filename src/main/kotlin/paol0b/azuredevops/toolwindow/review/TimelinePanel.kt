@@ -262,16 +262,18 @@ class TimelinePanel(
     // ── System / vote / created event (simple row, no card) ──
 
     private fun createSystemEventRow(entry: TimelineEntry): JPanel {
-        val row = JPanel(BorderLayout(8, 0)).apply {
-            background = UIUtil.getPanelBackground()
-            border = JBUI.Borders.empty(4, 0)
+        val cardBg = JBColor(Color(245, 247, 250), Color(50, 52, 56))
+        val cardBorder = JBColor(Color(208, 215, 222), Color(60, 63, 68))
+        val card = RoundedPanel(8, cardBg, cardBorder).apply {
+            layout = BorderLayout(8, 0)
+            border = JBUI.Borders.empty(8, 10)
             alignmentX = Component.LEFT_ALIGNMENT
             maximumSize = Dimension(Int.MAX_VALUE, 48)
         }
 
         // Avatar
-        val avatarIcon = avatarService.getAvatar(entry.authorImageUrl, 24) { row.repaint() }
-        row.add(JBLabel(avatarIcon).apply {
+        val avatarIcon = avatarService.getAvatar(entry.authorImageUrl, 24) { card.repaint() }
+        card.add(JBLabel(avatarIcon).apply {
             verticalAlignment = SwingConstants.TOP
             border = JBUI.Borders.emptyTop(2)
         }, BorderLayout.WEST)
@@ -279,7 +281,7 @@ class TimelinePanel(
         // Content
         val center = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            background = UIUtil.getPanelBackground()
+            isOpaque = false
         }
 
         val headerLine = JPanel(FlowLayout(FlowLayout.LEFT, 6, 0)).apply {
@@ -311,22 +313,24 @@ class TimelinePanel(
             })
         }
         center.add(headerLine)
-        row.add(center, BorderLayout.CENTER)
+        card.add(center, BorderLayout.CENTER)
 
-        return row
+        return card
     }
 
     private fun createVoteEventRow(entry: TimelineEntry): JPanel {
-        val row = JPanel(BorderLayout(8, 0)).apply {
-            background = UIUtil.getPanelBackground()
-            border = JBUI.Borders.empty(4, 0)
+        val cardBg = JBColor(Color(245, 247, 250), Color(50, 52, 56))
+        val cardBorder = JBColor(Color(208, 215, 222), Color(60, 63, 68))
+        val card = RoundedPanel(8, cardBg, cardBorder).apply {
+            layout = BorderLayout(8, 0)
+            border = JBUI.Borders.empty(8, 10)
             alignmentX = Component.LEFT_ALIGNMENT
             maximumSize = Dimension(Int.MAX_VALUE, 48)
         }
 
         // Avatar
-        val avatarIcon = avatarService.getAvatar(entry.authorImageUrl, 24) { row.repaint() }
-        row.add(JBLabel(avatarIcon).apply {
+        val avatarIcon = avatarService.getAvatar(entry.authorImageUrl, 24) { card.repaint() }
+        card.add(JBLabel(avatarIcon).apply {
             verticalAlignment = SwingConstants.TOP
             border = JBUI.Borders.emptyTop(2)
         }, BorderLayout.WEST)
@@ -334,7 +338,7 @@ class TimelinePanel(
         // Content
         val center = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            background = UIUtil.getPanelBackground()
+            isOpaque = false
         }
 
         val headerLine = JPanel(FlowLayout(FlowLayout.LEFT, 6, 0)).apply {
@@ -385,9 +389,9 @@ class TimelinePanel(
         }
         
         center.add(headerLine)
-        row.add(center, BorderLayout.CENTER)
+        card.add(center, BorderLayout.CENTER)
 
-        return row
+        return card
     }
 
     // ==================================================================

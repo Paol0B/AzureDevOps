@@ -6,6 +6,7 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import paol0b.azuredevops.model.PullRequest
 import paol0b.azuredevops.model.changeTypeTokens
+import paol0b.azuredevops.model.effectivePath
 import paol0b.azuredevops.ui.PullRequestReviewDialog
 
 /**
@@ -49,15 +50,13 @@ class PullRequestReviewService(private val project: Project) {
                     return@executeOnPooledThread
                 }
                 
-                // Filter only files (they have a path and a valid changeType)
+                // Filter only actual file (blob) changes - skip directories and entries with no resolvable path
                 val fileChanges = changes.filter { change ->
-                    val hasPath = change.item?.path?.isNotBlank() == true
+                    val path = change.effectivePath()
+                    val isBlob = change.item?.gitObjectType?.equals("tree", ignoreCase = true) != true
                     val tokens = change.changeTypeTokens()
-                    val isFileChange = tokens.any { token ->
-                        token in listOf("edit", "add", "rename", "delete")
-                    }
-
-                    hasPath && isFileChange
+                    val isFileChange = tokens.any { it in setOf("edit", "add", "rename", "delete") }
+                    path.isNotBlank() && isBlob && isFileChange
                 }
                 
                 logger.info("Filtered to ${fileChanges.size} file changes")

@@ -74,11 +74,24 @@ fun PullRequestChange.diffSideTitles(targetBranch: String, sourceBranch: String)
     }
 }
 
+/**
+ * Returns the canonical path that identifies this change in the file tree.
+ * For most changes this is item.path. For deletions where the API may return
+ * item = null (e.g., as the "delete" half of a rename), originalPath is used
+ * as a fallback so the file still appears in the review tree.
+ */
+fun PullRequestChange.effectivePath(): String {
+    return item?.path?.takeIf { it.isNotBlank() }
+        ?: originalPath?.takeIf { it.isNotBlank() }
+        ?: ""
+}
+
 fun PullRequestChange.previousPath(): String {
     return if (hasChangeType("rename")) {
         originalPath ?: item?.path.orEmpty()
     } else {
-        item?.path.orEmpty()
+        // For a plain delete the path lives in item.path; guard against null item.
+        item?.path?.takeIf { it.isNotBlank() } ?: originalPath.orEmpty()
     }
 }
 

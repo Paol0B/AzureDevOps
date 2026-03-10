@@ -15,6 +15,7 @@ import com.intellij.util.ui.JBUI
 import paol0b.azuredevops.model.CommentThread
 import paol0b.azuredevops.model.PullRequestChange
 import paol0b.azuredevops.model.displayChangeLabel
+import paol0b.azuredevops.model.effectivePath
 import paol0b.azuredevops.model.primaryChangeType
 import paol0b.azuredevops.services.PrReviewStateService
 import java.awt.*
@@ -50,8 +51,8 @@ class FileTreePanel(
         val prId: Int,
         private val svc: PrReviewStateService
     ) {
-        val fileName: String   get() = change.item?.path?.substringAfterLast('/') ?: "Unknown"
-        val filePath: String   get() = change.item?.path ?: ""
+        val fileName: String   get() = change.effectivePath().substringAfterLast('/').ifEmpty { "Unknown" }
+        val filePath: String   get() = change.effectivePath()
         val changeType: String get() = change.primaryChangeType()
 
         var isReviewed: Boolean
@@ -189,8 +190,12 @@ class FileTreePanel(
         rootNode.removeAllChildren()
         fileNodeMap.clear()
 
-        changes.sortedBy { it.item?.path ?: "" }.forEach { change ->
-            val fullPath = change.item?.path ?: return@forEach
+        changes
+            .filter { it.item?.gitObjectType?.equals("tree", ignoreCase = true) != true } // skip directory entries
+            .sortedBy { it.effectivePath() }
+            .forEach { change ->
+            val fullPath = change.effectivePath()
+            if (fullPath.isBlank()) return@forEach
             val cleanPath = fullPath.removePrefix("/")
             if (cleanPath.isEmpty()) return@forEach
             val parts = cleanPath.split('/')
@@ -269,8 +274,8 @@ class FileTreePanel(
 
     private fun hasDataChanged(new: List<PullRequestChange>): Boolean {
         if (cachedChanges.size != new.size) return true
-        val cached = cachedChanges.mapNotNull { it.item?.path }.toSet()
-        val next   = new.mapNotNull { it.item?.path }.toSet()
+        val cached = cachedChanges.map { it.effectivePath() }.toSet()
+        val next   = new.map { it.effectivePath() }.toSet()
         return cached != next
     }
 
