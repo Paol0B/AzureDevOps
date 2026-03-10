@@ -13,6 +13,7 @@ import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.JBUI
 import paol0b.azuredevops.actions.AbandonPullRequestAction
 import paol0b.azuredevops.actions.CompletePullRequestAction
+import paol0b.azuredevops.actions.ConvertToDraftPullRequestAction
 import paol0b.azuredevops.actions.SetAutoCompletePullRequestAction
 import paol0b.azuredevops.model.PullRequest
 import paol0b.azuredevops.services.AvatarService
@@ -301,11 +302,28 @@ class PullRequestListPanel(
         })
 
         if (pr.isActive()) {
-            val showAbandonPr = pr.isCreatedByUser(currentUserId)
+            val isMyPr = pr.isCreatedByUser(currentUserId)
+            val showAbandonPr = isMyPr
             val showCompletePR = pr.isReadyToComplete()
             val showAutoComplete = !pr.hasAutoComplete() && !pr.isReadyToComplete()
-            if (showAbandonPr || showCompletePR || showAutoComplete) popup.addSeparator()
+            val showConvertToDraft = isMyPr && pr.isDraft != true
+            val showPublishPr = isMyPr && pr.isDraft == true
+            if (showAbandonPr || showCompletePR || showAutoComplete || showConvertToDraft || showPublishPr) popup.addSeparator()
 
+            if (showConvertToDraft) {
+                popup.add(JMenuItem("Convert to Draft").apply {
+                    addActionListener {
+                        ConvertToDraftPullRequestAction(pr, currentUserId, convertToDraft = true) { refreshPullRequests() }.perform(project)
+                    }
+                })
+            }
+            if (showPublishPr) {
+                popup.add(JMenuItem("Publish PR").apply {
+                    addActionListener {
+                        ConvertToDraftPullRequestAction(pr, currentUserId, convertToDraft = false) { refreshPullRequests() }.perform(project)
+                    }
+                })
+            }
             if (showAbandonPr) {
                 popup.add(JMenuItem("Abandon PR...").apply {
                     addActionListener {

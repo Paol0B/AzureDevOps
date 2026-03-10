@@ -1155,6 +1155,42 @@ The plugin will automatically use your authenticated account for this repository
     }
 
     /**
+     * Converts a Pull Request to draft or publishes it (removes draft status).
+     * API: PATCH https://dev.azure.com/{organization}/{project}/_apis/git/repositories/{repositoryId}/pullrequests/{pullRequestId}?api-version=7.0
+     *
+     * Supports PRs coming from the organization-wide list by resolving the target project/repository from the PR itself.
+     */
+    @Throws(AzureDevOpsApiException::class)
+    fun updatePullRequestDraftStatus(pullRequest: PullRequest, isDraft: Boolean): PullRequest {
+        val configService = AzureDevOpsConfigService.getInstance(project)
+        val config = configService.getConfig()
+
+        if (!config.isValid()) {
+            throw AzureDevOpsApiException(AUTH_ERROR_MESSAGE)
+        }
+
+        val effectiveProject = pullRequest.repository?.project?.name ?: config.project
+        val effectiveRepo = pullRequest.repository?.id ?: pullRequest.repository?.name ?: config.repository
+        val url = buildApiUrl(effectiveProject, effectiveRepo, "/pullrequests/${pullRequest.pullRequestId}?api-version=$API_VERSION")
+
+        val action = if (isDraft) "Converting PR #${pullRequest.pullRequestId} to draft" else "Publishing PR #${pullRequest.pullRequestId}"
+        logger.info("$action in $effectiveProject/$effectiveRepo")
+
+        return try {
+            val requestBody = gson.toJson(mapOf("isDraft" to isDraft))
+            val response = executePatch(url, requestBody, config.personalAccessToken)
+            val updatedPr = gson.fromJson(response, PullRequest::class.java)
+
+            logger.info("Successfully updated draft status of Pull Request #${pullRequest.pullRequestId} to isDraft=$isDraft")
+            updatedPr
+        } catch (e: Exception) {
+            logger.error("Failed to update draft status of pull request #${pullRequest.pullRequestId}", e)
+            val errorMsg = if (isDraft) "Error converting PR to draft: ${e.message}" else "Error publishing PR: ${e.message}"
+            throw AzureDevOpsApiException(errorMsg, e)
+        }
+    }
+
+    /**
      * Gets the current authenticated user
      * Uses the connectionData endpoint to get the identity ID that Azure DevOps Git API expects
      * API: GET https://dev.azure.com/{organization}/_apis/connectionData
