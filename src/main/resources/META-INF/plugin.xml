@@ -118,6 +118,8 @@
         <applicationService serviceImplementation="paol0b.azuredevops.checkout.AzureDevOpsAccountManager"/>
         <!-- OAuth authentication service -->
         <applicationService serviceImplementation="paol0b.azuredevops.checkout.AzureDevOpsOAuthService"/>
+        <!-- Tracks cloned/managed repos and keeps http.extraHeader in sync with the current token -->
+        <applicationService serviceImplementation="paol0b.azuredevops.services.GitTokenManager"/>
         <!-- PAT validation service -->
         <applicationService serviceImplementation="paol0b.azuredevops.services.PatValidationService"/>
         

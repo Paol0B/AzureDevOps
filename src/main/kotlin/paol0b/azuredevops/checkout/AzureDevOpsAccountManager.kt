@@ -190,65 +190,73 @@ class AzureDevOpsAccountManager : PersistentStateComponent<AzureDevOpsAccountMan
                 account.expiresAt = now + (expiresIn * 1000L)
             }
             
-            // Update token in git credential helper for all open projects matching this account
-            updateTokenInGitCredentials(account, newToken)
+            // 1. Update http.extraHeader in all git repos explicitly registered with the plugin
+            //    (i.e. repos cloned via the Clone dialog).  This is the primary, reliable path.
+            paol0b.azuredevops.services.GitTokenManager.getInstance()
+                .updateAllReposForAccount(accountId, newToken)
+
+            // 2. Also update any currently-open projects that belong to this account but were
+            //    not explicitly registered (e.g. repos opened manually from disk).
+            updateTokenInOpenProjects(account, newToken)
         }
     }
     
     /**
-     * Updates the token in Git credential helper for all projects that use this account.
-     * This ensures that git operations will use the refreshed token instead of the expired one.
+     * Updates the `http.extraHeader` git-config entry for every currently-open IntelliJ project
+     * whose Azure DevOps repository belongs to [account].
+     *
+     * This is a best-effort companion to [GitTokenManager.updateAllReposForAccount]: it catches
+     * repos that were *not* cloned through the plugin UI (no registration in GitTokenManager) but
+     * are currently open in the IDE.  It also registers them so future refreshes are handled
+     * automatically without requiring the project to be open.
      */
-    private fun updateTokenInGitCredentials(account: AccountData, newToken: String) {
+    private fun updateTokenInOpenProjects(account: AccountData, newToken: String) {
         try {
-            // Get all open projects
-            val projectManager = com.intellij.openapi.project.ProjectManager.getInstance()
-            val openProjects = projectManager.openProjects
-            
-            if (openProjects.isEmpty()) {
-                logger.debug("No open projects to update git credentials for account ${account.id}")
+            val openProjects = com.intellij.openapi.project.ProjectManager.getInstance().openProjects
+            if (openProjects.isEmpty()) return
+
+            val accountOrg = extractOrganizationFromUrl(account.serverUrl) ?: run {
+                logger.warn("Could not extract organization from server URL: ${account.serverUrl}")
                 return
             }
-            
-            val accountOrg = extractOrganizationFromUrl(account.serverUrl)
-            if (accountOrg == null) {
-                logger.warn("Could not extract organization from account server URL: ${account.serverUrl}")
-                return
-            }
-            
-            // Iterate through all open projects
+
+            val gitTokenManager = paol0b.azuredevops.services.GitTokenManager.getInstance()
+
             for (project in openProjects) {
                 try {
-                    // Check if this project uses Azure DevOps and matches this account's organization
                     val detector = paol0b.azuredevops.services.AzureDevOpsRepositoryDetector.getInstance(project)
-                    val repoInfo = detector.detectAzureDevOpsInfo()
-                    
-                    if (repoInfo != null && repoInfo.organization.equals(accountOrg, ignoreCase = true)) {
-                        // This project matches the account's organization
-                        logger.info("Updating git credentials for project: ${project.name}, organization: ${repoInfo.organization}")
-                        
-                        val gitCredHelper = paol0b.azuredevops.services.GitCredentialHelperService.getInstance(project)
-                        val gitService = paol0b.azuredevops.services.GitRepositoryService.getInstance(project)
-                        
-                        val remoteUrl = gitService.getRemoteUrl()
-                        if (remoteUrl != null && gitCredHelper.isCredentialHelperAvailable()) {
-                            // Update the token in git credential helper
-                            val success = gitCredHelper.saveCredentialsToHelper(remoteUrl, "oauth", newToken)
-                            if (success) {
-                                logger.info("Successfully updated git credentials for project: ${project.name}")
-                            } else {
-                                logger.warn("Failed to update git credentials for project: ${project.name}")
-                            }
+                    val repoInfo = detector.detectAzureDevOpsInfo() ?: continue
+
+                    val orgMatches = when {
+                        account.selfHosted -> {
+                            // Self-hosted: match by host
+                            val accountHost = try { java.net.URI(account.serverUrl).host?.lowercase() } catch (_: Exception) { null }
+                            val repoHost = try { java.net.URI(repoInfo.remoteUrl).host?.lowercase() } catch (_: Exception) { null }
+                            accountHost != null && accountHost == repoHost
                         }
+                        else -> repoInfo.organization.equals(accountOrg, ignoreCase = true)
+                    }
+                    if (!orgMatches) continue
+
+                    val gitService = paol0b.azuredevops.services.GitRepositoryService.getInstance(project)
+                    val repo = gitService.getRepository() ?: continue
+                    val repoRoot = repo.root.path
+
+                    // Register so future refreshes can reach this repo even when the project is closed
+                    gitTokenManager.registerRepo(repoRoot, account.id)
+
+                    val ok = gitTokenManager.writeAuthHeader(repoRoot, newToken)
+                    if (ok) {
+                        logger.info("Updated http.extraHeader for project '${project.name}' at $repoRoot")
+                    } else {
+                        logger.warn("Failed to update http.extraHeader for project '${project.name}' at $repoRoot")
                     }
                 } catch (e: Exception) {
-                    logger.warn("Error updating git credentials for project: ${project.name}", e)
-                    // Continue with next project
+                    logger.warn("Error updating http.extraHeader for project '${project.name}'", e)
                 }
             }
         } catch (e: Exception) {
-            logger.error("Error updating git credentials", e)
-            // Don't fail the token update if git credential update fails
+            logger.error("Error in updateTokenInOpenProjects", e)
         }
     }
     
