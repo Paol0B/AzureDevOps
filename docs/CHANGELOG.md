@@ -2,6 +2,22 @@
 
 All notable changes to the Azure DevOps Integration plugin are documented in this file.
 
+## [3.6] - 2026-03-10
+
+### ✨ Enhancements
+
+#### Pull Request Tool Window
+- **Improved PR Tool Window** — Enhanced functionality and overall usability of the PR tool window ([#48](https://github.com/Paol0B/AzureDevOps/pull/48))
+- **Convert PR to Draft / Publish** — Added ability to convert pull requests to draft or publish them directly from the tool window ([#51](https://github.com/Paol0B/AzureDevOps/pull/51))
+
+#### Authentication
+- **GitTokenManager** — Introduced `GitTokenManager` for centralised OAuth token management and lifecycle handling ([#49](https://github.com/Paol0B/AzureDevOps/pull/49))
+
+### 🐛 Bug Fixes
+- **Default Clone Directory** — Projects were always cloned into `~/IdeaProjects` regardless of the IDE in use; fixed by using `ProjectUtil`'s base directory as the default clone path ([#47](https://github.com/Paol0B/AzureDevOps/issues/47), [#50](https://github.com/Paol0B/AzureDevOps/pull/50))
+
+---
+
 ## [3.5] - 2026-03-10
 
 ### ✨ Enhancements

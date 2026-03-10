@@ -3,7 +3,7 @@
     <idea-version since-build="253" />
     <!-- Unique identifier of the plugin. It should be FQN. It cannot be changed between the plugin versions. -->
     <id>paol0b.AzureDevOps</id>
-    <version>3.5</version>
+    <version>3.6</version>
 
     <!-- Public plugin name should be written in Title Case.
          Guidelines: https://plugins.jetbrains.com/docs/marketplace/best-practices-for-listing.html#plugin-name -->

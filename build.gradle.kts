@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "paol0b"
-version = "3.5"
+version = "3.6"
 
 repositories {
     mavenCentral()
@@ -39,6 +39,22 @@ intellijPlatform {
         }
 
         changeNotes = """
+            <h2>Version 3.6 - PR ToolWindow BugFix & Token Management Enhancements</h2>
+            
+            <h3>Improvements</h3>
+            <ul>
+                <li><b>Enhanced PR Tool Window</b> – Improved functionality and usability for pull request management</li>
+                <li><b>PR Draft/Publish Management</b> – Added ability to convert pull requests to draft or publish them directly from the tool window</li>
+                <li><b>GitTokenManager</b> – Centralized OAuth token management and lifecycle handling</li>
+            </ul>
+            
+            <h3>Bug Fixes</h3>
+            <ul>
+                <li><b>Default Clone Directory</b> – Fixed projects being cloned to ~/IdeaProjects on all IDEs; now correctly uses the IDE's base project directory</li>
+            </ul>
+            
+            <hr>
+            
             <h2>Version 3.5 - PR Visualization & Filtering Enhancements</h2>
             
             <h3>Improvements</h3>
