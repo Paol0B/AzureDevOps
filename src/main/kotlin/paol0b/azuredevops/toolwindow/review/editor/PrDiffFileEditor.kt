@@ -8,6 +8,7 @@ import com.intellij.openapi.util.UserDataHolderBase
 import com.intellij.openapi.vfs.VirtualFile
 import paol0b.azuredevops.model.PullRequest
 import paol0b.azuredevops.model.PullRequestChange
+import paol0b.azuredevops.model.effectivePath
 import paol0b.azuredevops.services.PrReviewTabService
 import paol0b.azuredevops.toolwindow.review.DiffViewerPanel
 import java.beans.PropertyChangeListener
@@ -36,7 +37,7 @@ class PrDiffFileEditor(
 
     override fun getComponent(): JComponent = diffPanel
     override fun getPreferredFocusedComponent(): JComponent? = diffPanel
-    override fun getName(): String = change.item?.path?.substringAfterLast('/') ?: "Diff"
+    override fun getName(): String = change.effectivePath().substringAfterLast('/').ifEmpty { "Diff" }
     override fun getFile(): VirtualFile = file
     override fun setState(state: FileEditorState) {}
     override fun isModified(): Boolean = false

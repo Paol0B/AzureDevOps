@@ -3,28 +3,35 @@ package paol0b.azuredevops.toolwindow.review
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
-import com.intellij.openapi.ui.ComboBox
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
-import com.intellij.ui.components.JBScrollPane
-import com.intellij.ui.components.JBTextArea
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import paol0b.azuredevops.model.Comment
 import paol0b.azuredevops.model.CommentThread
 import paol0b.azuredevops.model.ThreadStatus
 import paol0b.azuredevops.services.AzureDevOpsApiClient
+import paol0b.azuredevops.toolwindow.review.timeline.RoundedPanel
+import paol0b.azuredevops.toolwindow.review.timeline.TimelineDropdownMenu
+import paol0b.azuredevops.toolwindow.review.timeline.TimelineUtils
 import java.awt.*
-import java.awt.event.MouseAdapter
-import java.awt.event.MouseEvent
-import java.text.SimpleDateFormat
-import java.util.*
 import javax.swing.*
 
 /**
- * Inline comment component that displays a comment thread in the diff viewer
- * Supports collapse/expand, reply, and status changes
- * Designed for cross-repository compatibility
+ * GitHub-style inline comment component for the diff viewer.
+ *
+ * Renders a compact, embedded comment thread card below the commented line.
+ * Mirrors the GitHub JetBrains plugin inline review comment UX:
+ *
+ * ┌─────────────────────────────────────────────────────┐
+ * │ [▼] Author · time ago               [status] [⋮]   │
+ * │ Comment body text…                                   │
+ * ├─────────────────────────────────────────────────────┤
+ * │   ┃ Reply Author · time ago                          │
+ * │   ┃ Reply body text…                                 │
+ * ├─────────────────────────────────────────────────────┤
+ * │ [reply text field]                        [Reply]    │
+ * └─────────────────────────────────────────────────────┘
  */
 class InlineCommentComponent(
     private val thread: CommentThread,
@@ -34,380 +41,328 @@ class InlineCommentComponent(
     private val repositoryId: String?,
     private val onStatusChanged: () -> Unit = {},
     private val onReplyAdded: () -> Unit = {}
-) : JPanel(BorderLayout()) {
+) : JPanel() {
 
     private val logger = Logger.getInstance(InlineCommentComponent::class.java)
-    
+
     private var isCollapsed = false
-    private val contentPanel = JPanel(BorderLayout())
-    private val commentsContainer = JPanel().apply {
-        layout = BoxLayout(this, BoxLayout.Y_AXIS)
-    }
-    private val replyPanel = createReplyPanel()
-    private val collapseButton = createCollapseButton()
-    
-    // Colors
-    private val activeColor = JBColor(Color(255, 248, 220), Color(60, 60, 40))
-    private val resolvedColor = JBColor(Color(220, 255, 220), Color(40, 60, 40))
-    private val borderColor = JBColor(Color(200, 200, 200), Color(80, 80, 80))
+
+    // GitHub-style colors
+    private val cardBg = JBColor(Color(245, 247, 250), Color(50, 52, 56))
+    private val cardBorder = JBColor(Color(208, 215, 222), Color(60, 63, 68))
+    private val activeBadgeBg = JBColor(Color(220, 240, 255), Color(35, 55, 75))
+    private val activeBadgeFg = JBColor(Color(0, 100, 180), Color(80, 180, 255))
+    private val resolvedBadgeBg = JBColor(Color(220, 255, 220), Color(35, 70, 45))
+    private val resolvedBadgeFg = JBColor(Color(34, 139, 34), Color(50, 200, 50))
+    private val replyBarColor = JBColor(Color(180, 195, 215), Color(80, 90, 105))
 
     init {
-        border = BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(borderColor, 1),
-            JBUI.Borders.empty(0)
-        )
-        background = if (thread.isActive()) activeColor else resolvedColor
-        
+        layout = BorderLayout()
+        isOpaque = false
+        border = JBUI.Borders.empty(4, 0, 4, 0)
         buildUI()
     }
-    
+
     private fun buildUI() {
         removeAll()
-        
-        // Header with collapse button, author info, and status
-        val headerPanel = createHeaderPanel()
-        add(headerPanel, BorderLayout.NORTH)
-        
-        // Content area (comments + reply)
-        contentPanel.background = background
-        contentPanel.border = JBUI.Borders.empty(0, 8, 8, 8)
-        
-        // Add all comments
-        commentsContainer.removeAll()
-        commentsContainer.background = background
-        thread.comments?.forEach { comment ->
-            if (comment.commentType != "system") {
-                commentsContainer.add(createCommentPanel(comment))
-                commentsContainer.add(Box.createVerticalStrut(4))
-            }
+
+        val card = RoundedPanel(8, cardBg, cardBorder)
+        card.layout = BoxLayout(card, BoxLayout.Y_AXIS)
+        card.border = JBUI.Borders.empty(8, 10, 8, 10)
+
+        // ── Header: collapse toggle + author + time + status badge + ⋮ ──
+        card.add(createHeaderRow())
+
+        // ── Root comment body ──
+        val rootComment = thread.comments?.firstOrNull { it.commentType != "system" }
+        if (rootComment != null && !isCollapsed) {
+            card.add(Box.createVerticalStrut(4))
+            card.add(createContentLabel(rootComment.content ?: ""))
         }
-        
-        contentPanel.add(commentsContainer, BorderLayout.CENTER)
-        contentPanel.add(replyPanel, BorderLayout.SOUTH)
-        
+
+        // ── Replies ──
         if (!isCollapsed) {
-            add(contentPanel, BorderLayout.CENTER)
+            val replies = thread.comments
+                ?.filter { it.commentType != "system" }
+                ?.drop(1)
+                ?: emptyList()
+
+            if (replies.isNotEmpty()) {
+                card.add(Box.createVerticalStrut(6))
+                card.add(JSeparator().apply {
+                    maximumSize = Dimension(Int.MAX_VALUE, 1)
+                    alignmentX = Component.LEFT_ALIGNMENT
+                })
+
+                val repliesPanel = JPanel().apply {
+                    layout = BoxLayout(this, BoxLayout.Y_AXIS)
+                    isOpaque = false
+                    alignmentX = Component.LEFT_ALIGNMENT
+                    border = JBUI.Borders.emptyLeft(20)
+                }
+                for (reply in replies) {
+                    repliesPanel.add(createReplyCard(reply))
+                }
+                card.add(repliesPanel)
+            }
+
+            // ── Inline reply area ──
+            card.add(Box.createVerticalStrut(6))
+            card.add(createInlineReplyArea())
         }
-        
+
+        add(card, BorderLayout.CENTER)
         revalidate()
         repaint()
     }
-    
-    private fun createHeaderPanel(): JPanel {
-        val headerPanel = JPanel(BorderLayout())
-        headerPanel.background = background
-        headerPanel.border = JBUI.Borders.empty(6, 8, 4, 8)
-        
-        // Left side: collapse button + author info
-        val leftPanel = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0))
-        leftPanel.background = background
-        leftPanel.isOpaque = false
-        
-        leftPanel.add(collapseButton)
-        
-        // Author and time
-        val firstComment = thread.comments?.firstOrNull()
+
+    // ────────────────────────────────────────────────────────
+    //  Header row
+    // ────────────────────────────────────────────────────────
+
+    private fun createHeaderRow(): JPanel {
+        val row = JPanel(BorderLayout(4, 0)).apply {
+            isOpaque = false
+            alignmentX = Component.LEFT_ALIGNMENT
+            maximumSize = Dimension(Int.MAX_VALUE, 28)
+        }
+
+        // Left: collapse chevron + author + time
+        val left = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply { isOpaque = false }
+
+        val chevronIcon = if (isCollapsed) AllIcons.General.ArrowRight else AllIcons.General.ArrowDown
+        val chevronBtn = JButton(chevronIcon).apply {
+            preferredSize = Dimension(20, 20)
+            isBorderPainted = false
+            isContentAreaFilled = false
+            isFocusPainted = false
+            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+            toolTipText = if (isCollapsed) "Expand" else "Collapse"
+            addActionListener {
+                isCollapsed = !isCollapsed
+                buildUI()
+            }
+        }
+        left.add(chevronBtn)
+
+        val firstComment = thread.comments?.firstOrNull { it.commentType != "system" }
         val authorName = firstComment?.author?.displayName ?: "Unknown"
-        val timeAgo = firstComment?.publishedDate?.let { formatTimeAgo(it) } ?: ""
-        
-        val authorLabel = JBLabel("<html><b>$authorName</b> <span style='color:gray'>$timeAgo</span></html>")
-        authorLabel.font = authorLabel.font.deriveFont(12f)
-        leftPanel.add(authorLabel)
-        
-        // Comments count badge
-        val commentCount = thread.comments?.size ?: 0
-        if (commentCount > 1) {
-            val countBadge = JBLabel("($commentCount)")
-            countBadge.foreground = JBColor.GRAY
-            countBadge.font = countBadge.font.deriveFont(11f)
-            leftPanel.add(countBadge)
-        }
-        
-        headerPanel.add(leftPanel, BorderLayout.WEST)
-        
-        // Right side: action buttons and status
-        val rightPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 4, 0))
-        rightPanel.background = background
-        rightPanel.isOpaque = false
-        
-        // Status dropdown
-        val statusCombo = createStatusComboBox()
-        rightPanel.add(statusCombo)
-        
-        headerPanel.add(rightPanel, BorderLayout.EAST)
-        
-        return headerPanel
-    }
-    
-    private fun createCollapseButton(): JButton {
-        val button = JButton()
-        button.icon = if (isCollapsed) AllIcons.General.ArrowRight else AllIcons.General.ArrowDown
-        button.preferredSize = Dimension(20, 20)
-        button.isBorderPainted = false
-        button.isContentAreaFilled = false
-        button.isFocusPainted = false
-        button.cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-        button.toolTipText = if (isCollapsed) "Expand" else "Collapse"
-        
-        button.addActionListener {
-            isCollapsed = !isCollapsed
-            button.icon = if (isCollapsed) AllIcons.General.ArrowRight else AllIcons.General.ArrowDown
-            button.toolTipText = if (isCollapsed) "Expand" else "Collapse"
-            
-            if (isCollapsed) {
-                remove(contentPanel)
-            } else {
-                add(contentPanel, BorderLayout.CENTER)
-            }
-            revalidate()
-            repaint()
-        }
-        
-        return button
-    }
-    
-    private fun createCommentPanel(comment: Comment): JPanel {
-        val panel = JPanel(BorderLayout())
-        panel.background = background
-        panel.border = JBUI.Borders.empty(4, 0)
-        panel.maximumSize = Dimension(Int.MAX_VALUE, panel.preferredSize.height)
-        
-        // For replies (not first comment), show author
-        val isReply = thread.comments?.firstOrNull() != comment
-        if (isReply) {
-            val replyAuthor = comment.author?.displayName ?: "Unknown"
-            val replyTime = comment.publishedDate?.let { formatTimeAgo(it) } ?: ""
-            val authorLabel = JBLabel("<html><small><b>$replyAuthor</b> <span style='color:gray'>$replyTime</span></small></html>")
-            authorLabel.border = JBUI.Borders.empty(0, 0, 2, 0)
-            panel.add(authorLabel, BorderLayout.NORTH)
-        }
-        
-        // Comment content
-        val contentLabel = JBLabel("<html><div style='width: 350px'>${escapeHtml(comment.content ?: "")}</div></html>")
-        contentLabel.font = UIUtil.getLabelFont()
-        panel.add(contentLabel, BorderLayout.CENTER)
-        
-        return panel
-    }
-    
-    private fun createReplyPanel(): JPanel {
-        val panel = JPanel(BorderLayout())
-        panel.background = background
-        panel.border = JBUI.Borders.empty(8, 0, 0, 0)
-        panel.isVisible = !isCollapsed
-        
-        val replyArea = JBTextArea(2, 30)
-        replyArea.lineWrap = true
-        replyArea.wrapStyleWord = true
-        replyArea.border = BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(borderColor),
-            JBUI.Borders.empty(4)
-        )
-        
-        // Placeholder text
-        replyArea.text = "Write a reply..."
-        replyArea.foreground = JBColor.GRAY
-        replyArea.addFocusListener(object : java.awt.event.FocusAdapter() {
-            override fun focusGained(e: java.awt.event.FocusEvent) {
-                if (replyArea.text == "Write a reply...") {
-                    replyArea.text = ""
-                    replyArea.foreground = UIUtil.getLabelForeground()
-                }
-            }
-            override fun focusLost(e: java.awt.event.FocusEvent) {
-                if (replyArea.text.isEmpty()) {
-                    replyArea.text = "Write a reply..."
-                    replyArea.foreground = JBColor.GRAY
-                }
-            }
+        left.add(JBLabel(authorName).apply {
+            font = font.deriveFont(Font.BOLD, 12f)
         })
-        
-        val scrollPane = JBScrollPane(replyArea)
-        scrollPane.border = null
-        panel.add(scrollPane, BorderLayout.CENTER)
-        
-        // Button panel
-        val buttonPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 4, 4))
-        buttonPanel.background = background
-        
-        val resolveButton = JButton(if (thread.isActive()) "Resolve" else "Reopen")
-        resolveButton.font = resolveButton.font.deriveFont(11f)
-        resolveButton.addActionListener {
-            val newStatus = if (thread.isActive()) ThreadStatus.Fixed else ThreadStatus.Active
-            updateThreadStatus(newStatus)
+
+        val timeAgo = TimelineUtils.formatTimeAgo(firstComment?.publishedDate)
+        if (timeAgo.isNotEmpty()) {
+            left.add(JBLabel("· $timeAgo").apply {
+                foreground = JBColor.GRAY
+                font = font.deriveFont(11f)
+            })
         }
-        
-        val replyButton = JButton("Reply")
-        replyButton.font = replyButton.font.deriveFont(11f)
-        replyButton.addActionListener {
-            val text = replyArea.text.trim()
-            if (text.isNotEmpty() && text != "Write a reply...") {
-                addReply(text, replyArea)
+
+        // Reply count
+        val replyCount = (thread.comments?.filter { it.commentType != "system" }?.size ?: 1) - 1
+        if (replyCount > 0) {
+            left.add(JBLabel("· $replyCount ${if (replyCount == 1) "reply" else "replies"}").apply {
+                foreground = JBColor(Color(70, 130, 180), Color(100, 149, 237))
+                font = font.deriveFont(11f)
+            })
+        }
+
+        row.add(left, BorderLayout.WEST)
+
+        // Right: status badge + overflow menu
+        val right = JPanel(FlowLayout(FlowLayout.RIGHT, 4, 0)).apply { isOpaque = false }
+
+        val status = thread.status
+        if (status != null && status != ThreadStatus.Unknown) {
+            right.add(createStatusBadge(status))
+        }
+
+        val menuBtn = JButton("⋮").apply {
+            preferredSize = Dimension(24, 20)
+            isBorderPainted = false
+            isContentAreaFilled = false
+            isFocusPainted = false
+            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+            font = font.deriveFont(Font.BOLD, 14f)
+            toolTipText = "Actions"
+            addActionListener {
+                val threadId = thread.id ?: return@addActionListener
+                val popup = TimelineDropdownMenu.createThreadPopup(
+                    threadId = threadId,
+                    currentStatus = thread.status ?: ThreadStatus.Active,
+                    onStatusChange = { newStatus -> updateThreadStatus(newStatus) }
+                )
+                popup.show(this, 0, height)
             }
         }
-        
-        buttonPanel.add(resolveButton)
-        buttonPanel.add(replyButton)
-        panel.add(buttonPanel, BorderLayout.SOUTH)
-        
+        right.add(menuBtn)
+
+        row.add(right, BorderLayout.EAST)
+        return row
+    }
+
+    // ────────────────────────────────────────────────────────
+    //  Content
+    // ────────────────────────────────────────────────────────
+
+    private fun createContentLabel(text: String): JComponent {
+        return JBLabel("<html><div style='width:400px'>${TimelineUtils.escapeHtml(text)}</div></html>").apply {
+            font = UIUtil.getLabelFont().deriveFont(12f)
+            alignmentX = Component.LEFT_ALIGNMENT
+        }
+    }
+
+    // ────────────────────────────────────────────────────────
+    //  Reply card (nested comment)
+    // ────────────────────────────────────────────────────────
+
+    private fun createReplyCard(comment: Comment): JPanel {
+        val panel = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            isOpaque = false
+            alignmentX = Component.LEFT_ALIGNMENT
+            border = BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 3, 0, 0, replyBarColor),
+                JBUI.Borders.empty(4, 8, 4, 0)
+            )
+        }
+
+        val header = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply {
+            isOpaque = false
+            alignmentX = Component.LEFT_ALIGNMENT
+            maximumSize = Dimension(Int.MAX_VALUE, 22)
+        }
+        header.add(JBLabel(comment.author?.displayName ?: "Unknown").apply {
+            font = font.deriveFont(Font.BOLD, 11f)
+        })
+        val ts = TimelineUtils.formatTimeAgo(comment.publishedDate)
+        if (ts.isNotEmpty()) {
+            header.add(JBLabel("· $ts").apply {
+                foreground = JBColor.GRAY
+                font = font.deriveFont(10f)
+            })
+        }
+        panel.add(header)
+        panel.add(Box.createVerticalStrut(2))
+        panel.add(JBLabel("<html><div style='width:380px'>${TimelineUtils.escapeHtml(comment.content ?: "")}</div></html>").apply {
+            font = UIUtil.getLabelFont().deriveFont(11.5f)
+            alignmentX = Component.LEFT_ALIGNMENT
+        })
+
         return panel
     }
-    
-    private fun createStatusComboBox(): ComboBox<String> {
-        val statuses = arrayOf("Active", "Resolved", "Won't Fix", "Closed", "By Design", "Pending")
-        val combo = ComboBox(statuses)
-        combo.preferredSize = Dimension(100, 24)
-        combo.font = combo.font.deriveFont(11f)
-        
-        // Set current status
-        val currentStatus = when (thread.status) {
-            ThreadStatus.Active -> "Active"
-            ThreadStatus.Fixed -> "Resolved"
-            ThreadStatus.WontFix -> "Won't Fix"
-            ThreadStatus.Closed -> "Closed"
-            ThreadStatus.ByDesign -> "By Design"
-            ThreadStatus.Pending -> "Pending"
-            else -> "Active"
+
+    // ────────────────────────────────────────────────────────
+    //  Inline reply area
+    // ────────────────────────────────────────────────────────
+
+    private fun createInlineReplyArea(): JComponent {
+        val panel = JPanel(BorderLayout(6, 0)).apply {
+            isOpaque = false
+            alignmentX = Component.LEFT_ALIGNMENT
+            maximumSize = Dimension(Int.MAX_VALUE, 34)
+            border = JBUI.Borders.emptyTop(2)
         }
-        combo.selectedItem = currentStatus
-        
-        combo.addActionListener {
-            val selectedStatus = when (combo.selectedItem as String) {
-                "Active" -> ThreadStatus.Active
-                "Resolved" -> ThreadStatus.Fixed
-                "Won't Fix" -> ThreadStatus.WontFix
-                "Closed" -> ThreadStatus.Closed
-                "By Design" -> ThreadStatus.ByDesign
-                "Pending" -> ThreadStatus.Pending
-                else -> ThreadStatus.Active
-            }
-            if (selectedStatus != thread.status) {
-                updateThreadStatus(selectedStatus)
-            }
+
+        val field = JTextField().apply {
+            border = BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(cardBorder),
+                JBUI.Borders.empty(4, 8)
+            )
+            font = UIUtil.getLabelFont().deriveFont(12f)
+            putClientProperty("JTextField.placeholderText", "Reply…")
         }
-        
-        return combo
+
+        val sendBtn = JButton("Reply").apply {
+            font = font.deriveFont(11f)
+            preferredSize = Dimension(70, 28)
+        }
+
+        sendBtn.addActionListener { submitReply(field, sendBtn) }
+        field.addActionListener { submitReply(field, sendBtn) }
+
+        panel.add(field, BorderLayout.CENTER)
+        panel.add(sendBtn, BorderLayout.EAST)
+        return panel
     }
-    
+
+    private fun submitReply(field: JTextField, sendBtn: JButton) {
+        val text = field.text.trim()
+        if (text.isEmpty()) return
+        val threadId = thread.id ?: return
+
+        sendBtn.isEnabled = false
+        sendBtn.text = "…"
+
+        ApplicationManager.getApplication().executeOnPooledThread {
+            try {
+                apiClient.addCommentToThread(pullRequestId, threadId, text, projectName, repositoryId)
+                logger.info("Reply added to thread #$threadId")
+                ApplicationManager.getApplication().invokeLater {
+                    field.text = ""
+                    sendBtn.isEnabled = true
+                    sendBtn.text = "Reply"
+                    onReplyAdded()
+                }
+            } catch (e: Exception) {
+                logger.error("Failed to add reply", e)
+                ApplicationManager.getApplication().invokeLater {
+                    sendBtn.isEnabled = true
+                    sendBtn.text = "Reply"
+                }
+            }
+        }
+    }
+
+    // ────────────────────────────────────────────────────────
+    //  Status badge
+    // ────────────────────────────────────────────────────────
+
+    private fun createStatusBadge(status: ThreadStatus): JComponent {
+        val isActive = status == ThreadStatus.Active || status == ThreadStatus.Pending
+        val bg = if (isActive) activeBadgeBg else resolvedBadgeBg
+        val fg = if (isActive) activeBadgeFg else resolvedBadgeFg
+
+        return JBLabel(status.getDisplayName()).apply {
+            isOpaque = true
+            background = bg
+            foreground = fg
+            border = JBUI.Borders.empty(2, 6, 2, 6)
+            font = font.deriveFont(Font.BOLD, 10f)
+        }
+    }
+
+    // ────────────────────────────────────────────────────────
+    //  Status change
+    // ────────────────────────────────────────────────────────
+
     private fun updateThreadStatus(newStatus: ThreadStatus) {
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
                 val threadId = thread.id ?: return@executeOnPooledThread
-                apiClient.updateThreadStatus(
-                    pullRequestId,
-                    threadId,
-                    newStatus,
-                    projectName,
-                    repositoryId
-                )
-                
+                apiClient.updateThreadStatus(pullRequestId, threadId, newStatus, projectName, repositoryId)
                 logger.info("Thread #$threadId status updated to $newStatus")
-                
-                ApplicationManager.getApplication().invokeLater {
-                    // Update background color based on new status
-                    val isNowActive = newStatus == ThreadStatus.Active || newStatus == ThreadStatus.Pending
-                    background = if (isNowActive) activeColor else resolvedColor
-                    contentPanel.background = background
-                    commentsContainer.background = background
-                    
-                    onStatusChanged()
-                }
+                ApplicationManager.getApplication().invokeLater { onStatusChanged() }
             } catch (e: Exception) {
                 logger.error("Failed to update thread status", e)
             }
         }
     }
-    
-    private fun addReply(text: String, replyArea: JBTextArea) {
-        ApplicationManager.getApplication().executeOnPooledThread {
-            try {
-                val threadId = thread.id ?: return@executeOnPooledThread
-                apiClient.addCommentToThread(
-                    pullRequestId,
-                    threadId,
-                    text,
-                    projectName,
-                    repositoryId
-                )
-                
-                logger.info("Reply added to thread #$threadId")
-                
-                ApplicationManager.getApplication().invokeLater {
-                    replyArea.text = "Write a reply..."
-                    replyArea.foreground = JBColor.GRAY
-                    onReplyAdded()
-                }
-            } catch (e: Exception) {
-                logger.error("Failed to add reply", e)
-            }
-        }
-    }
-    
-    private fun formatTimeAgo(dateString: String): String {
-        return try {
-            // Parse ISO 8601 date
-            val formats = listOf(
-                SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'", Locale.US),
-                SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US),
-                SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
-            )
-            
-            var date: Date? = null
-            for (format in formats) {
-                format.timeZone = TimeZone.getTimeZone("UTC")
-                try {
-                    date = format.parse(dateString)
-                    break
-                } catch (_: Exception) {}
-            }
-            
-            if (date == null) return ""
-            
-            val now = Date()
-            val diffMs = now.time - date.time
-            val diffMinutes = diffMs / (1000 * 60)
-            val diffHours = diffMs / (1000 * 60 * 60)
-            val diffDays = diffMs / (1000 * 60 * 60 * 24)
-            
-            when {
-                diffMinutes < 1 -> "just now"
-                diffMinutes < 60 -> "${diffMinutes}m ago"
-                diffHours < 24 -> "${diffHours}h ago"
-                diffDays < 7 -> "${diffDays}d ago"
-                else -> SimpleDateFormat("MMM d", Locale.US).format(date)
-            }
-        } catch (e: Exception) {
-            ""
-        }
-    }
-    
-    private fun escapeHtml(text: String): String {
-        return text
-            .replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace("\n", "<br>")
-    }
-    
-    /**
-     * Get the line number for this comment (1-based)
-     * Returns the right file line if available, otherwise left file line
-     */
+
+    // ────────────────────────────────────────────────────────
+    //  Public helpers
+    // ────────────────────────────────────────────────────────
+
     fun getLineNumber(): Int? {
         val ctx = thread.pullRequestThreadContext ?: thread.threadContext
         return ctx?.rightFileStart?.line ?: ctx?.leftFileStart?.line
     }
-    
-    /**
-     * Check if this comment is on the left (base) side of the diff
-     */
+
     fun isOnLeftSide(): Boolean {
         val ctx = thread.pullRequestThreadContext ?: thread.threadContext
         return ctx?.leftFileStart != null && ctx.rightFileStart == null
     }
-    
-    /**
-     * Get the file path for this comment
-     */
+
     fun getFilePath(): String? = thread.getFilePath()
 }
