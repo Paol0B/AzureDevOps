@@ -81,7 +81,7 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
     private var selectedAccount: AzureDevOpsAccount? = null
     private var isLoadingAccounts = false
 
-    private val defaultCloneDir = System.getProperty("user.home") + File.separator + "IdeaProjects"
+    private val defaultCloneDir = com.intellij.ide.impl.ProjectUtil.getBaseDir()
     private var baseCloneDir = defaultCloneDir
 
     private val mainPanel: JPanel
