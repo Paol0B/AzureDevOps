@@ -43,10 +43,13 @@ class TimelinePanel(
     // ── UI containers ──
     private val voteBadgePanel = VoteBadgePanel(project)
 
-    private val timelineContainer = JPanel().apply {
-        layout = BoxLayout(this, BoxLayout.Y_AXIS)
-        background = UIUtil.getPanelBackground()
-        border = JBUI.Borders.empty(8, 14)
+    private val timelineContainer = object : JPanel() {
+        init {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            isOpaque = true
+            border = JBUI.Borders.empty(8, 14)
+        }
+        override fun getBackground(): Color = TimelineTheme.SURFACE
     }
 
     private lateinit var scrollPane: JBScrollPane
@@ -262,34 +265,24 @@ class TimelinePanel(
     // ── System / vote / created event (simple row, no card) ──
 
     private fun createSystemEventRow(entry: TimelineEntry): JPanel {
-        val cardBg = JBColor(Color(245, 247, 250), Color(50, 52, 56))
-        val cardBorder = JBColor(Color(208, 215, 222), Color(60, 63, 68))
-        val card = RoundedPanel(8, cardBg, cardBorder).apply {
-            layout = BorderLayout(8, 0)
-            border = JBUI.Borders.empty(8, 10)
-            alignmentX = Component.LEFT_ALIGNMENT
-            maximumSize = Dimension(Int.MAX_VALUE, 48)
-        }
+        val card = ElevatedCard()
+        card.layout = BorderLayout(10, 0)
+        card.border = JBUI.Borders.empty(10, 14)
+        card.alignmentX = Component.LEFT_ALIGNMENT
+        card.maximumSize = Dimension(Int.MAX_VALUE, 48)
 
-        // Avatar
-        val avatarIcon = avatarService.getAvatar(entry.authorImageUrl, 24) { card.repaint() }
+        val avatarIcon = avatarService.getAvatar(entry.authorImageUrl, 22) { card.repaint() }
         card.add(JBLabel(avatarIcon).apply {
-            verticalAlignment = SwingConstants.TOP
-            border = JBUI.Borders.emptyTop(2)
+            verticalAlignment = SwingConstants.CENTER
         }, BorderLayout.WEST)
 
-        // Content
-        val center = JPanel().apply {
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            isOpaque = false
-        }
-
-        val headerLine = JPanel(FlowLayout(FlowLayout.LEFT, 6, 0)).apply {
+        val row = JPanel(FlowLayout(FlowLayout.LEFT, 6, 0)).apply {
             isOpaque = false
             alignmentX = Component.LEFT_ALIGNMENT
         }
-        headerLine.add(JBLabel(entry.author).apply {
+        row.add(JBLabel(entry.author).apply {
             font = font.deriveFont(Font.BOLD, 11f)
+            foreground = TimelineTheme.PRIMARY_FG
         })
 
         val typeIcon = when (entry.type) {
@@ -298,62 +291,55 @@ class TimelinePanel(
             TimelineEntryType.SYSTEM_EVENT -> AllIcons.General.Information
             else -> AllIcons.General.Balloon
         }
-        headerLine.add(JBLabel(typeIcon))
-
-        headerLine.add(JBLabel(entry.content).apply {
-            foreground = JBColor.GRAY
+        row.add(JBLabel(typeIcon))
+        row.add(JBLabel(entry.content).apply {
+            foreground = TimelineTheme.SECONDARY_FG
             font = font.deriveFont(Font.ITALIC, 11f)
         })
 
         val ts = TimelineUtils.formatTimeAgo(entry.timestamp)
         if (ts.isNotEmpty()) {
-            headerLine.add(JBLabel("· $ts").apply {
-                foreground = JBColor.GRAY
+            row.add(JBLabel("· $ts").apply {
+                foreground = TimelineTheme.MUTED_FG
                 font = font.deriveFont(10f)
             })
         }
-        center.add(headerLine)
-        card.add(center, BorderLayout.CENTER)
 
+        card.add(row, BorderLayout.CENTER)
         return card
     }
 
     private fun createVoteEventRow(entry: TimelineEntry): JPanel {
-        val cardBg = JBColor(Color(245, 247, 250), Color(50, 52, 56))
-        val cardBorder = JBColor(Color(208, 215, 222), Color(60, 63, 68))
-        val card = RoundedPanel(8, cardBg, cardBorder).apply {
-            layout = BorderLayout(8, 0)
-            border = JBUI.Borders.empty(8, 10)
-            alignmentX = Component.LEFT_ALIGNMENT
-            maximumSize = Dimension(Int.MAX_VALUE, 48)
+        val voteStatus = ReviewerVote.fromVoteValue(entry.voteValue)
+
+        // Accent color on the top edge of the card based on vote type
+        val accent = when (voteStatus) {
+            ReviewerVote.Approved, ReviewerVote.ApprovedWithSuggestions -> TimelineTheme.VOTE_APPROVED_ACCENT
+            ReviewerVote.WaitingForAuthor -> TimelineTheme.VOTE_WARN_ACCENT
+            ReviewerVote.Rejected -> TimelineTheme.VOTE_REJECT_ACCENT
+            ReviewerVote.NoVote -> null
         }
 
-        // Avatar
-        val avatarIcon = avatarService.getAvatar(entry.authorImageUrl, 24) { card.repaint() }
+        val card = ElevatedCard(accent)
+        card.layout = BorderLayout(10, 0)
+        card.border = JBUI.Borders.empty(10, 14)
+        card.alignmentX = Component.LEFT_ALIGNMENT
+        card.maximumSize = Dimension(Int.MAX_VALUE, 48)
+
+        val avatarIcon = avatarService.getAvatar(entry.authorImageUrl, 22) { card.repaint() }
         card.add(JBLabel(avatarIcon).apply {
-            verticalAlignment = SwingConstants.TOP
-            border = JBUI.Borders.emptyTop(2)
+            verticalAlignment = SwingConstants.CENTER
         }, BorderLayout.WEST)
 
-        // Content
-        val center = JPanel().apply {
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            isOpaque = false
-        }
-
-        val headerLine = JPanel(FlowLayout(FlowLayout.LEFT, 6, 0)).apply {
+        val row = JPanel(FlowLayout(FlowLayout.LEFT, 6, 0)).apply {
             isOpaque = false
             alignmentX = Component.LEFT_ALIGNMENT
         }
-        
-        // Author name
-        headerLine.add(JBLabel(entry.author).apply {
+        row.add(JBLabel(entry.author).apply {
             font = font.deriveFont(Font.BOLD, 11f)
+            foreground = TimelineTheme.PRIMARY_FG
         })
 
-        val voteStatus = ReviewerVote.fromVoteValue(entry.voteValue)
-        
-        // Vote icon
         val voteIcon = when (voteStatus) {
             ReviewerVote.Approved -> AllIcons.RunConfigurations.TestPassed
             ReviewerVote.ApprovedWithSuggestions -> AllIcons.General.Information
@@ -361,36 +347,30 @@ class TimelinePanel(
             ReviewerVote.Rejected -> AllIcons.RunConfigurations.TestFailed
             ReviewerVote.NoVote -> AllIcons.Debugger.ThreadSuspended
         }
-        
-        // Vote color
+
         val voteColor = when (voteStatus) {
-            ReviewerVote.Approved -> JBColor(Color(34, 139, 34), Color(50, 200, 50))
-            ReviewerVote.ApprovedWithSuggestions -> JBColor(Color(255, 165, 0), Color(255, 140, 0))
-            ReviewerVote.WaitingForAuthor -> JBColor(Color(255, 165, 0), Color(255, 140, 0))
-            ReviewerVote.Rejected -> JBColor(Color(220, 53, 69), Color(200, 35, 51))
-            ReviewerVote.NoVote -> JBColor.GRAY
+            ReviewerVote.Approved -> TimelineTheme.APPROVED_FG
+            ReviewerVote.ApprovedWithSuggestions -> TimelineTheme.SUGGEST_FG
+            ReviewerVote.WaitingForAuthor -> TimelineTheme.WAIT_FG
+            ReviewerVote.Rejected -> TimelineTheme.REJECT_FG
+            ReviewerVote.NoVote -> TimelineTheme.MUTED_FG
         }
-        
-        headerLine.add(JBLabel(voteIcon))
-        
-        // Vote display name
-        headerLine.add(JBLabel(voteStatus.getDisplayName()).apply {
+
+        row.add(JBLabel(voteIcon))
+        row.add(JBLabel(voteStatus.getDisplayName()).apply {
             foreground = voteColor
             font = font.deriveFont(Font.BOLD, 11f)
         })
 
-        // Timestamp
         val ts = TimelineUtils.formatTimeAgo(entry.timestamp)
         if (ts.isNotEmpty()) {
-            headerLine.add(JBLabel("· $ts").apply {
-                foreground = JBColor.GRAY
+            row.add(JBLabel("· $ts").apply {
+                foreground = TimelineTheme.MUTED_FG
                 font = font.deriveFont(10f)
             })
         }
-        
-        center.add(headerLine)
-        card.add(center, BorderLayout.CENTER)
 
+        card.add(row, BorderLayout.CENTER)
         return card
     }
 
