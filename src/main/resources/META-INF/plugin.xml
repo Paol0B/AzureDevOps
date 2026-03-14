@@ -218,6 +218,15 @@
         <!-- Work Item Branch Detector -->
         <projectService serviceImplementation="paol0b.azuredevops.services.WorkItemBranchDetector"/>
 
+        <!-- Status Bar Widget -->
+        <statusBarWidgetFactory
+            id="AzureDevOps.StatusBar"
+            implementation="paol0b.azuredevops.statusbar.AzureDevOpsStatusBarWidgetFactory"
+            order="after encodingWidget"/>
+
+        <!-- Status Bar Service -->
+        <projectService serviceImplementation="paol0b.azuredevops.services.AzureDevOpsStatusBarService"/>
+
         <!-- Work Item Commit Message Provider -->
         <checkinHandlerFactory implementation="paol0b.azuredevops.listeners.WorkItemCommitMessageProvider"/>
 

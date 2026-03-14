@@ -3,6 +3,7 @@ package paol0b.azuredevops.listeners
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vcs.BranchChangeListener
 import paol0b.azuredevops.services.AzureDevOpsRepositoryDetector
+import paol0b.azuredevops.services.AzureDevOpsStatusBarService
 import paol0b.azuredevops.services.WorkItemBranchDetector
 
 /**
@@ -22,5 +23,10 @@ class GitRepositoryChangeListener(private val project: Project) : BranchChangeLi
 
         // Detect work item ID from branch name for commit message auto-fill
         WorkItemBranchDetector.getInstance(project).detectFromBranch(branchName)
+
+        // Immediately refresh build status in status bar on branch switch
+        try {
+            AzureDevOpsStatusBarService.getInstance(project).refreshBuildStatusOnly()
+        } catch (_: Exception) { }
     }
 }
