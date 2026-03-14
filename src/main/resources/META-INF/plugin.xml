@@ -166,6 +166,15 @@
                 canCloseContents="true"
                 doNotActivateOnStart="false"/>
 
+        <!-- Work Items Tool Window -->
+        <toolWindow
+                id="Azure DevOps Work Items"
+                anchor="left"
+                icon="paol0b.azuredevops.AzureDevOpsIcons.ToolWindowWorkItem"
+                factoryClass="paol0b.azuredevops.toolwindow.workitem.WorkItemToolWindowFactory"
+                canCloseContents="true"
+                doNotActivateOnStart="false"/>
+
         <!-- Comments Navigator Tool Window -->
         <toolWindow
                 id="Azure DevOps Comments"
@@ -199,6 +208,18 @@
 
         <!-- Pipeline Tab Service -->
         <projectService serviceImplementation="paol0b.azuredevops.services.PipelineTabService"/>
+
+        <!-- Work Item Board Editor Tab -->
+        <fileEditorProvider implementation="paol0b.azuredevops.toolwindow.workitem.board.WorkItemBoardFileEditorProvider"/>
+
+        <!-- Work Item Tab Service -->
+        <projectService serviceImplementation="paol0b.azuredevops.services.WorkItemTabService"/>
+
+        <!-- Work Item Branch Detector -->
+        <projectService serviceImplementation="paol0b.azuredevops.services.WorkItemBranchDetector"/>
+
+        <!-- Work Item Commit Message Provider -->
+        <checkinHandlerFactory implementation="paol0b.azuredevops.listeners.WorkItemCommitMessageProvider"/>
 
         <!-- File Decorator for PR Comments -->
         <projectViewNodeDecorator implementation="paol0b.azuredevops.decorators.FileWithCommentsDecorator"/>

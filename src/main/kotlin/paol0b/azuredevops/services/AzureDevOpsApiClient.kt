@@ -1606,6 +1606,383 @@ The plugin will automatically use your authenticated account for this repository
 
     // endregion
 
+    // region Work Item Tracking
+
+    private fun buildWitApiUrl(projectName: String, endpoint: String): String {
+        val configService = AzureDevOpsConfigService.getInstance(project)
+        val encodedProject = encodePathSegment(projectName)
+        return "${configService.getApiBaseUrl()}/$encodedProject/_apis/wit$endpoint"
+    }
+
+    private fun buildWorkApiUrl(projectName: String, teamName: String? = null, endpoint: String): String {
+        val configService = AzureDevOpsConfigService.getInstance(project)
+        val encodedProject = encodePathSegment(projectName)
+        val teamSegment = if (teamName != null) "/${encodePathSegment(teamName)}" else ""
+        return "${configService.getApiBaseUrl()}/$encodedProject$teamSegment/_apis/work$endpoint"
+    }
+
+    /**
+     * Executes a request with application/json-patch+json content type.
+     * Required by WIT create/update APIs.
+     */
+    @Throws(IOException::class, AzureDevOpsApiException::class)
+    private fun executeJsonPatch(urlString: String, body: Any, token: String, method: String): String {
+        val mediaType = "application/json-patch+json; charset=UTF-8".toMediaType()
+        val jsonBody = gson.toJson(body)
+        val requestBody = jsonBody.toRequestBody(mediaType)
+
+        val builder = Request.Builder()
+            .url(urlString)
+            .addHeader("Authorization", createAuthHeader(token))
+            .addHeader("Content-Type", "application/json-patch+json; charset=UTF-8")
+            .addHeader("Accept", "application/json")
+
+        when (method) {
+            "POST" -> builder.post(requestBody)
+            "PATCH" -> builder.patch(requestBody)
+            else -> throw IllegalArgumentException("Unsupported HTTP method for JSON Patch: $method")
+        }
+
+        return httpClient.newCall(builder.build()).execute().use { response ->
+            val responseBody = response.body.string()
+
+            if (response.isSuccessful) {
+                responseBody
+            } else {
+                throw handleErrorResponse(response.code, responseBody)
+            }
+        }
+    }
+
+    /**
+     * Execute a WIQL query and return matching work item IDs.
+     * API: POST https://dev.azure.com/{org}/{project}/_apis/wit/wiql
+     */
+    @Throws(AzureDevOpsApiException::class)
+    fun executeWiqlQuery(wiql: String): List<Int> {
+        val config = requireValidConfig()
+        val url = buildWitApiUrl(config.project, "/wiql?api-version=$API_VERSION")
+        val request = WiqlRequest(query = wiql)
+
+        return try {
+            val response = executePost(url, request, config.personalAccessToken)
+            val wiqlResponse = gson.fromJson(response, WiqlResponse::class.java)
+            wiqlResponse.workItems?.map { it.id } ?: emptyList()
+        } catch (e: AzureDevOpsApiException) {
+            throw e
+        } catch (e: Exception) {
+            throw AzureDevOpsApiException("Error executing WIQL query: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Get work items by their IDs. Handles the 200-ID limit per request by chunking.
+     * API: GET https://dev.azure.com/{org}/{project}/_apis/wit/workitems?ids=1,2,3
+     */
+    @Throws(AzureDevOpsApiException::class)
+    fun getWorkItemsByIds(ids: List<Int>, expand: String = "All"): List<WorkItem> {
+        if (ids.isEmpty()) return emptyList()
+        val config = requireValidConfig()
+        val allWorkItems = mutableListOf<WorkItem>()
+
+        // Azure DevOps limits batch GET to 200 IDs per request
+        ids.chunked(200).forEach { chunk ->
+            val idsParam = chunk.joinToString(",")
+            val url = buildWitApiUrl(config.project,
+                "/workitems?ids=$idsParam&\$expand=$expand&api-version=$API_VERSION")
+
+            try {
+                val response = executeGet(url, config.personalAccessToken)
+                val listResponse = gson.fromJson(response, WorkItemListResponse::class.java)
+                listResponse.value?.let { allWorkItems.addAll(it) }
+            } catch (e: AzureDevOpsApiException) {
+                throw e
+            } catch (e: Exception) {
+                throw AzureDevOpsApiException("Error fetching work items: ${e.message}", e)
+            }
+        }
+
+        return allWorkItems
+    }
+
+    /**
+     * Get a single work item by ID with all fields expanded.
+     * API: GET https://dev.azure.com/{org}/{project}/_apis/wit/workitems/{id}
+     */
+    @Throws(AzureDevOpsApiException::class)
+    fun getWorkItem(id: Int): WorkItem {
+        val config = requireValidConfig()
+        val url = buildWitApiUrl(config.project,
+            "/workitems/$id?\$expand=All&api-version=$API_VERSION")
+
+        return try {
+            val response = executeGet(url, config.personalAccessToken)
+            gson.fromJson(response, WorkItem::class.java)
+        } catch (e: AzureDevOpsApiException) {
+            throw e
+        } catch (e: Exception) {
+            throw AzureDevOpsApiException("Error fetching work item #$id: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Get work items assigned to current user, optionally filtered.
+     */
+    @Throws(AzureDevOpsApiException::class)
+    fun getMyWorkItems(
+        iterationPath: String? = null,
+        state: String? = null,
+        type: String? = null,
+        top: Int = 200
+    ): List<WorkItem> = queryWorkItems(assignedToMe = true, iterationPath = iterationPath, state = state, type = type, top = top)
+
+    /**
+     * Get all work items for a project, optionally filtered.
+     */
+    @Throws(AzureDevOpsApiException::class)
+    fun getAllWorkItems(
+        iterationPath: String? = null,
+        state: String? = null,
+        type: String? = null,
+        top: Int = 200
+    ): List<WorkItem> = queryWorkItems(assignedToMe = false, iterationPath = iterationPath, state = state, type = type, top = top)
+
+    /**
+     * Get all work items matching a WIQL query (full objects).
+     */
+    @Throws(AzureDevOpsApiException::class)
+    fun getWorkItemsByWiql(wiql: String, top: Int = 200): List<WorkItem> {
+        val ids = executeWiqlQuery(wiql).take(top)
+        return getWorkItemsByIds(ids)
+    }
+
+    private fun queryWorkItems(
+        assignedToMe: Boolean,
+        iterationPath: String? = null,
+        state: String? = null,
+        type: String? = null,
+        top: Int = 200
+    ): List<WorkItem> {
+        val conditions = mutableListOf("[System.TeamProject] = @project")
+        if (assignedToMe) {
+            conditions.add("[System.AssignedTo] = @Me")
+        }
+        if (!state.isNullOrBlank()) {
+            conditions.add("[System.State] = '${escapeWiql(state)}'")
+        }
+        if (!type.isNullOrBlank()) {
+            conditions.add("[System.WorkItemType] = '${escapeWiql(type)}'")
+        }
+        if (!iterationPath.isNullOrBlank()) {
+            conditions.add("[System.IterationPath] UNDER '${escapeWiql(iterationPath)}'")
+        }
+
+        val wiql = """
+            SELECT [System.Id]
+            FROM WorkItems
+            WHERE ${conditions.joinToString(" AND ")}
+            ORDER BY [System.ChangedDate] DESC
+        """.trimIndent()
+
+        val ids = executeWiqlQuery(wiql).take(top)
+        return getWorkItemsByIds(ids)
+    }
+
+    /** Escape single quotes in WIQL string literals. */
+    private fun escapeWiql(value: String): String = value.replace("'", "''")
+
+    /**
+     * Get available work item types for the current project.
+     * API: GET https://dev.azure.com/{org}/{project}/_apis/wit/workitemtypes
+     */
+    @Throws(AzureDevOpsApiException::class)
+    fun getWorkItemTypes(): List<WorkItemType> {
+        val config = requireValidConfig()
+        val url = buildWitApiUrl(config.project, "/workitemtypes?api-version=$API_VERSION")
+
+        return try {
+            val response = executeGet(url, config.personalAccessToken)
+            val listResponse = gson.fromJson(response, WorkItemTypeListResponse::class.java)
+            listResponse.value ?: emptyList()
+        } catch (e: AzureDevOpsApiException) {
+            throw e
+        } catch (e: Exception) {
+            throw AzureDevOpsApiException("Error fetching work item types: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Get the current iteration/sprint for the project's default team.
+     * API: GET https://dev.azure.com/{org}/{project}/{team}/_apis/work/teamsettings/iterations
+     */
+    @Throws(AzureDevOpsApiException::class)
+    fun getCurrentIteration(): TeamIteration? {
+        val config = requireValidConfig()
+        // Default team name is same as project name
+        val url = buildWorkApiUrl(config.project, config.project,
+            "/teamsettings/iterations?\$timeframe=current&api-version=$API_VERSION")
+
+        return try {
+            val response = executeGet(url, config.personalAccessToken)
+            val listResponse = gson.fromJson(response, TeamIterationListResponse::class.java)
+            listResponse.value?.firstOrNull()
+        } catch (e: Exception) {
+            logger.warn("Failed to get current iteration (team may not match project name): ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * Get all iterations/sprints for the project's default team.
+     * API: GET https://dev.azure.com/{org}/{project}/{team}/_apis/work/teamsettings/iterations
+     */
+    @Throws(AzureDevOpsApiException::class)
+    fun getIterations(): List<TeamIteration> {
+        val config = requireValidConfig()
+        val url = buildWorkApiUrl(config.project, config.project,
+            "/teamsettings/iterations?api-version=$API_VERSION")
+
+        return try {
+            val response = executeGet(url, config.personalAccessToken)
+            val listResponse = gson.fromJson(response, TeamIterationListResponse::class.java)
+            listResponse.value ?: emptyList()
+        } catch (e: Exception) {
+            logger.warn("Failed to get iterations: ${e.message}")
+            emptyList()
+        }
+    }
+
+    /**
+     * Create a new work item.
+     * API: POST https://dev.azure.com/{org}/{project}/_apis/wit/workitems/${type}
+     * Requires Content-Type: application/json-patch+json
+     */
+    @Throws(AzureDevOpsApiException::class)
+    fun createWorkItem(type: String, operations: List<JsonPatchOperation>): WorkItem {
+        val config = requireValidConfig()
+        val encodedType = encodePathSegment(type)
+        val url = buildWitApiUrl(config.project, "/workitems/\$$encodedType?api-version=$API_VERSION")
+
+        return try {
+            val response = executeJsonPatch(url, operations, config.personalAccessToken, "POST")
+            gson.fromJson(response, WorkItem::class.java)
+        } catch (e: AzureDevOpsApiException) {
+            throw e
+        } catch (e: Exception) {
+            throw AzureDevOpsApiException("Error creating work item: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Update an existing work item.
+     * API: PATCH https://dev.azure.com/{org}/{project}/_apis/wit/workitems/{id}
+     * Requires Content-Type: application/json-patch+json
+     */
+    @Throws(AzureDevOpsApiException::class)
+    fun updateWorkItem(id: Int, operations: List<JsonPatchOperation>): WorkItem {
+        val config = requireValidConfig()
+        val url = buildWitApiUrl(config.project, "/workitems/$id?api-version=$API_VERSION")
+
+        return try {
+            val response = executeJsonPatch(url, operations, config.personalAccessToken, "PATCH")
+            gson.fromJson(response, WorkItem::class.java)
+        } catch (e: AzureDevOpsApiException) {
+            throw e
+        } catch (e: Exception) {
+            throw AzureDevOpsApiException("Error updating work item #$id: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Get comments/discussion for a work item.
+     * API: GET https://dev.azure.com/{org}/{project}/_apis/wit/workitems/{id}/comments
+     */
+    @Throws(AzureDevOpsApiException::class)
+    fun getWorkItemComments(id: Int): List<WorkItemComment> {
+        val config = requireValidConfig()
+        val url = buildWitApiUrl(config.project,
+            "/workitems/$id/comments?api-version=7.0-preview.4")
+
+        return try {
+            val response = executeGet(url, config.personalAccessToken)
+            val listResponse = gson.fromJson(response, WorkItemCommentListResponse::class.java)
+            listResponse.comments ?: emptyList()
+        } catch (e: AzureDevOpsApiException) {
+            throw e
+        } catch (e: Exception) {
+            throw AzureDevOpsApiException("Error fetching work item comments: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Add a comment to a work item.
+     * API: POST https://dev.azure.com/{org}/{project}/_apis/wit/workitems/{id}/comments
+     */
+    @Throws(AzureDevOpsApiException::class)
+    fun addWorkItemComment(id: Int, text: String): WorkItemComment {
+        val config = requireValidConfig()
+        val url = buildWitApiUrl(config.project,
+            "/workitems/$id/comments?api-version=7.0-preview.4")
+
+        val body = mapOf("text" to text)
+
+        return try {
+            val response = executePost(url, body, config.personalAccessToken)
+            gson.fromJson(response, WorkItemComment::class.java)
+        } catch (e: AzureDevOpsApiException) {
+            throw e
+        } catch (e: Exception) {
+            throw AzureDevOpsApiException("Error adding work item comment: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Create a Git ref (branch) in the repository.
+     * API: POST https://dev.azure.com/{org}/{project}/_apis/git/repositories/{repoId}/refs
+     */
+    @Throws(AzureDevOpsApiException::class)
+    fun createGitRef(branchName: String, sourceCommitId: String): GitRefUpdateResult {
+        val config = requireValidConfig()
+        val url = buildApiUrl(config.project, config.repository,
+            "/refs?api-version=$API_VERSION")
+
+        val refUpdates = listOf(GitRefUpdate(
+            name = "refs/heads/$branchName",
+            oldObjectId = "0000000000000000000000000000000000000000",
+            newObjectId = sourceCommitId
+        ))
+
+        return try {
+            val response = executePost(url, refUpdates, config.personalAccessToken)
+            val result = gson.fromJson(response, GitRefUpdateResponse::class.java)
+            result.value?.firstOrNull()
+                ?: throw AzureDevOpsApiException("No result returned from ref creation")
+        } catch (e: AzureDevOpsApiException) {
+            throw e
+        } catch (e: Exception) {
+            throw AzureDevOpsApiException("Error creating branch '$branchName': ${e.message}", e)
+        }
+    }
+
+    /**
+     * Link a work item to a pull request.
+     */
+    @Throws(AzureDevOpsApiException::class)
+    fun linkWorkItemToPullRequest(workItemId: Int, pullRequestUrl: String): WorkItem {
+        val operations = listOf(JsonPatchOperation(
+            op = "add",
+            path = "/relations/-",
+            value = mapOf(
+                "rel" to "ArtifactLink",
+                "url" to pullRequestUrl,
+                "attributes" to mapOf("name" to "Pull Request")
+            )
+        ))
+        return updateWorkItem(workItemId, operations)
+    }
+
+    // endregion
+
 }
 
 /**
