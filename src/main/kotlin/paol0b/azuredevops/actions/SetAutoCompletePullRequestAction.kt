@@ -1,7 +1,5 @@
 package paol0b.azuredevops.actions
 
-import com.intellij.notification.NotificationGroupManager
-import com.intellij.notification.NotificationType
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.application.ApplicationManager
@@ -12,6 +10,8 @@ import com.intellij.openapi.project.Project
 import paol0b.azuredevops.model.PullRequest
 import paol0b.azuredevops.services.AzureDevOpsApiClient
 import paol0b.azuredevops.ui.CompletePullRequestDialog
+import paol0b.azuredevops.util.NotificationUtil
+import paol0b.azuredevops.util.PluginUtil
 
 /**
  * Action to set auto-complete on a Pull Request
@@ -62,28 +62,13 @@ class SetAutoCompletePullRequestAction(
                     )
 
                     ApplicationManager.getApplication().invokeLater {
-                        NotificationGroupManager.getInstance()
-                            .getNotificationGroup("Azure DevOps Notifications")
-                            .createNotification(
-                                "Auto-Complete Set",
-                                "PR #${pullRequest.pullRequestId} will auto-complete when policies are met",
-                                NotificationType.INFORMATION
-                            )
-                            .notify(project)
+                        NotificationUtil.info(project, "Auto-Complete Set", "PR #${pullRequest.pullRequestId} will auto-complete when policies are met")
                         onCompleted?.invoke()
                     }
-                    
+
                 } catch (e: Exception) {
                     ApplicationManager.getApplication().invokeLater {
-                        val errorMessage = parseErrorMessage(e.message)
-                        NotificationGroupManager.getInstance()
-                            .getNotificationGroup("Azure DevOps Notifications")
-                            .createNotification(
-                                "Failed to Set Auto-Complete",
-                                errorMessage,
-                                NotificationType.ERROR
-                            )
-                            .notify(project)
+                        NotificationUtil.error(project, "Failed to Set Auto-Complete", PluginUtil.parseApiErrorMessage(e.message))
                     }
                 }
             }
@@ -106,13 +91,4 @@ class SetAutoCompletePullRequestAction(
             !pullRequest.isReadyToComplete()
     }
 
-    private fun parseErrorMessage(message: String?): String {
-        if (message == null) return "Unknown error occurred"
-        
-        // Extract meaningful error from Azure DevOps API responses
-        return when {
-            message.contains("TF401171") -> "You don't have permission to set auto-complete on this Pull Request."
-            else -> message.take(200) // Limit error message length
-        }
-    }
 }

@@ -1,7 +1,5 @@
 package paol0b.azuredevops.actions
 
-import com.intellij.notification.NotificationGroupManager
-import com.intellij.notification.NotificationType
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.application.ApplicationManager
@@ -11,6 +9,7 @@ import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
 import paol0b.azuredevops.model.PullRequest
 import paol0b.azuredevops.services.AzureDevOpsApiClient
+import paol0b.azuredevops.util.NotificationUtil
 
 /**
  * Action to convert a Pull Request to draft, or publish a draft PR.
@@ -44,38 +43,15 @@ class ConvertToDraftPullRequestAction(
                     apiClient.updatePullRequestDraftStatus(pullRequest, convertToDraft)
 
                     ApplicationManager.getApplication().invokeLater {
-                        if (convertToDraft) {
-                            NotificationGroupManager.getInstance()
-                                .getNotificationGroup("Azure DevOps Notifications")
-                                ?.createNotification(
-                                    "Pull Request Converted to Draft",
-                                    "PR #${pullRequest.pullRequestId} is now a draft",
-                                    NotificationType.INFORMATION
-                                )
-                                ?.notify(project)
-                        } else {
-                            NotificationGroupManager.getInstance()
-                                .getNotificationGroup("Azure DevOps Notifications")
-                                ?.createNotification(
-                                    "Pull Request Published",
-                                    "PR #${pullRequest.pullRequestId} has been published",
-                                    NotificationType.INFORMATION
-                                )
-                                ?.notify(project)
-                        }
+                        val title = if (convertToDraft) "Pull Request Converted to Draft" else "Pull Request Published"
+                        val content = if (convertToDraft) "PR #${pullRequest.pullRequestId} is now a draft" else "PR #${pullRequest.pullRequestId} has been published"
+                        NotificationUtil.info(project, title, content)
                         onCompleted?.invoke()
                     }
                 } catch (e: Exception) {
                     ApplicationManager.getApplication().invokeLater {
                         val title = if (convertToDraft) "Failed to Convert PR to Draft" else "Failed to Publish PR"
-                        NotificationGroupManager.getInstance()
-                            .getNotificationGroup("Azure DevOps Notifications")
-                            ?.createNotification(
-                                title,
-                                e.message?.take(200) ?: "Unknown error occurred",
-                                NotificationType.ERROR
-                            )
-                            ?.notify(project)
+                        NotificationUtil.error(project, title, e.message?.take(200) ?: "Unknown error occurred")
                     }
                 }
             }

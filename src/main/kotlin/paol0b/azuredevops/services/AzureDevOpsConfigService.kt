@@ -9,6 +9,7 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.util.xmlb.XmlSerializerUtil
 import paol0b.azuredevops.checkout.AzureDevOpsAccountManager
+import paol0b.azuredevops.util.PluginUtil
 import paol0b.azuredevops.checkout.AzureDevOpsOAuthService
 import paol0b.azuredevops.model.AzureDevOpsConfig
 import java.net.URLEncoder
@@ -223,31 +224,10 @@ class AzureDevOpsConfigService(private val project: com.intellij.openapi.project
         return null
     }
 
-    private fun isDevMode(): Boolean {
-        return try {
-            val app = ApplicationManager.getApplication()
-            app != null && app.isInternal
-        } catch (t: Throwable) {
-            false
-        }
-    }
-    
-    /**
-     * Extracts organization name from Azure DevOps URL
-     */
-    private fun extractOrganizationFromUrl(url: String): String? {
-        return try {
-            val uri = java.net.URI(url)
-            val path = uri.path.trim('/')
-            if (path.isNotEmpty()) {
-                path.split("/").firstOrNull()
-            } else {
-                null
-            }
-        } catch (e: Exception) {
-            null
-        }
-    }
+    private fun isDevMode(): Boolean = PluginUtil.isDevMode()
+
+    private fun extractOrganizationFromUrl(url: String): String? =
+        PluginUtil.extractOrganizationFromUrl(url)
     
     /**
      * Attempts to retrieve the PAT from Git Credential Helper

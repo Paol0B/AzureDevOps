@@ -10,6 +10,7 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.credentialStore.CredentialAttributes
 import com.intellij.credentialStore.Credentials
 import com.intellij.credentialStore.generateServiceName
+import paol0b.azuredevops.util.PluginUtil
 
 /**
  * Application-level service to manage Azure DevOps accounts and credentials.
@@ -260,36 +261,8 @@ class AzureDevOpsAccountManager : PersistentStateComponent<AzureDevOpsAccountMan
         }
     }
     
-    /**
-     * Extracts organization name from Azure DevOps URL.
-     * For self-hosted instances, returns the host as the identifier.
-     */
-    private fun extractOrganizationFromUrl(url: String): String? {
-        return try {
-            val uri = java.net.URI(url)
-            
-            // For dev.azure.com: https://dev.azure.com/{organization}
-            if (uri.host?.contains("dev.azure.com") == true) {
-                val path = uri.path.trim('/')
-                return if (path.isNotEmpty()) {
-                    path.split("/").firstOrNull()
-                } else {
-                    null
-                }
-            }
-            
-            // For visualstudio.com: https://{organization}.visualstudio.com
-            if (uri.host?.endsWith(".visualstudio.com") == true) {
-                return uri.host?.substringBefore(".visualstudio.com")
-            }
-            
-            // For self-hosted: use the full host as the identifier
-            uri.host
-        } catch (e: Exception) {
-            logger.warn("Failed to extract organization from URL: $url", e)
-            null
-        }
-    }
+    private fun extractOrganizationFromUrl(url: String): String? =
+        PluginUtil.extractOrganizationFromUrl(url)
 
     /**
      * Check if a given account is self-hosted.

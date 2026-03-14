@@ -1,6 +1,6 @@
 package paol0b.azuredevops.actions
 
-import com.intellij.notification.NotificationGroupManager
+import com.intellij.ide.BrowserUtil
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
@@ -18,8 +18,7 @@ import paol0b.azuredevops.services.AzureDevOpsApiException
 import paol0b.azuredevops.services.AzureDevOpsConfigService
 import paol0b.azuredevops.services.GitRepositoryService
 import paol0b.azuredevops.ui.CreatePullRequestDialog
-import java.awt.Desktop
-import java.net.URI
+import paol0b.azuredevops.util.NotificationUtil
 
 /**
  * Action to create a Pull Request on Azure DevOps
@@ -195,42 +194,32 @@ class CreatePullRequestAction : AnAction() {
      */
     private fun showSuccessNotification(project: Project, response: PullRequestResponse) {
         val prUrl = getPullRequestUrl(project, response.pullRequestId)
+        val content = "PR #${response.pullRequestId}: ${response.title}<br>" +
+                "Source: ${response.sourceRefName.removePrefix("refs/heads/")}<br>" +
+                "Target: ${response.targetRefName.removePrefix("refs/heads/")}"
 
-        val notification = NotificationGroupManager.getInstance()
-            .getNotificationGroup("AzureDevOps.Notifications")
-            .createNotification(
-                "Pull Request created successfully",
-                "PR #${response.pullRequestId}: ${response.title}<br>" +
-                        "Source: ${response.sourceRefName.removePrefix("refs/heads/")}<br>" +
-                        "Target: ${response.targetRefName.removePrefix("refs/heads/")}",
-                NotificationType.INFORMATION
-            )
-
-        // Add action to open the PR in the browser
         if (prUrl != null) {
-            notification.addAction(object : com.intellij.openapi.actionSystem.AnAction("Open in Browser") {
-                override fun actionPerformed(e: AnActionEvent) {
-                    openInBrowser(prUrl)
-                    notification.expire()
+            NotificationUtil.notifyWithAction(
+                project,
+                "Pull Request created successfully",
+                content,
+                NotificationType.INFORMATION,
+                object : com.intellij.openapi.actionSystem.AnAction("Open in Browser") {
+                    override fun actionPerformed(e: AnActionEvent) {
+                        BrowserUtil.browse(prUrl)
+                    }
                 }
-            })
+            )
+        } else {
+            NotificationUtil.info(project, "Pull Request created successfully", content)
         }
-
-        notification.notify(project)
     }
 
     /**
      * Shows an error notification
      */
     private fun showErrorNotification(project: Project, message: String) {
-        NotificationGroupManager.getInstance()
-            .getNotificationGroup("AzureDevOps.Notifications")
-            .createNotification(
-                "Failed to create Pull Request",
-                message,
-                NotificationType.ERROR
-            )
-            .notify(project)
+        NotificationUtil.error(project, "Failed to create Pull Request", message)
     }
 
     /**
@@ -244,27 +233,24 @@ class CreatePullRequestAction : AnAction() {
         targetBranch: String
     ) {
         val prUrl = getPullRequestUrl(project, prId)
+        val content = "There is already an active Pull Request from <b>$sourceBranch</b> to <b>$targetBranch</b>:<br><br>" +
+                "PR #$prId: $prTitle"
 
-        val notification = NotificationGroupManager.getInstance()
-            .getNotificationGroup("AzureDevOps.Notifications")
-            .createNotification(
-                "Pull Request already exists",
-                "There is already an active Pull Request from <b>$sourceBranch</b> to <b>$targetBranch</b>:<br><br>" +
-                        "PR #$prId: $prTitle",
-                NotificationType.WARNING
-            )
-
-        // Add action to open the existing PR
         if (prUrl != null) {
-            notification.addAction(object : com.intellij.openapi.actionSystem.AnAction("Open Existing PR") {
-                override fun actionPerformed(e: AnActionEvent) {
-                    openInBrowser(prUrl)
-                    notification.expire()
+            NotificationUtil.notifyWithAction(
+                project,
+                "Pull Request already exists",
+                content,
+                NotificationType.WARNING,
+                object : com.intellij.openapi.actionSystem.AnAction("Open Existing PR") {
+                    override fun actionPerformed(e: AnActionEvent) {
+                        BrowserUtil.browse(prUrl)
+                    }
                 }
-            })
+            )
+        } else {
+            NotificationUtil.warning(project, "Pull Request already exists", content)
         }
-
-        notification.notify(project)
     }
 
     /**
@@ -280,16 +266,4 @@ class CreatePullRequestAction : AnAction() {
         return apiClient.buildPullRequestWebUrl(config.project, config.repository, prId)
     }
 
-    /**
-     * Opens a URL in the default browser
-     */
-    private fun openInBrowser(url: String) {
-        try {
-            if (Desktop.isDesktopSupported()) {
-                Desktop.getDesktop().browse(URI(url))
-            }
-        } catch (e: Exception) {
-            logger.error("Failed to open browser", e)
-        }
-    }
 }

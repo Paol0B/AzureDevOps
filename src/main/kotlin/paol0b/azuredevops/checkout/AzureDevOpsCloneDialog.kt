@@ -11,8 +11,6 @@ import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.TextBrowseFolderListener
 import com.intellij.openapi.ui.TextFieldWithBrowseButton
 import com.intellij.openapi.ui.ValidationInfo
-import com.intellij.ui.ColoredTreeCellRenderer
-import com.intellij.ui.SimpleTextAttributes
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.treeStructure.Tree
@@ -27,7 +25,6 @@ import java.io.File
 import javax.swing.*
 import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.DefaultTreeModel
-import javax.swing.tree.TreePath
 import javax.swing.tree.TreeSelectionModel
 
 /**
@@ -62,7 +59,6 @@ class AzureDevOpsCloneDialog private constructor(
     private val directoryField = TextFieldWithBrowseButton()
     
     private val searchField = com.intellij.ui.components.JBTextField()
-    private var allNodes: List<DefaultMutableTreeNode> = emptyList()  // Store all nodes for filtering
     private var selectedRepository: AzureDevOpsRepository? = null
     private var selectedAccount: AzureDevOpsAccount? = null
     private var isLoadingAccounts = false  // Flag to prevent duplicate loads
@@ -513,148 +509,19 @@ class AzureDevOpsCloneDialog private constructor(
     private fun loadRepositoriesFromPreloadedData() {
         val account = accountComboBox.selectedItem as? AzureDevOpsAccount ?: return
         selectedAccount = account
-        
-        rootNode.removeAllChildren()
-        allNodes = mutableListOf()  // Reset stored nodes
-        
+
         val data = preloadedData?.get(account.id)
         if (data == null) {
-            val errorNode = DefaultMutableTreeNode("No data available for this account.")
-            rootNode.add(errorNode)
-            treeModel.reload()
+            CloneTreeHelper.showEmptyState(rootNode, treeModel, "No data available for this account.")
             return
         }
-        
-        if (data.projects.isEmpty()) {
-            val emptyNode = DefaultMutableTreeNode("No projects found for this account")
-            rootNode.add(emptyNode)
-            treeModel.reload()
-            return
-        }
-        
-        // Build tree from preloaded data and store all nodes
-        val nodesList = mutableListOf<DefaultMutableTreeNode>()
-        data.projects.forEach { proj ->
-            val projectNode = DefaultMutableTreeNode(proj)
-            rootNode.add(projectNode)
-            nodesList.add(projectNode)
-            
-            val repos = data.repositories[proj.id] ?: emptyList()
-            repos.forEach { repo ->
-                val repoObj = AzureDevOpsRepository(
-                    id = repo.id,
-                    name = repo.name,
-                    projectName = proj.name,
-                    remoteUrl = repo.remoteUrl,
-                    webUrl = repo.webUrl
-                )
-                val repoNode = DefaultMutableTreeNode(repoObj)
-                projectNode.add(repoNode)
-                nodesList.add(repoNode)
-            }
-        }
-        
-        allNodes = nodesList
-        treeModel.reload()
-        
-        // Expand first project
-        if (rootNode.childCount > 0) {
-            tree.expandPath(TreePath(arrayOf(rootNode, rootNode.getChildAt(0))))
-        }
+
+        CloneTreeHelper.populateTree(rootNode, treeModel, tree, data)
     }
-    
+
     private fun filterTree() {
-        val searchText = searchField.text.trim().lowercase()
-        
-        if (searchText.isEmpty()) {
-            // Reset to original tree
-            loadRepositoriesFromPreloadedData()
-            return
-        }
-        
         val account = accountComboBox.selectedItem as? AzureDevOpsAccount ?: return
         val data = preloadedData?.get(account.id) ?: return
-        
-        rootNode.removeAllChildren()
-        
-        // Filter and rebuild tree
-        data.projects.forEach { proj ->
-            val repos = data.repositories[proj.id] ?: emptyList()
-            val matchingRepos = repos.filter { repo ->
-                repo.name.lowercase().contains(searchText) ||
-                proj.name.lowercase().contains(searchText)
-            }
-            
-            if (matchingRepos.isNotEmpty()) {
-                val projectNode = DefaultMutableTreeNode(proj)
-                rootNode.add(projectNode)
-                
-                matchingRepos.forEach { repo ->
-                    val repoObj = AzureDevOpsRepository(
-                        id = repo.id,
-                        name = repo.name,
-                        projectName = proj.name,
-                        remoteUrl = repo.remoteUrl,
-                        webUrl = repo.webUrl
-                    )
-                    projectNode.add(DefaultMutableTreeNode(repoObj))
-                }
-            }
-        }
-        
-        treeModel.reload()
-        
-        // Expand all matching projects
-        for (i in 0 until rootNode.childCount) {
-            tree.expandPath(TreePath(arrayOf(rootNode, rootNode.getChildAt(i))))
-        }
-    }
-
-    /**
-     * Enhanced tree cell renderer with proper Azure DevOps icons
-     */
-    private class RepositoryTreeCellRenderer : ColoredTreeCellRenderer() {
-        override fun customizeCellRenderer(
-            tree: JTree,
-            value: Any?,
-            selected: Boolean,
-            expanded: Boolean,
-            leaf: Boolean,
-            row: Int,
-            hasFocus: Boolean
-        ) {
-            val node = value as? DefaultMutableTreeNode ?: return
-            val userObject = node.userObject
-
-            when (userObject) {
-                is AzureDevOpsCloneApiClient.Project -> {
-                    icon = AzureDevOpsIcons.Project
-                    append(userObject.name, SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES)
-                    userObject.description?.let {
-                        if (it.isNotBlank()) {
-                            append(" - $it", SimpleTextAttributes.GRAYED_SMALL_ATTRIBUTES)
-                        }
-                    }
-                }
-                is AzureDevOpsRepository -> {
-                    icon = AzureDevOpsIcons.Repository
-                    append(userObject.name, SimpleTextAttributes.REGULAR_ATTRIBUTES)
-                    append("  ", SimpleTextAttributes.REGULAR_ATTRIBUTES)
-                    append(userObject.projectName, SimpleTextAttributes.GRAYED_SMALL_ATTRIBUTES)
-                }
-                is String -> {
-                    icon = if (userObject.startsWith("Error")) {
-                        AllIcons.General.Error
-                    } else if (userObject.contains("Loading")) {
-                        AllIcons.Process.Step_1
-                    } else if (userObject.contains("No ")) {
-                        AllIcons.General.Information
-                    } else {
-                        AllIcons.Process.Step_1
-                    }
-                    append(userObject, SimpleTextAttributes.GRAYED_ITALIC_ATTRIBUTES)
-                }
-            }
-        }
+        CloneTreeHelper.filterTree(rootNode, treeModel, tree, data, searchField.text)
     }
 }

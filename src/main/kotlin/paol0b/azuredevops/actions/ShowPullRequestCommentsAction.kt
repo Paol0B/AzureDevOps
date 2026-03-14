@@ -55,7 +55,7 @@ class ShowPullRequestCommentsAction : AnAction() {
                     return@executeOnPooledThread
                 }
 
-                // Carica i commenti
+                // Load comments
                 val commentsService = PullRequestCommentsService.getInstance(project)
                 ApplicationManager.getApplication().invokeLater {
                     commentsService.loadCommentsInEditor(editor, file, pullRequest)
