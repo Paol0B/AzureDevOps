@@ -33,7 +33,7 @@ import javax.swing.*
  */
 class AzureDevOpsLoginDialog(private val project: Project?) : DialogWrapper(project, true) {
 
-    private val serverUrlField = JBTextField("https://dev.azure.com/", 60)
+    private val serverUrlField = JBTextField("", 60)
     private val tokenField = JBPasswordField()
     private val oauthButton = JButton("Sign in with Browser (OAuth)")
     private val patLoginButton = JButton("Validate & Sign In")
@@ -43,10 +43,17 @@ class AzureDevOpsLoginDialog(private val project: Project?) : DialogWrapper(proj
     private val cardLayout = CardLayout()
     private val cardPanel = JPanel(cardLayout)
     private val patInfoLabel = JBLabel()
-    private val urlHintLabel = JBLabel("<html><div style='font-size:11px;color:gray;'>Examples: dev.azure.com/contoso or contoso.visualstudio.com</div></html>")
+    private val urlHintLabel = JBLabel(CLOUD_URL_HINT)
 
     private var account: AzureDevOpsAccount? = null
     private var useOAuth = true
+
+    companion object {
+        private const val CLOUD_URL_HINT = "<html><div style='font-size:11px;color:gray;'>Enter your organization name (e.g. <b>contoso</b>) or full URL (e.g. dev.azure.com/contoso)</div></html>"
+        private const val CLOUD_PLACEHOLDER = "Your organization name or URL"
+        private const val SELF_HOSTED_URL_HINT = "<html><div style='font-size:11px;color:gray;'>Enter the full URL of your Azure DevOps Server instance (e.g. https://tfs.yourcompany.com/tfs/DefaultCollection)</div></html>"
+        private const val SELF_HOSTED_PLACEHOLDER = "https://tfs.yourcompany.com/tfs/DefaultCollection"
+    }
 
     init {
         title = "Sign In to Azure DevOps"
@@ -107,12 +114,12 @@ class AzureDevOpsLoginDialog(private val project: Project?) : DialogWrapper(proj
                 layout = BoxLayout(this, BoxLayout.Y_AXIS)
 
                 add(JPanel(BorderLayout()).apply {
-                    add(JBLabel("Organization URL").apply { font = font.deriveFont(java.awt.Font.BOLD) }, BorderLayout.WEST)
+                    add(JBLabel("Organization").apply { font = font.deriveFont(java.awt.Font.BOLD) }, BorderLayout.WEST)
                 })
                 add(Box.createVerticalStrut(8))
                 add(JPanel(BorderLayout()).apply {
                     add(serverUrlField, BorderLayout.CENTER)
-                    serverUrlField.putClientProperty("JTextField.placeholderText", "https://dev.azure.com/YourOrganization")
+                    serverUrlField.putClientProperty("JTextField.placeholderText", CLOUD_PLACEHOLDER)
                 })
                 add(Box.createVerticalStrut(5))
                 urlHintLabel.foreground = UIUtil.getLabelInfoForeground()
@@ -239,17 +246,17 @@ class AzureDevOpsLoginDialog(private val project: Project?) : DialogWrapper(proj
             cardLayout.show(cardPanel, "PAT")
             toggleLink.isVisible = false
             serverUrlField.text = "https://"
-            serverUrlField.putClientProperty("JTextField.placeholderText", "https://tfs.yourcompany.com/tfs/DefaultCollection")
-            urlHintLabel.text = "<html><div style='font-size:11px;color:gray;'>Enter the full URL of your Azure DevOps Server instance (e.g. https://tfs.yourcompany.com/tfs/DefaultCollection)</div></html>"
+            serverUrlField.putClientProperty("JTextField.placeholderText", SELF_HOSTED_PLACEHOLDER)
+            urlHintLabel.text = SELF_HOSTED_URL_HINT
         } else {
             // Restore normal mode
             toggleLink.isVisible = true
             useOAuth = true
             cardLayout.show(cardPanel, "OAUTH")
             toggleLink.text = "Use Personal Access Token instead"
-            serverUrlField.text = "https://dev.azure.com/"
-            serverUrlField.putClientProperty("JTextField.placeholderText", "https://dev.azure.com/YourOrganization")
-            urlHintLabel.text = "<html><div style='font-size:11px;color:gray;'>Examples: dev.azure.com/contoso or contoso.visualstudio.com</div></html>"
+            serverUrlField.text = ""
+            serverUrlField.putClientProperty("JTextField.placeholderText", CLOUD_PLACEHOLDER)
+            urlHintLabel.text = CLOUD_URL_HINT
         }
     }
 
@@ -269,19 +276,7 @@ class AzureDevOpsLoginDialog(private val project: Project?) : DialogWrapper(proj
     // -------- OAuth flow --------
 
     private fun performOAuthLogin() {
-        val serverUrl = serverUrlField.text.trim().removeSuffix("/")
-
-        if (serverUrl.isBlank() || !isValidServerUrl(serverUrl)) {
-            Messages.showErrorDialog(
-                contentPanel,
-                "Please enter a valid Azure DevOps organization URL.\n\n" +
-                        "Examples:\n" +
-                        "• https://dev.azure.com/YourOrganization\n" +
-                        "• https://YourOrganization.visualstudio.com",
-                "Invalid URL"
-            )
-            return
-        }
+        val serverUrl = normalizeAndValidateUrl() ?: return
 
         ProgressManager.getInstance().run(object : Task.Modal(project, "Requesting Authentication Code...", true) {
             var deviceCodeResponse: AzureDevOpsOAuthService.DeviceCodeResponse? = null
@@ -322,13 +317,8 @@ class AzureDevOpsLoginDialog(private val project: Project?) : DialogWrapper(proj
     // -------- PAT flow --------
 
     private fun performPatLogin() {
-        val serverUrl = serverUrlField.text.trim().removeSuffix("/")
+        val serverUrl = normalizeAndValidateUrl() ?: return
         val pat = String(tokenField.password).trim()
-
-        if (serverUrl.isBlank() || !isValidServerUrl(serverUrl)) {
-            Messages.showErrorDialog(contentPanel, "Please enter a valid Azure DevOps URL.", "Invalid URL")
-            return
-        }
         if (pat.isBlank()) {
             Messages.showErrorDialog(contentPanel, "Please enter your Personal Access Token.", "Token Required")
             return
@@ -378,15 +368,98 @@ class AzureDevOpsLoginDialog(private val project: Project?) : DialogWrapper(proj
     // -------- helpers --------
 
     /**
-     * Accepts any HTTPS URL so that self-hosted instances work too.
+     * Normalizes, validates, and enforces that the organization URL actually contains
+     * an organization name. Handles common user mistakes:
+     *
+     * - Bare org name ("contoso") → auto-completes to "https://dev.azure.com/contoso"
+     * - Missing org in URL ("https://dev.azure.com/" or "https://dev.azure.com") → error
+     * - Full valid URL ("https://dev.azure.com/contoso") → accepted as-is
+     * - visualstudio.com ("https://contoso.visualstudio.com") → accepted as-is
+     *
+     * Updates the text field with the normalized URL so the user sees what will be stored.
+     * Returns the normalized URL on success, or null if validation failed (error shown).
      */
-    private fun isValidServerUrl(url: String): Boolean {
-        return try {
-            val uri = java.net.URI(url)
-            uri.scheme?.lowercase()?.startsWith("http") == true && uri.host != null
-        } catch (_: Exception) {
-            false
+    private fun normalizeAndValidateUrl(): String? {
+        var raw = serverUrlField.text.trim().removeSuffix("/")
+
+        if (raw.isBlank()) {
+            showUrlError("Please enter your Azure DevOps organization URL or organization name.")
+            return null
         }
+
+        // If user typed just an org name (no scheme), decide whether to auto-complete
+        if (!raw.contains("://")) {
+            val sanitized = raw.replace(" ", "")
+            if (sanitized.isEmpty()) {
+                showUrlError("Please enter a valid organization name.")
+                return null
+            }
+
+            raw = if (sanitized.contains(".")) {
+                // Looks like a hostname (tfs.company.com or tfs.company.com/tfs) → prepend https://
+                "https://$sanitized"
+            } else {
+                // Plain org name: "contoso" or "my-org" → auto-complete to dev.azure.com
+                "https://dev.azure.com/$sanitized"
+            }
+            serverUrlField.text = raw
+        }
+
+        // Basic URL validation
+        val uri = try {
+            java.net.URI(raw)
+        } catch (_: Exception) {
+            showUrlError("The URL format is not valid.\n\nExamples:\n• https://dev.azure.com/YourOrganization\n• https://YourOrganization.visualstudio.com")
+            return null
+        }
+
+        val scheme = uri.scheme?.lowercase()
+        if (scheme !in setOf("http", "https") || uri.host == null) {
+            showUrlError("The URL must start with http:// or https:// and contain a valid host.")
+            return null
+        }
+
+        // Self-hosted: skip organization extraction check (any valid URL is fine)
+        if (selfHostedCheckbox.isSelected) {
+            return raw
+        }
+
+        // Cloud: ensure organization is present in the URL
+        val host = uri.host.lowercase()
+        val path = uri.path?.trim('/') ?: ""
+
+        if (host.contains("dev.azure.com")) {
+            // Must have org name in path: https://dev.azure.com/{org}
+            if (path.isEmpty()) {
+                showUrlError(
+                    "You entered the Azure DevOps base URL without an organization name.\n\n" +
+                    "Please add your organization:\n" +
+                    "  https://dev.azure.com/YourOrganization\n\n" +
+                    "You can find your organization name in the Azure DevOps web portal URL."
+                )
+                serverUrlField.requestFocusInWindow()
+                // Position cursor at the end to hint they should type there
+                serverUrlField.caretPosition = serverUrlField.text.length
+                return null
+            }
+        } else if (host.endsWith(".visualstudio.com")) {
+            // Subdomain must not be empty or just "app" / "www"
+            val subdomain = host.substringBefore(".visualstudio.com")
+            if (subdomain.isBlank() || subdomain == "app" || subdomain == "www") {
+                showUrlError(
+                    "The visualstudio.com URL must include your organization as the subdomain.\n\n" +
+                    "Example: https://YourOrganization.visualstudio.com"
+                )
+                return null
+            }
+        }
+        // For other hosts (self-hosted not checked but custom domain), accept as-is
+
+        return raw
+    }
+
+    private fun showUrlError(message: String) {
+        Messages.showErrorDialog(contentPanel, message, "Invalid Organization URL")
     }
 
     private fun escapeHtml(text: String): String {
