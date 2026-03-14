@@ -176,6 +176,9 @@ class PullRequestToolWindowFactory : ToolWindowFactory, DumbAware {
             object : AnAction("Refresh", "Refresh Pull Requests", AllIcons.Actions.Refresh) {
                 override fun actionPerformed(e: AnActionEvent) {
                     pullRequestToolWindow.refreshPullRequests()
+                    // Also refresh the metrics tab if it's open
+                    val projectKey = System.identityHashCode(project)
+                    metricsTabs[projectKey]?.loadMetrics()
                 }
             },
             object : AnAction("Open in Browser", "Open selected PR in browser", AllIcons.Ide.External_link_arrow) {

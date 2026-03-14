@@ -39,7 +39,6 @@ class PrMetricsDashboardPanel(private val project: Project) {
     private val mainPanel: JPanel
     private val contentPanel: JPanel
     private val statusLabel: JBLabel
-    private val refreshButton: JButton
     private val scopeToggle: JComboBox<String>
 
     // Metric cards
@@ -64,10 +63,6 @@ class PrMetricsDashboardPanel(private val project: Project) {
             font = font.deriveFont(Font.PLAIN, 11f)
         }
 
-        refreshButton = JButton("Refresh", AllIcons.Actions.Refresh).apply {
-            addActionListener { loadMetrics() }
-        }
-
         scopeToggle = JComboBox(arrayOf("All Organization", "Current Repository")).apply {
             selectedIndex = 0
             addActionListener { loadMetrics() }
@@ -85,7 +80,6 @@ class PrMetricsDashboardPanel(private val project: Project) {
             val toolbar = JPanel(FlowLayout(FlowLayout.LEFT, 8, 4)).apply {
                 add(JBLabel("Scope:"))
                 add(scopeToggle)
-                add(refreshButton)
                 add(statusLabel)
                 border = JBUI.Borders.empty(4, 8)
             }
@@ -103,7 +97,7 @@ class PrMetricsDashboardPanel(private val project: Project) {
     fun loadMetrics() {
         statusLabel.text = "Loading PR data..."
         statusLabel.icon = AllIcons.Process.Step_1
-        refreshButton.isEnabled = false
+
 
         ProgressManager.getInstance().run(object : Task.Backgroundable(
             project, "Computing PR Metrics...", false
@@ -145,7 +139,7 @@ class PrMetricsDashboardPanel(private val project: Project) {
                     ApplicationManager.getApplication().invokeLater {
                         statusLabel.text = "Error: ${e.message?.take(80)}"
                         statusLabel.icon = AllIcons.General.Error
-                        refreshButton.isEnabled = true
+                
                     }
                 }
             }
@@ -171,7 +165,7 @@ class PrMetricsDashboardPanel(private val project: Project) {
 
         statusLabel.text = "Analyzed $totalLoaded PRs"
         statusLabel.icon = AllIcons.General.InspectionsOK
-        refreshButton.isEnabled = true
+
 
         contentPanel.revalidate()
         contentPanel.repaint()
