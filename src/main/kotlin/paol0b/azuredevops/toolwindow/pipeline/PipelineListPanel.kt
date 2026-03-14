@@ -112,41 +112,65 @@ class PipelineListPanel(
 
     fun getComponent(): JPanel = panel
 
-    // region Filter Setters
+    // region Filter
 
-    fun setResultFilter(result: String?) {
-        if (resultFilter != result) {
-            resultFilter = result
+    /** Current search value — used for client-side text search. */
+    private var currentSearchValue = PipelineSearchValue.DEFAULT
+
+    /**
+     * Apply a [PipelineSearchValue] from the filter panel.
+     * Server-side filters are mapped to the API parameters;
+     * text search is applied client-side after fetch.
+     */
+    fun applyFilter(value: PipelineSearchValue) {
+        val serverChanged =
+            resultFilter != value.result?.apiResult ||
+            statusFilter != value.result?.apiStatus ||
+            branchFilter != value.branch ||
+            userFilter != (if (value.requestedBy == PipelineSearchValue.RequestedByFilter.ME) "__ME__" else null) ||
+            definitionFilter != value.definition?.id
+
+        currentSearchValue = value
+
+        // Map to individual API filters
+        resultFilter = value.result?.apiResult
+        statusFilter = value.result?.apiStatus
+        branchFilter = value.branch
+        userFilter = if (value.requestedBy == PipelineSearchValue.RequestedByFilter.ME) "__ME__" else null
+        definitionFilter = value.definition?.id
+
+        if (serverChanged) {
             refreshBuilds()
+        } else {
+            // Only search query or sort changed — re-filter client-side
+            ApplicationManager.getApplication().invokeLater {
+                updateTreeWithBuilds(applyClientFilters(cachedBuilds))
+            }
         }
     }
 
-    fun setStatusFilter(status: String?) {
-        if (statusFilter != status) {
-            statusFilter = status
-            refreshBuilds()
-        }
-    }
+    /** Apply client-side text search and sort to the given list. */
+    private fun applyClientFilters(builds: List<PipelineBuild>): List<PipelineBuild> {
+        var filtered = builds
 
-    fun setBranchFilter(branch: String?) {
-        if (branchFilter != branch) {
-            branchFilter = branch
-            refreshBuilds()
+        val query: String = currentSearchValue.searchQuery?.lowercase() ?: ""
+        if (query.isNotBlank()) {
+            filtered = filtered.filter { build ->
+                build.getDefinitionName().lowercase().contains(query) ||
+                build.getBranchName().lowercase().contains(query) ||
+                (build.buildNumber?.lowercase()?.contains(query) == true) ||
+                (build.requestedFor?.displayName?.lowercase()?.contains(query) == true) ||
+                build.id.toString().contains(query)
+            }
         }
-    }
 
-    fun setUserFilter(user: String?) {
-        if (userFilter != user) {
-            userFilter = user
-            refreshBuilds()
+        when (currentSearchValue.sort) {
+            PipelineSearchValue.Sort.OLDEST -> filtered = filtered.sortedBy { it.queueTime ?: it.startTime }
+            PipelineSearchValue.Sort.NEWEST -> filtered = filtered.sortedByDescending { it.queueTime ?: it.startTime }
+            null -> { /* default order from API */ }
         }
-    }
 
-    fun setDefinitionFilter(defId: Int?) {
-        if (definitionFilter != defId) {
-            definitionFilter = defId
-            refreshBuilds()
-        }
+        return filtered
     }
 
     // endregion
@@ -183,8 +207,9 @@ class PipelineListPanel(
                     cachedBuilds = builds
                     cachedHash = newHash
                     isErrorState = false
-                    updateTreeWithBuilds(builds)
-                    statusLabel.text = "Loaded ${builds.size} pipeline run(s)"
+                    val displayed = applyClientFilters(builds)
+                    updateTreeWithBuilds(displayed)
+                    statusLabel.text = "Loaded ${displayed.size} pipeline run(s)"
                     statusLabel.icon = AllIcons.General.InspectionsOK
                 }
             } catch (e: Exception) {

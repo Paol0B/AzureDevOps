@@ -14,6 +14,7 @@ import com.intellij.openapi.ui.popup.util.BaseListPopupStep
 import com.intellij.ui.awt.RelativePoint
 import com.intellij.util.ui.JBUI
 import paol0b.azuredevops.model.TeamIteration
+import paol0b.azuredevops.toolwindow.filters.FilterBadgeIcon
 import paol0b.azuredevops.toolwindow.filters.FilterChipComponent
 import paol0b.azuredevops.toolwindow.filters.FilterPopupUtil
 import java.awt.*
@@ -48,7 +49,7 @@ class WorkItemFilterPanel(
     private val sortChip: FilterChipComponent
 
     // Quick filter button
-    private val filterBadgeIcon = WorkItemFilterBadgeIcon(AllIcons.General.Filter)
+    private val filterBadgeIcon = FilterBadgeIcon(AllIcons.General.Filter)
     private val quickFilterButton: JButton
 
     // Cached iterations
@@ -80,8 +81,6 @@ class WorkItemFilterPanel(
             onShowPopup = { chip -> showAssignedToPopup(chip) },
             onClear = { updateFilter(currentValue.copy(assignedTo = null)) }
         )
-        // Set default
-        assignedToChip.setValue(WorkItemSearchValue.AssignedToFilter.ME.displayName)
 
         iterationChip = FilterChipComponent("Iteration",
             onShowPopup = { chip -> showIterationPopup(chip) },
@@ -341,30 +340,6 @@ class WorkItemFilterPanel(
     private fun updateBadge() {
         filterBadgeIcon.showBadge = diffFromDefaultCount() > 0
         quickFilterButton.repaint()
-    }
-}
-
-private class WorkItemFilterBadgeIcon(private val base: Icon) : Icon {
-    var showBadge: Boolean = false
-
-    override fun getIconWidth(): Int = base.iconWidth
-    override fun getIconHeight(): Int = base.iconHeight
-
-    override fun paintIcon(c: Component?, g: Graphics, x: Int, y: Int) {
-        base.paintIcon(c, g, x, y)
-        if (!showBadge) return
-        val g2 = g.create() as Graphics2D
-        try {
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-            val dotSize = JBUIScale.scale(6)
-            g2.color = JBColor(Color(71, 136, 227), Color(75, 110, 175))
-            g2.fill(Ellipse2D.Double(
-                (x + iconWidth - dotSize).toDouble(), y.toDouble(),
-                dotSize.toDouble(), dotSize.toDouble()
-            ))
-        } finally {
-            g2.dispose()
-        }
     }
 }
 

@@ -79,7 +79,7 @@ data class WorkItemSearchValue(
     }
 
     companion object {
-        val DEFAULT = WorkItemSearchValue(assignedTo = AssignedToFilter.ME)
+        val DEFAULT = WorkItemSearchValue()
         val EMPTY = WorkItemSearchValue()
     }
 }

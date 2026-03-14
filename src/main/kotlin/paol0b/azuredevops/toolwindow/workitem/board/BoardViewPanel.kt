@@ -11,6 +11,7 @@ import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import paol0b.azuredevops.model.JsonPatchOperation
 import paol0b.azuredevops.model.WorkItem
+import paol0b.azuredevops.model.WorkItemTypeState
 import paol0b.azuredevops.services.AzureDevOpsApiClient
 import paol0b.azuredevops.util.NotificationUtil
 import java.awt.*
@@ -35,8 +36,9 @@ class BoardViewPanel(
     private var cachedWorkItems: List<WorkItem> = emptyList()
     private var refreshTimer: Timer? = null
 
-    // Standard column order
-    private val COLUMN_ORDER = listOf("New", "Active", "Resolved", "Closed")
+    /** Column definitions read from Azure DevOps (work item type states). Empty until first refresh. */
+    private var boardColumns: List<WorkItemTypeState> = emptyList()
+    private var isBoardColumnsLoaded = false
 
     init {
         background = UIUtil.getPanelBackground()
@@ -101,10 +103,35 @@ class BoardViewPanel(
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
                 val apiClient = AzureDevOpsApiClient.getInstance(project)
+
+                // Fetch board column definitions from Azure DevOps (work item type states)
+                if (!isBoardColumnsLoaded) {
+                    try {
+                        val types = apiClient.getWorkItemTypes()
+                        // Collect all unique states across all work item types, preserving order
+                        val seen = linkedSetOf<String>()
+                        val stateList = mutableListOf<WorkItemTypeState>()
+                        for (type in types) {
+                            for (state in type.states.orEmpty()) {
+                                val name = state.name ?: continue
+                                if (seen.add(name)) {
+                                    stateList.add(state)
+                                }
+                            }
+                        }
+                        boardColumns = stateList
+                        isBoardColumnsLoaded = true
+                    } catch (e: Exception) {
+                        isBoardColumnsLoaded = true // don't retry on every refresh
+                        logger.warn("Failed to load work item types for board columns, will use states from items", e)
+                    }
+                }
+
+                // Fetch ALL work items (not just assigned to me) so unassigned items are visible
                 val items = if (iterationPath != null) {
-                    apiClient.getMyWorkItems(iterationPath = iterationPath)
+                    apiClient.getAllWorkItems(iterationPath = iterationPath)
                 } else {
-                    apiClient.getMyWorkItems()
+                    apiClient.getAllWorkItems()
                 }
                 cachedWorkItems = items
 
@@ -130,15 +157,37 @@ class BoardViewPanel(
 
         val grouped = cachedWorkItems.groupBy { it.getState() }
 
-        // All states in order
-        val allStates = COLUMN_ORDER.toMutableList()
-        grouped.keys.forEach { state ->
-            if (state !in allStates) allStates.add(state)
+        // Build ordered column list from Azure DevOps states
+        val orderedStates = mutableListOf<String>()
+        val stateColorMap = mutableMapOf<String, Color>()
+
+        for (col in boardColumns) {
+            val name = col.name ?: continue
+            if (name !in orderedStates) {
+                orderedStates.add(name)
+                // Parse hex color from Azure DevOps (e.g. "b2b2b2")
+                col.color?.let { hex ->
+                    try {
+                        stateColorMap[name] = Color(Integer.parseInt(hex.removePrefix("#"), 16))
+                    } catch (_: NumberFormatException) { }
+                }
+            }
         }
 
-        allStates.forEach { state ->
+        // Add any states present in items but not in the type definitions
+        for (state in grouped.keys) {
+            if (state !in orderedStates) orderedStates.add(state)
+        }
+
+        // If we got no columns at all (API failed), fall back to states from the items themselves
+        if (orderedStates.isEmpty()) {
+            orderedStates.addAll(grouped.keys.sorted())
+        }
+
+        for (state in orderedStates) {
             val items = grouped[state] ?: emptyList()
-            val column = BoardColumnPanel(project, state, items, getColumnColor(state)) { workItem, targetState ->
+            val color = stateColorMap[state] ?: WorkItem.stateColor(state)
+            val column = BoardColumnPanel(project, state, items, color) { workItem, targetState ->
                 onItemDropped(workItem, targetState)
             }
             columnPanels[state] = column
@@ -149,8 +198,6 @@ class BoardViewPanel(
         columnsPanel.revalidate()
         columnsPanel.repaint()
     }
-
-    private fun getColumnColor(state: String): Color = WorkItem.stateColor(state)
 
     private fun onItemDropped(workItem: WorkItem, targetState: String) {
         if (workItem.getState() == targetState) return

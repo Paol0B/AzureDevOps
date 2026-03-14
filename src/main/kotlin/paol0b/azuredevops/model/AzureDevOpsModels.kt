@@ -45,7 +45,8 @@ data class CreatePullRequestRequest(
     val targetRefName: String,
     val title: String,
     val description: String = "",
-    val reviewers: List<ReviewerRequest>? = null
+    val reviewers: List<ReviewerRequest>? = null,
+    val isDraft: Boolean = false
 )
 
 /**

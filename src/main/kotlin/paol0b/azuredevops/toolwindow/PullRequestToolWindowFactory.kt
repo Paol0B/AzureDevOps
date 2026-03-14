@@ -1,7 +1,6 @@
 package paol0b.azuredevops.toolwindow
 
 import com.intellij.icons.AllIcons
-import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
@@ -12,8 +11,8 @@ import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.ui.content.ContentManagerEvent
 import com.intellij.ui.content.ContentManagerListener
-import paol0b.azuredevops.actions.CreatePullRequestAction
 import paol0b.azuredevops.model.PullRequest
+import paol0b.azuredevops.toolwindow.create.CreatePullRequestPanel
 import paol0b.azuredevops.toolwindow.metrics.PrMetricsDashboardPanel
 import paol0b.azuredevops.toolwindow.review.PrReviewTabPanel
 import java.util.concurrent.ConcurrentHashMap
@@ -29,12 +28,58 @@ class PullRequestToolWindowFactory : ToolWindowFactory, DumbAware {
     companion object {
         private const val TOOL_WINDOW_ID = "Azure DevOps PRs"
         private const val METRICS_TAB_TITLE = "Metrics & Trends"
+        private const val CREATE_PR_TAB_TITLE = "New Pull Request"
 
         /** Active review tab panels keyed by pullRequestId */
         private val reviewTabs = ConcurrentHashMap<Int, PrReviewTabPanel>()
 
         /** Singleton metrics dashboard per project (keyed by project hash) */
         private val metricsTabs = ConcurrentHashMap<Int, PrMetricsDashboardPanel>()
+
+        /** Singleton create PR panel per project (keyed by project hash) */
+        private val createPrTabs = ConcurrentHashMap<Int, CreatePullRequestPanel>()
+
+        /**
+         * Open (or focus) the Create Pull Request tab.
+         */
+        fun openCreatePrTab(project: Project) {
+            val toolWindow = ToolWindowManager.getInstance(project).getToolWindow(TOOL_WINDOW_ID) ?: return
+            val contentManager = toolWindow.contentManager
+
+            val projectKey = System.identityHashCode(project)
+
+            // Check if tab already exists
+            val existing = createPrTabs[projectKey]
+            if (existing != null) {
+                for (content in contentManager.contents) {
+                    if (content.component == existing) {
+                        contentManager.setSelectedContent(content, true)
+                        toolWindow.activate(null)
+                        return
+                    }
+                }
+                createPrTabs.remove(projectKey)
+            }
+
+            // Create new Create PR tab
+            val panel = CreatePullRequestPanel(project)
+            createPrTabs[projectKey] = panel
+
+            val content = contentManager.factory.createContent(panel, CREATE_PR_TAB_TITLE, false).apply {
+                isCloseable = true
+                description = "Create a new Pull Request"
+            }
+
+            // When PR is created, close this tab and refresh
+            panel.onPullRequestCreated = {
+                contentManager.removeContent(content, true)
+                createPrTabs.remove(projectKey)
+            }
+
+            contentManager.addContent(content)
+            contentManager.setSelectedContent(content, true)
+            toolWindow.activate(null)
+        }
 
         /**
          * Open (or focus) the Metrics & Trends dashboard tab.
@@ -125,11 +170,7 @@ class PullRequestToolWindowFactory : ToolWindowFactory, DumbAware {
         toolWindow.setTitleActions(listOf(
             object : AnAction("New Pull Request", "Create a new Pull Request", AllIcons.General.Add) {
                 override fun actionPerformed(e: AnActionEvent) {
-                    val createPRAction = CreatePullRequestAction()
-                    ActionManager.getInstance().tryToExecute(
-                        createPRAction, e.inputEvent, null, e.place, true
-                    )
-                    pullRequestToolWindow.refreshPullRequests()
+                    openCreatePrTab(project)
                 }
             },
             object : AnAction("Refresh", "Refresh Pull Requests", AllIcons.Actions.Refresh) {
@@ -181,6 +222,12 @@ class PullRequestToolWindowFactory : ToolWindowFactory, DumbAware {
 
                 // Clean up metrics tab entries
                 metricsTabs.entries.removeIf { it.value.getComponent() == removedComponent }
+
+                // Clean up create PR tab entries
+                if (removedComponent is CreatePullRequestPanel) {
+                    removedComponent.dispose()
+                    createPrTabs.entries.removeIf { it.value == removedComponent }
+                }
             }
         })
     }

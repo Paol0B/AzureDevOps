@@ -313,7 +313,8 @@ The plugin will automatically use your authenticated account for this repository
         title: String,
         description: String = "",
         requiredReviewers: List<Identity> = emptyList(),
-        optionalReviewers: List<Identity> = emptyList()
+        optionalReviewers: List<Identity> = emptyList(),
+        isDraft: Boolean = false
     ): PullRequestResponse {
         val config = requireValidConfig()
 
@@ -335,7 +336,8 @@ The plugin will automatically use your authenticated account for this repository
             targetRefName = targetBranch,
             title = title,
             description = description,
-            reviewers = if (reviewers.isNotEmpty()) reviewers else null
+            reviewers = if (reviewers.isNotEmpty()) reviewers else null,
+            isDraft = isDraft
         )
 
         // URL: https://dev.azure.com/{organization}/{project}/_apis/git/repositories/{repositoryId}/pullrequests?api-version=7.0

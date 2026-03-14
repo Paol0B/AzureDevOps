@@ -197,6 +197,9 @@
         <!-- PR Diff Editor Tab (individual file diff with inline comments) -->
         <fileEditorProvider implementation="paol0b.azuredevops.toolwindow.review.editor.PrDiffFileEditorProvider"/>
 
+        <!-- Create PR Diff Editor Tab (reusable diff tab for new PR file preview) -->
+        <fileEditorProvider implementation="paol0b.azuredevops.toolwindow.create.CreatePrDiffFileEditorProvider"/>
+
         <!-- PR Timeline Editor Tab -->
         <fileEditorProvider implementation="paol0b.azuredevops.toolwindow.review.editor.PrTimelineFileEditorProvider"/>
 
