@@ -14,6 +14,7 @@ import com.intellij.ui.content.ContentManagerEvent
 import com.intellij.ui.content.ContentManagerListener
 import paol0b.azuredevops.actions.CreatePullRequestAction
 import paol0b.azuredevops.model.PullRequest
+import paol0b.azuredevops.toolwindow.metrics.PrMetricsDashboardPanel
 import paol0b.azuredevops.toolwindow.review.PrReviewTabPanel
 import java.util.concurrent.ConcurrentHashMap
 
@@ -27,9 +28,51 @@ class PullRequestToolWindowFactory : ToolWindowFactory, DumbAware {
 
     companion object {
         private const val TOOL_WINDOW_ID = "Azure DevOps PRs"
+        private const val METRICS_TAB_TITLE = "Metrics & Trends"
 
         /** Active review tab panels keyed by pullRequestId */
         private val reviewTabs = ConcurrentHashMap<Int, PrReviewTabPanel>()
+
+        /** Singleton metrics dashboard per project (keyed by project hash) */
+        private val metricsTabs = ConcurrentHashMap<Int, PrMetricsDashboardPanel>()
+
+        /**
+         * Open (or focus) the Metrics & Trends dashboard tab.
+         */
+        fun openMetricsDashboard(project: Project) {
+            val toolWindow = ToolWindowManager.getInstance(project).getToolWindow(TOOL_WINDOW_ID) ?: return
+            val contentManager = toolWindow.contentManager
+
+            val projectKey = System.identityHashCode(project)
+
+            // Check if tab already exists
+            val existing = metricsTabs[projectKey]
+            if (existing != null) {
+                for (content in contentManager.contents) {
+                    if (content.component == existing.getComponent()) {
+                        contentManager.setSelectedContent(content, true)
+                        toolWindow.activate(null)
+                        return
+                    }
+                }
+                metricsTabs.remove(projectKey)
+            }
+
+            // Create new metrics tab
+            val panel = PrMetricsDashboardPanel(project)
+            metricsTabs[projectKey] = panel
+
+            val content = contentManager.factory.createContent(panel.getComponent(), METRICS_TAB_TITLE, false).apply {
+                isCloseable = true
+                description = "PR metrics and trends dashboard"
+            }
+            contentManager.addContent(content)
+            contentManager.setSelectedContent(content, true)
+            toolWindow.activate(null)
+
+            // Auto-load metrics on first open
+            panel.loadMetrics()
+        }
 
         /**
          * Open (or focus) a review tab for the given PR inside the tool window.
@@ -102,6 +145,11 @@ class PullRequestToolWindowFactory : ToolWindowFactory, DumbAware {
                     e.presentation.isEnabled = pullRequestToolWindow.getSelectedPullRequest() != null
                 }
                 override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
+            },
+            object : AnAction("Metrics & Trends", "Open PR metrics dashboard", AllIcons.Actions.GroupByModule) {
+                override fun actionPerformed(e: AnActionEvent) {
+                    openMetricsDashboard(project)
+                }
             }
         ))
 
@@ -130,6 +178,9 @@ class PullRequestToolWindowFactory : ToolWindowFactory, DumbAware {
                     removedComponent.dispose()
                     reviewTabs.entries.removeIf { it.value == removedComponent }
                 }
+
+                // Clean up metrics tab entries
+                metricsTabs.entries.removeIf { it.value.getComponent() == removedComponent }
             }
         })
     }

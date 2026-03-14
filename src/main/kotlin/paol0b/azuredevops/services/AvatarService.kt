@@ -180,7 +180,8 @@ class AvatarService(private val project: Project) {
             g2d.dispose()
 
             makeCircular(result)
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
+            // Catch Throwable to handle NoClassDefFoundError from broken JBR native libraries
             logger.debug("Error loading image from $url: ${e.message}")
             null
         }
