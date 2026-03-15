@@ -12,32 +12,34 @@ import java.awt.RenderingHints
 import java.awt.image.BufferedImage
 import java.net.URI
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.CopyOnWriteArrayList
 import javax.imageio.ImageIO
 import javax.swing.Icon
 
 /**
  * Service for loading, caching, and serving user avatars from Azure DevOps.
- * Avatars are loaded asynchronously and cached in memory.
+ *
+ * Every call to [getAvatar] for the same URL+size returns the **same**
+ * [DelegatingIcon] instance. That icon starts with a placeholder delegate
+ * and is transparently swapped to the real avatar once loaded. Because all
+ * JBLabels share the same icon object, a single `repaint()` after the swap
+ * updates every visible occurrence — no per-caller callbacks needed.
  */
 @Service(Service.Level.PROJECT)
 class AvatarService(private val project: Project) {
 
     private val logger = Logger.getInstance(AvatarService::class.java)
 
-    // Cache: imageUrl -> loaded Icon
-    private val cache = ConcurrentHashMap<String, Icon>()
+    /**
+     * Shared delegating icons keyed by sized URL.
+     * Every caller for the same URL+size gets the exact same [DelegatingIcon].
+     */
+    private val icons = ConcurrentHashMap<String, DelegatingIcon>()
 
-    // Set of URLs currently being loaded (to avoid duplicate requests)
+    /** URLs currently being fetched (prevents duplicate network requests). */
     private val loading = ConcurrentHashMap.newKeySet<String>()
-    // Callbacks waiting for a URL to finish loading
-    private val pendingCallbacks = ConcurrentHashMap<String, CopyOnWriteArrayList<() -> Unit>>()
 
     companion object {
         private const val DEFAULT_SIZE = 24
-        // Fetch at 2× the logical size so avatars are crisp on HiDPI / Retina displays.
-        // The custom icon reports the logical size to Swing, but holds the 2× physical pixels,
-        // which map 1:1 on a 2× screen and are BICUBIC-downscaled on 1× screens.
         private const val FETCH_SCALE = 2
         private val PLACEHOLDER_ICON: Icon = AllIcons.General.User
 
@@ -48,13 +50,15 @@ class AvatarService(private val project: Project) {
 
     /**
      * Get an avatar icon for the given image URL.
-     * Returns a placeholder immediately and loads the real avatar asynchronously.
-     * Once loaded, the callback (if provided) is invoked on the EDT.
+     *
+     * Returns a shared [DelegatingIcon] that initially paints the placeholder.
+     * When the real avatar loads, the delegate is swapped in-place so every
+     * JBLabel holding this icon automatically shows the real avatar on repaint.
      *
      * @param imageUrl The Azure DevOps image URL for the user
      * @param size The desired icon size in pixels (width and height)
      * @param onLoaded Optional callback invoked on the EDT when the real avatar is ready
-     * @return The cached icon if available, otherwise a placeholder
+     * @return A shared icon instance that updates in-place when the avatar loads
      */
     fun getAvatar(imageUrl: String?, size: Int = DEFAULT_SIZE, onLoaded: (() -> Unit)? = null): Icon {
         if (imageUrl.isNullOrBlank()) return PLACEHOLDER_ICON
@@ -62,19 +66,13 @@ class AvatarService(private val project: Project) {
         val physicalSize = size * FETCH_SCALE
         val sizedUrl = appendSizeParam(imageUrl, physicalSize)
 
-        // Return cached icon if available
-        cache[sizedUrl]?.let { return it }
+        // Get or create the shared wrapper for this URL+size
+        val wrapper = icons.computeIfAbsent(sizedUrl) { DelegatingIcon(PLACEHOLDER_ICON, size) }
 
-        if (onLoaded != null) {
-            pendingCallbacks.computeIfAbsent(sizedUrl) { CopyOnWriteArrayList() }.add(onLoaded)
-        }
-
-        cache[sizedUrl]?.let { icon ->
-            if (onLoaded != null) {
-                pendingCallbacks.remove(sizedUrl)
-                ApplicationManager.getApplication().invokeLater { onLoaded() }
-            }
-            return icon
+        // If the delegate is already the real icon, fire callback and return
+        if (wrapper.isLoaded) {
+            onLoaded?.let { cb -> ApplicationManager.getApplication().invokeLater { cb() } }
+            return wrapper
         }
 
         // Start async load if not already in progress
@@ -83,52 +81,46 @@ class AvatarService(private val project: Project) {
                 try {
                     val image = loadImage(sizedUrl, physicalSize)
                     if (image != null) {
-                        val icon = createHiDpiIcon(image, size)
-                        cache[sizedUrl] = icon
+                        val realIcon = createHiDpiIcon(image, size)
+                        wrapper.swapDelegate(realIcon)
                     }
                 } catch (e: Exception) {
                     logger.warn("Failed to load avatar from $sizedUrl: ${e.message}")
                 } finally {
-                    val callbacks = pendingCallbacks.remove(sizedUrl)
-                    if (callbacks != null && callbacks.isNotEmpty()) {
-                        ApplicationManager.getApplication().invokeLater {
-                            callbacks.forEach { it() }
-                        }
-                    }
                     loading.remove(sizedUrl)
+                    // Fire the onLoaded callback for this specific call
+                    onLoaded?.let { cb ->
+                        ApplicationManager.getApplication().invokeLater { cb() }
+                    }
                 }
             }
         }
 
-        return PLACEHOLDER_ICON
+        return wrapper
     }
 
     /**
      * Get an avatar icon synchronously (blocking). Use only on background threads.
-     *
-     * @param imageUrl The Azure DevOps image URL
-     * @param size The desired icon size
-     * @return The loaded icon, or placeholder on failure
      */
     fun getAvatarSync(imageUrl: String?, size: Int = DEFAULT_SIZE): Icon {
         if (imageUrl.isNullOrBlank()) return PLACEHOLDER_ICON
 
         val physicalSize = size * FETCH_SCALE
         val sizedUrl = appendSizeParam(imageUrl, physicalSize)
-        cache[sizedUrl]?.let { return it }
+
+        val wrapper = icons.computeIfAbsent(sizedUrl) { DelegatingIcon(PLACEHOLDER_ICON, size) }
+        if (wrapper.isLoaded) return wrapper
 
         return try {
             val image = loadImage(sizedUrl, physicalSize)
             if (image != null) {
-                val icon = createHiDpiIcon(image, size)
-                cache[sizedUrl] = icon
-                icon
-            } else {
-                PLACEHOLDER_ICON
+                val realIcon = createHiDpiIcon(image, size)
+                wrapper.swapDelegate(realIcon)
             }
+            wrapper
         } catch (e: Exception) {
             logger.warn("Failed to load avatar synchronously: ${e.message}")
-            PLACEHOLDER_ICON
+            wrapper
         }
     }
 
@@ -145,12 +137,54 @@ class AvatarService(private val project: Project) {
      * Clear the avatar cache.
      */
     fun clearCache() {
-        cache.clear()
+        icons.clear()
     }
 
+    // ── DelegatingIcon ──────────────────────────────────────────────────
+
     /**
-     * Load and scale an image from a URL.
+     * Mutable icon wrapper shared by all callers for the same URL+size.
+     *
+     * Starts with a placeholder delegate. When the real avatar loads,
+     * [swapDelegate] replaces the delegate and repaints every component
+     * that has ever rendered this icon.
      */
+    private class DelegatingIcon(
+        @Volatile var delegate: Icon,
+        private val logicalSize: Int
+    ) : Icon {
+
+        /** True once the real avatar has been loaded. */
+        @Volatile var isLoaded: Boolean = false
+            private set
+
+        /** Components that have painted this icon — repainted on swap. */
+        private val paintedComponents = java.util.Collections.newSetFromMap(java.util.WeakHashMap<Component, Boolean>())
+
+        override fun getIconWidth() = logicalSize
+        override fun getIconHeight() = logicalSize
+
+        override fun paintIcon(c: Component?, g: Graphics, x: Int, y: Int) {
+            c?.let { synchronized(paintedComponents) { paintedComponents.add(it) } }
+            delegate.paintIcon(c, g, x, y)
+        }
+
+        fun swapDelegate(newIcon: Icon) {
+            delegate = newIcon
+            isLoaded = true
+            // Repaint all components that have ever rendered this icon
+            ApplicationManager.getApplication().invokeLater {
+                synchronized(paintedComponents) {
+                    paintedComponents.forEach { comp ->
+                        if (comp.isShowing) comp.repaint()
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Image loading ───────────────────────────────────────────────────
+
     private fun loadImage(url: String, size: Int): BufferedImage? {
         return try {
             val configService = AzureDevOpsConfigService.getInstance(project)
@@ -169,8 +203,6 @@ class AvatarService(private val project: Project) {
                 ImageIO.read(stream)
             } ?: return null
 
-            // Scale to target size using high-quality BICUBIC interpolation.
-            // Drawing into a fresh ARGB buffer avoids ColorModel issues.
             val result = BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB)
             val g2d = result.createGraphics()
             g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC)
@@ -180,18 +212,12 @@ class AvatarService(private val project: Project) {
             g2d.dispose()
 
             makeCircular(result)
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             logger.debug("Error loading image from $url: ${e.message}")
             null
         }
     }
 
-    /**
-     * Creates an icon that reports [logicalSize] × [logicalSize] to Swing layout,
-     * but paints the full-resolution [image] (which is [logicalSize] × FETCH_SCALE pixels).
-     * On HiDPI screens the rendering pipeline maps logical → physical at the system scale,
-     * so the 2× image lands 1:1 on physical pixels — no upscaling, no blur.
-     */
     private fun createHiDpiIcon(image: BufferedImage, logicalSize: Int): Icon {
         return object : Icon {
             override fun getIconWidth() = logicalSize
@@ -210,9 +236,6 @@ class AvatarService(private val project: Project) {
         }
     }
 
-    /**
-     * Create a circular version of a buffered image (for avatar display).
-     */
     private fun makeCircular(image: BufferedImage): BufferedImage {
         val size = image.width
         val result = BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB)
@@ -226,9 +249,6 @@ class AvatarService(private val project: Project) {
         return result
     }
 
-    /**
-     * Append a size query parameter to the avatar URL if not already present.
-     */
     private fun appendSizeParam(url: String, size: Int): String {
         return if (url.contains("size=")) {
             url

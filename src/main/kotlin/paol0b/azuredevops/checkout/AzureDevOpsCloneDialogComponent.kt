@@ -1,9 +1,6 @@
 package paol0b.azuredevops.checkout
 
-import com.intellij.dvcs.ui.CloneDvcsValidationUtils
 import com.intellij.icons.AllIcons
-import com.intellij.notification.NotificationGroupManager
-import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.diagnostic.Logger
@@ -19,10 +16,8 @@ import com.intellij.openapi.ui.ValidationInfo
 import com.intellij.openapi.vcs.CheckoutProvider
 import com.intellij.openapi.vcs.ui.cloneDialog.VcsCloneDialogExtensionComponent
 import com.intellij.ui.ColoredListCellRenderer
-import com.intellij.ui.ColoredTreeCellRenderer
 import com.intellij.ui.DocumentAdapter
 import com.intellij.ui.SearchTextField
-import com.intellij.ui.SimpleTextAttributes
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.treeStructure.Tree
@@ -34,6 +29,7 @@ import git4idea.commands.GitCommand
 import git4idea.commands.GitLineHandler
 import paol0b.azuredevops.AzureDevOpsIcons
 import paol0b.azuredevops.services.GitTokenManager
+import paol0b.azuredevops.util.NotificationUtil
 import java.awt.BorderLayout
 import java.awt.FlowLayout
 import java.io.File
@@ -45,8 +41,40 @@ import javax.swing.*
 import javax.swing.event.DocumentEvent
 import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.DefaultTreeModel
-import javax.swing.tree.TreePath
 import javax.swing.tree.TreeSelectionModel
+
+/**
+ * Normalizes an Azure DevOps remote URL by fully decoding it then re-encoding
+ * each path segment so that special characters (e.g. spaces) are handled
+ * consistently by git.
+ */
+fun normalizeAzureDevOpsUrl(url: String): String {
+    return try {
+        var decodedUrl = url
+        var previousUrl: String
+
+        do {
+            previousUrl = decodedUrl
+            decodedUrl = URLDecoder.decode(previousUrl, StandardCharsets.UTF_8)
+        } while (decodedUrl != previousUrl)
+
+        val uri = URI(decodedUrl)
+        val scheme = uri.scheme ?: "https"
+        val host = uri.host ?: return url
+
+        val path = uri.path ?: return url
+
+        val segments = path.split("/").filter { it.isNotEmpty() }
+        val encodedPath = segments.joinToString("/") { segment ->
+            URLEncoder.encode(segment, StandardCharsets.UTF_8)
+                .replace("+", "%20")
+        }
+
+        "$scheme://$host/$encodedPath"
+    } catch (e: Exception) {
+        url
+    }
+}
 
 /**
  * Main component for Azure DevOps in the Clone Repository dialog.
@@ -154,7 +182,7 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
             TextBrowseFolderListener(fileChooserDescriptor, project)
         )
         directoryField.text = defaultCloneDir
-        
+
         // Listen for directory changes to trigger validation
         directoryField.textField.document.addDocumentListener(object : DocumentAdapter() {
             override fun textChanged(e: DocumentEvent) {
@@ -177,7 +205,7 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
         // === TOP: Account selection with logo ===
         val accountPanel = JPanel(BorderLayout(8, 0)).apply {
             border = JBUI.Borders.empty(0, 0, 8, 0)
-            
+
             // Account combo + add button
             val accountRow = JPanel(BorderLayout(4, 0)).apply {
                 add(accountComboBox, BorderLayout.CENTER)
@@ -190,7 +218,7 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
         val centerPanel = JPanel(BorderLayout(0, 8)).apply {
             // Search at top
             add(searchField, BorderLayout.NORTH)
-            
+
             // Tree in scroll pane
             val scrollPane = JBScrollPane(tree).apply {
                 border = JBUI.Borders.customLine(UIUtil.getBoundsColor(), 1)
@@ -201,14 +229,14 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
         // === BOTTOM: Clone options ===
         val bottomPanel = JPanel(BorderLayout(0, 8)).apply {
             border = JBUI.Borders.empty(8, 0, 0, 0)
-            
+
             // Directory row
             val directoryRow = JPanel(BorderLayout(8, 0)).apply {
                 add(JBLabel("Directory:"), BorderLayout.WEST)
                 add(directoryField, BorderLayout.CENTER)
             }
             add(directoryRow, BorderLayout.NORTH)
-            
+
             // Shallow clone row
             val shallowRow = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply {
                 add(shallowCloneCheckbox)
@@ -236,7 +264,7 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
 
         val cloneUrl = normalizeAzureDevOpsUrl(repo.remoteUrl)
         val token = AzureDevOpsAccountManager.getInstance().getToken(account.id)
-        
+
         val isShallowClone = shallowCloneCheckbox.isSelected
         val shallowDepth = shallowCloneDepthField.text.toIntOrNull() ?: 1
 
@@ -265,12 +293,12 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
                     }
 
                     handler.addParameters("--progress")
-                    
+
                     // Add shallow clone option if enabled
                     if (isShallowClone) {
                         handler.addParameters("--depth", shallowDepth.toString())
                     }
-                    
+
                     handler.addParameters(cloneUrl)
                     handler.addParameters(checkoutDir.name)
 
@@ -308,34 +336,16 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
                         checkoutListener.directoryCheckedOut(checkoutDir, GitVcs.getKey())
                         checkoutListener.checkoutCompleted()
 
-                        NotificationGroupManager.getInstance()
-                            .getNotificationGroup("AzureDevOps.Notifications")
-                            .createNotification(
-                                "Azure DevOps Clone",
-                                "Repository '${repo.name}' cloned successfully to ${checkoutDir.absolutePath}",
-                                NotificationType.INFORMATION
-                            )
-                            .notify(project)
+                        NotificationUtil.info(project, "Azure DevOps Clone",
+                            "Repository '${repo.name}' cloned successfully to ${checkoutDir.absolutePath}")
                     } else {
                         val errorMessage = result.errorOutputAsJoinedString
-                        NotificationGroupManager.getInstance()
-                            .getNotificationGroup("AzureDevOps.Notifications")
-                            .createNotification(
-                                "Azure DevOps Clone Error",
-                                "Failed to clone repository: $errorMessage",
-                                NotificationType.ERROR
-                            )
-                            .notify(project)
+                        NotificationUtil.error(project, "Azure DevOps Clone Error",
+                            "Failed to clone repository: $errorMessage")
                     }
                 } catch (e: Exception) {
-                    NotificationGroupManager.getInstance()
-                        .getNotificationGroup("AzureDevOps.Notifications")
-                        .createNotification(
-                            "Azure DevOps Clone Error",
-                            "Failed to clone repository: ${e.message}",
-                            NotificationType.ERROR
-                        )
-                        .notify(project)
+                    NotificationUtil.error(project, "Azure DevOps Clone Error",
+                        "Failed to clone repository: ${e.message}")
                 }
             }
         })
@@ -361,7 +371,7 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
         isLoadingAccounts = false
 
         if (accounts.isEmpty()) {
-            showEmptyState("No accounts configured. Click '+' to add an account.")
+            CloneTreeHelper.showEmptyState(rootNode, treeModel, "No accounts configured. Click '+' to add an account.")
         } else {
             accountComboBox.selectedIndex = 0
             selectedAccount = accounts.firstOrNull()
@@ -378,16 +388,13 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
         // Check if we have preloaded data
         val data = preloadedData[account.id]
         if (data != null) {
-            populateTreeFromData(data)
+            CloneTreeHelper.populateTree(rootNode, treeModel, tree, data)
             notifyDialogStateChanged()
             return
         }
 
         // Show loading state
-        rootNode.removeAllChildren()
-        val loadingNode = DefaultMutableTreeNode("Loading repositories...")
-        rootNode.add(loadingNode)
-        treeModel.reload()
+        CloneTreeHelper.showEmptyState(rootNode, treeModel, "Loading repositories...")
 
         // Load in background
         ApplicationManager.getApplication().executeOnPooledThread {
@@ -414,71 +421,24 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
                     preloadedData[account.id] = projectsData
 
                     ApplicationManager.getApplication().invokeLater({
-                        populateTreeFromData(projectsData)
+                        CloneTreeHelper.populateTree(rootNode, treeModel, tree, projectsData)
                         // Notify dialog after tree is populated
                         notifyDialogStateChanged()
                     }, ModalityState.any())
                 } else {
                     ApplicationManager.getApplication().invokeLater({
-                        showEmptyState("Authentication failed. Please re-login.")
+                        CloneTreeHelper.showEmptyState(rootNode, treeModel, "Authentication failed. Please re-login.")
                         notifyDialogStateChanged()
                     }, ModalityState.any())
                 }
             } catch (e: Exception) {
                 logger.error("Failed to load repositories", e)
                 ApplicationManager.getApplication().invokeLater({
-                    showEmptyState("Error loading repositories: ${e.message}")
+                    CloneTreeHelper.showEmptyState(rootNode, treeModel, "Error loading repositories: ${e.message}")
                     notifyDialogStateChanged()
                 }, ModalityState.any())
             }
         }
-    }
-
-    private fun populateTreeFromData(data: ProjectsData) {
-        rootNode.removeAllChildren()
-
-        if (data.projects.isEmpty()) {
-            val emptyNode = DefaultMutableTreeNode("No projects found for this account")
-            rootNode.add(emptyNode)
-            treeModel.reload()
-            return
-        }
-
-        // Sort projects alphabetically
-        val sortedProjects = data.projects.sortedBy { it.name.lowercase() }
-        
-        sortedProjects.forEach { proj ->
-            val projectNode = DefaultMutableTreeNode(proj)
-            rootNode.add(projectNode)
-
-            val repos = data.repositories[proj.id] ?: emptyList()
-            // Sort repos alphabetically
-            repos.sortedBy { it.name.lowercase() }.forEach { repo ->
-                val repoObj = AzureDevOpsRepository(
-                    id = repo.id,
-                    name = repo.name,
-                    projectName = proj.name,
-                    remoteUrl = repo.remoteUrl,
-                    webUrl = repo.webUrl
-                )
-                val repoNode = DefaultMutableTreeNode(repoObj)
-                projectNode.add(repoNode)
-            }
-        }
-
-        treeModel.reload()
-
-        // Expand all projects by default
-        for (i in 0 until rootNode.childCount) {
-            tree.expandPath(TreePath(arrayOf(rootNode, rootNode.getChildAt(i))))
-        }
-    }
-
-    private fun showEmptyState(message: String) {
-        rootNode.removeAllChildren()
-        val emptyNode = DefaultMutableTreeNode(message)
-        rootNode.add(emptyNode)
-        treeModel.reload()
     }
 
     private fun notifyDialogStateChanged() {
@@ -488,58 +448,17 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
             dialogStateListener.onOkActionEnabled(isEnabled)
             dialogStateListener.onListItemChanged()
         } else {
-            app.invokeLater { 
+            app.invokeLater {
                 dialogStateListener.onOkActionEnabled(isEnabled)
-                dialogStateListener.onListItemChanged() 
+                dialogStateListener.onListItemChanged()
             }
         }
     }
 
     private fun filterTree() {
-        val searchText = searchField.text.trim().lowercase()
-
-        if (searchText.isEmpty()) {
-            val account = selectedAccount ?: return
-            val data = preloadedData[account.id] ?: return
-            populateTreeFromData(data)
-            return
-        }
-
         val account = accountComboBox.selectedItem as? AzureDevOpsAccount ?: return
         val data = preloadedData[account.id] ?: return
-
-        rootNode.removeAllChildren()
-
-        data.projects.sortedBy { it.name.lowercase() }.forEach { proj ->
-            val repos = data.repositories[proj.id] ?: emptyList()
-            val matchingRepos = repos.filter { repo ->
-                repo.name.lowercase().contains(searchText) ||
-                        proj.name.lowercase().contains(searchText)
-            }.sortedBy { it.name.lowercase() }
-
-            if (matchingRepos.isNotEmpty()) {
-                val projectNode = DefaultMutableTreeNode(proj)
-                rootNode.add(projectNode)
-
-                matchingRepos.forEach { repo ->
-                    val repoObj = AzureDevOpsRepository(
-                        id = repo.id,
-                        name = repo.name,
-                        projectName = proj.name,
-                        remoteUrl = repo.remoteUrl,
-                        webUrl = repo.webUrl
-                    )
-                    projectNode.add(DefaultMutableTreeNode(repoObj))
-                }
-            }
-        }
-
-        treeModel.reload()
-
-        // Expand all matching projects
-        for (i in 0 until rootNode.childCount) {
-            tree.expandPath(TreePath(arrayOf(rootNode, rootNode.getChildAt(i))))
-        }
+        CloneTreeHelper.filterTree(rootNode, treeModel, tree, data, searchField.text)
     }
 
     private fun showLoginDialog() {
@@ -547,79 +466,6 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
         if (loginDialog.showAndGet()) {
             // Reload accounts after login
             loadAccounts()
-        }
-    }
-
-    private fun normalizeAzureDevOpsUrl(url: String): String {
-        return try {
-            var decodedUrl = url
-            var previousUrl: String
-
-            do {
-                previousUrl = decodedUrl
-                decodedUrl = URLDecoder.decode(previousUrl, StandardCharsets.UTF_8)
-            } while (decodedUrl != previousUrl)
-
-            val uri = URI(decodedUrl)
-            val scheme = uri.scheme ?: "https"
-            val host = uri.host ?: return url
-
-            val path = uri.path ?: return url
-
-            val segments = path.split("/").filter { it.isNotEmpty() }
-            val encodedPath = segments.joinToString("/") { segment ->
-                URLEncoder.encode(segment, StandardCharsets.UTF_8)
-                    .replace("+", "%20")
-            }
-
-            "$scheme://$host/$encodedPath"
-        } catch (e: Exception) {
-            url
-        }
-    }
-
-    /**
-     * Tree cell renderer with proper Azure DevOps icons
-     */
-    private class RepositoryTreeCellRenderer : ColoredTreeCellRenderer() {
-        override fun customizeCellRenderer(
-            tree: JTree,
-            value: Any?,
-            selected: Boolean,
-            expanded: Boolean,
-            leaf: Boolean,
-            row: Int,
-            hasFocus: Boolean
-        ) {
-            val node = value as? DefaultMutableTreeNode ?: return
-            val userObject = node.userObject
-
-            when (userObject) {
-                is AzureDevOpsCloneApiClient.Project -> {
-                    // Project folder icon
-                    icon = AzureDevOpsIcons.Project
-                    append(userObject.name, SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES)
-                    userObject.description?.let {
-                        if (it.isNotBlank() && it.length < 50) {
-                            append("  $it", SimpleTextAttributes.GRAYED_SMALL_ATTRIBUTES)
-                        }
-                    }
-                }
-                is AzureDevOpsRepository -> {
-                    // Repository icon (git branch)
-                    icon = AzureDevOpsIcons.Repository
-                    append(userObject.name, SimpleTextAttributes.REGULAR_ATTRIBUTES)
-                }
-                is String -> {
-                    icon = when {
-                        userObject.startsWith("Error") || userObject.startsWith("Authentication") -> AllIcons.General.Error
-                        userObject.contains("Loading") -> AllIcons.Process.Step_1
-                        userObject.contains("No ") -> AllIcons.General.Information
-                        else -> AllIcons.General.Information
-                    }
-                    append(userObject, SimpleTextAttributes.GRAYED_ITALIC_ATTRIBUTES)
-                }
-            }
         }
     }
 }

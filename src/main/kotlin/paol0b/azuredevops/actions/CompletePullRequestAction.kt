@@ -1,10 +1,7 @@
 package paol0b.azuredevops.actions
 
-import com.intellij.notification.NotificationGroupManager
-import com.intellij.notification.NotificationType
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
-import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
@@ -14,6 +11,8 @@ import com.intellij.openapi.ui.Messages
 import paol0b.azuredevops.model.PullRequest
 import paol0b.azuredevops.services.AzureDevOpsApiClient
 import paol0b.azuredevops.ui.CompletePullRequestDialog
+import paol0b.azuredevops.util.NotificationUtil
+import paol0b.azuredevops.util.PluginUtil
 
 /**
  * Action to complete (merge) a Pull Request
@@ -68,24 +67,17 @@ class CompletePullRequestAction(
                     )
 
                     ApplicationManager.getApplication().invokeLater {
-                        NotificationGroupManager.getInstance()
-                            .getNotificationGroup("Azure DevOps Notifications")
-                            .createNotification(
-                                "Pull Request Completed",
-                                "PR #${pullRequest.pullRequestId} has been successfully merged",
-                                NotificationType.INFORMATION
-                            )
-                            .notify(project)
+                        NotificationUtil.info(project, "Pull Request Completed", "PR #${pullRequest.pullRequestId} has been successfully merged")
                         onCompleted?.invoke()
                     }
-                    
+
                 } catch (e: Exception) {
                     ApplicationManager.getApplication().invokeLater {
-                        val errorMessage = parseErrorMessage(e.message)
-                        
+                        val errorMessage = PluginUtil.parseApiErrorMessage(e.message)
+
                         if (errorMessage.contains("permission", ignoreCase = true) ||
                             errorMessage.contains("policies", ignoreCase = true)) {
-                            
+
                             val result = Messages.showYesNoDialog(
                                 project,
                                 "You don't have permission to complete this PR or policies are not met.\n\n" +
@@ -103,14 +95,7 @@ class CompletePullRequestAction(
                                 autoCompleteAction.performSetAutoComplete(project)
                             }
                         } else {
-                            NotificationGroupManager.getInstance()
-                                .getNotificationGroup("Azure DevOps Notifications")
-                                .createNotification(
-                                    "Failed to Complete PR",
-                                    errorMessage,
-                                    NotificationType.ERROR
-                                )
-                                .notify(project)
+                            NotificationUtil.error(project, "Failed to Complete PR", errorMessage)
                         }
                     }
                 }
@@ -131,16 +116,4 @@ class CompletePullRequestAction(
             pullRequest.isReadyToComplete()
     }
 
-    private fun parseErrorMessage(message: String?): String {
-        if (message == null) return "Unknown error occurred"
-        
-        // Extract meaningful error from Azure DevOps API responses
-        return when {
-            message.contains("TF401027") -> "Branch policies are not met. Consider using auto-complete or override policies."
-            message.contains("TF401171") -> "You don't have permission to complete this Pull Request."
-            message.contains("TF401179") -> "The Pull Request must have at least one approved reviewer."
-            message.contains("TF401181") -> "Required reviewers must approve before completion."
-            else -> message.take(200) // Limit error message length
-        }
-    }
 }

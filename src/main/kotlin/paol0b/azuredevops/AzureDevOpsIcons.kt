@@ -18,6 +18,9 @@ object AzureDevOpsIcons {
 
     @JvmField
     val ToolWindowPipeline: Icon = IconLoader.getIcon("/icons/azure-devops-pipeline.svg", AzureDevOpsIcons::class.java)
+
+    @JvmField
+    val ToolWindowWorkItem: Icon = IconLoader.getIcon("/icons/azure-devops-workitem.svg", AzureDevOpsIcons::class.java)
     
     @JvmField
     val Logo: Icon = IconLoader.getIcon("/icons/azuredevops.svg", AzureDevOpsIcons::class.java)

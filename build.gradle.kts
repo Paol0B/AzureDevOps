@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "paol0b"
-version = "3.6"
+version = "4.0"
 
 repositories {
     mavenCentral()
@@ -39,20 +39,52 @@ intellijPlatform {
         }
 
         changeNotes = """
+            <h2>Version 4.0 - Work Items, Metrics Dashboard & Status Bar</h2>
+
+            <h3>New Features</h3>
+            <ul>
+                <li><b>Work Items Management</b> – Full work item lifecycle directly in the IDE: browse, create, edit, and update work items with advanced filtering by type, state, assigned to, and area path</li>
+                <li><b>Kanban Board</b> – Visual drag-and-drop board view for work items organized by state columns, with color-coded cards showing type, priority, and assignee</li>
+                <li><b>Sprint View</b> – Dedicated sprint/iteration view to track work items within sprints</li>
+                <li><b>Work Item Details Panel</b> – Rich detail view with description, comments, history, and related items</li>
+                <li><b>Work Item Comments</b> – View and add comments to work items without leaving the IDE</li>
+                <li><b>Create & Edit Work Items</b> – Full dialogs for creating and editing work items with all fields</li>
+                <li><b>PR Metrics Dashboard</b> – Visual analytics for pull request activity with bar charts, donut charts, leaderboard, and key metric cards</li>
+                <li><b>Status Bar Widget</b> – Real-time Azure DevOps build status and metrics displayed in the IDE status bar</li>
+                <li><b>Pipeline Filter Panel</b> – Advanced filtering for pipelines by name, status, branch, and date range</li>
+                <li><b>Create Branch from Work Item</b> – One-click branch creation linked to a work item with automatic naming</li>
+                <li><b>Work Item Commit Message Provider</b> – Auto-populates commit messages with linked work item ID when on a work item branch</li>
+                <li><b>Create PR Panel</b> – Redesigned pull request creation with integrated diff preview in editor tabs</li>
+            </ul>
+
+            <h3>Improvements</h3>
+            <ul>
+                <li><b>Refactored API Client</b> – Improved error handling, method consolidation, and 20+ new work item endpoints</li>
+                <li><b>Enhanced Avatar Service</b> – Better icon handling with improved caching and fallback support</li>
+                <li><b>Redesigned PR Timeline</b> – Improved visual design with new TimelineTheme, refactored comment and reply cards</li>
+                <li><b>Improved Login Dialog</b> – Better URL handling and validation for on-premise and cloud instances</li>
+                <li><b>Enhanced Clone Dialog</b> – New tree cell renderer and helper for better repository browsing</li>
+                <li><b>Pipeline Tool Window</b> – Refactored with dedicated filter panel and search capabilities</li>
+                <li><b>Utility Classes</b> – New DateUtil, NotificationUtil, and PluginUtil for consistent behavior across the plugin</li>
+                <li><b>Work Item Branch Detection</b> – Automatic detection of work items linked to the current branch</li>
+            </ul>
+
+            <hr>
+
             <h2>Version 3.6 - PR ToolWindow BugFix & Token Management Enhancements</h2>
-            
+
             <h3>Improvements</h3>
             <ul>
                 <li><b>Enhanced PR Tool Window</b> – Improved functionality and usability for pull request management</li>
                 <li><b>PR Draft/Publish Management</b> – Added ability to convert pull requests to draft or publish them directly from the tool window</li>
                 <li><b>GitTokenManager</b> – Centralized OAuth token management and lifecycle handling</li>
             </ul>
-            
+
             <h3>Bug Fixes</h3>
             <ul>
                 <li><b>Default Clone Directory</b> – Fixed projects being cloned to ~/IdeaProjects on all IDEs; now correctly uses the IDE's base project directory</li>
             </ul>
-            
+
             <hr>
             
             <h2>Version 3.5 - PR Visualization & Filtering Enhancements</h2>

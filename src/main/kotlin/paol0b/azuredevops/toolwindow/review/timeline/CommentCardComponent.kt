@@ -10,24 +10,14 @@ import paol0b.azuredevops.model.PullRequest
 import paol0b.azuredevops.model.ThreadStatus
 import paol0b.azuredevops.services.AvatarService
 import java.awt.*
+import java.awt.geom.RoundRectangle2D
 import javax.swing.*
 
 /**
- * A card component that renders a single comment thread in the PR timeline.
+ * Premium comment thread card for the PR timeline.
  *
- * Layout:
- * ┌────────────────────────────────────────────────┐
- * │ [avatar]  Author  · timestamp        [status] ⋮│
- * │ Comment body text…                              │
- * │ 📎 filename.kt                                  │
- * │ 💬 2 replies                                    │
- * ├────────────────────────────────────────────────┤
- * │   ↳ [avatar] Reply Author · time               │
- * │     Reply body text…                            │
- * │   ↳ …                                          │
- * ├────────────────────────────────────────────────┤
- * │ [reply text area]                     [Reply]   │
- * └────────────────────────────────────────────────┘
+ * Uses [ElevatedCard] for a floating card effect with subtle shadow.
+ * Integrates with the [TimelineRow] connector for a GitHub-style vertical timeline.
  */
 class CommentCardComponent(
     private val project: Project,
@@ -38,44 +28,36 @@ class CommentCardComponent(
 ) : JPanel() {
 
     private val avatarService = AvatarService.getInstance(project)
-
-    // Card colours – subtle background to separate cards from the panel background
-    private val cardBg = JBColor(Color(245, 247, 250), Color(50, 52, 56))
-    private val cardBorder = JBColor(Color(218, 222, 228), Color(65, 68, 74))
-    private val activeBadgeBg = JBColor(Color(220, 240, 255), Color(35, 55, 75))
-    private val resolvedBadgeBg = JBColor(Color(220, 255, 220), Color(35, 70, 45))
-
     private var repliesVisible = true
 
     init {
         layout = BorderLayout()
         isOpaque = false
-        border = JBUI.Borders.empty(4, 0)
         alignmentX = Component.LEFT_ALIGNMENT
         buildUI()
     }
 
     private fun buildUI() {
-        val card = RoundedPanel(10, cardBg, cardBorder)
+        val card = ElevatedCard()
         card.layout = BoxLayout(card, BoxLayout.Y_AXIS)
-        card.border = JBUI.Borders.empty(10, 12, 10, 12)
+        card.border = JBUI.Borders.empty(14, 16)
 
-        // ── Header row: avatar + author + time + status badge + ⋮ button ──
+        // ── Header ──
         card.add(createHeaderRow())
+        card.add(Box.createVerticalStrut(10))
 
-        // ── Body: comment content ──
-        card.add(Box.createVerticalStrut(6))
+        // ── Body ──
         card.add(createContentLabel(entry.content))
 
-        // ── File path badge ──
+        // ── File path ──
         if (!entry.filePath.isNullOrBlank()) {
-            card.add(Box.createVerticalStrut(4))
-            card.add(createFilePathLabel(entry.filePath!!))
+            card.add(Box.createVerticalStrut(8))
+            card.add(createFilePathChip(entry.filePath!!))
         }
 
-        // ── Diff preview (accordion) for file-scoped comments ──
+        // ── Diff preview ──
         if (!entry.filePath.isNullOrBlank() && entry.lineStart != null) {
-            card.add(Box.createVerticalStrut(4))
+            card.add(Box.createVerticalStrut(6))
             card.add(FileDiffPreviewComponent(
                 project = project,
                 pullRequest = pullRequest,
@@ -86,206 +68,200 @@ class CommentCardComponent(
             ))
         }
 
-        // ── Reply count toggle ──
+        // ── Replies section ──
         val replies = entry.replies
         if (replies.isNotEmpty()) {
-            card.add(Box.createVerticalStrut(6))
+            card.add(Box.createVerticalStrut(12))
+            // Thin separator
+            card.add(createSeparator())
+            card.add(Box.createVerticalStrut(8))
+
             val toggle = createReplyToggle(replies.size)
             card.add(toggle)
+
+            val repliesContainer = JPanel().apply {
+                layout = BoxLayout(this, BoxLayout.Y_AXIS)
+                isOpaque = false
+                alignmentX = Component.LEFT_ALIGNMENT
+                border = JBUI.Borders.emptyLeft(16)
+                name = "replies-container"
+            }
+            for (reply in replies) {
+                repliesContainer.add(Box.createVerticalStrut(6))
+                repliesContainer.add(ReplyCardComponent(project, reply))
+            }
+            card.add(repliesContainer)
         }
 
-        // ── Nested replies ──
-        val repliesContainer = JPanel().apply {
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            isOpaque = false
-            alignmentX = Component.LEFT_ALIGNMENT
-            border = JBUI.Borders.emptyLeft(28) // indent under the avatar
-        }
-        for (reply in replies) {
-            repliesContainer.add(ReplyCardComponent(project, reply))
-        }
-        card.add(repliesContainer)
-
-        // ── Inline reply area ──
+        // ── Reply input ──
         if (entry.threadId != null) {
-            card.add(Box.createVerticalStrut(8))
+            card.add(Box.createVerticalStrut(12))
+            card.add(createSeparator())
+            card.add(Box.createVerticalStrut(10))
             card.add(createReplyArea(entry.threadId!!))
         }
 
         add(card, BorderLayout.CENTER)
     }
 
-    // ----------------------------------------------------------------
-    //  Header row
-    // ----------------------------------------------------------------
+    private fun createSeparator(): JComponent = JSeparator().apply {
+        alignmentX = Component.LEFT_ALIGNMENT
+        maximumSize = Dimension(Int.MAX_VALUE, 1)
+        foreground = TimelineTheme.CARD_BORDER
+    }
+
+    // ── Header ──────────────────────────────────────────────────────
 
     private fun createHeaderRow(): JPanel {
-        val row = JPanel(BorderLayout(6, 0)).apply {
+        val row = JPanel(BorderLayout(8, 0)).apply {
             isOpaque = false
             alignmentX = Component.LEFT_ALIGNMENT
-            maximumSize = Dimension(Int.MAX_VALUE, 32)
+            maximumSize = Dimension(Int.MAX_VALUE, 30)
         }
 
-        // Left: avatar + name + time
-        val left = JPanel(FlowLayout(FlowLayout.LEFT, 6, 0)).apply { isOpaque = false }
-        val avatarIcon = avatarService.getAvatar(entry.authorImageUrl, 24) { repaint() }
+        val left = JPanel(FlowLayout(FlowLayout.LEFT, 8, 0)).apply { isOpaque = false }
+        val avatarIcon = avatarService.getAvatar(entry.authorImageUrl, TimelineTheme.AVATAR_SIZE) { repaint() }
         left.add(JBLabel(avatarIcon))
         left.add(JBLabel(entry.author).apply {
-            font = font.deriveFont(Font.BOLD, 12f)
+            font = font.deriveFont(Font.BOLD, 13f)
+            foreground = TimelineTheme.PRIMARY_FG
         })
         val ts = TimelineUtils.formatTimeAgo(entry.timestamp)
         if (ts.isNotEmpty()) {
-            left.add(JBLabel("· $ts").apply {
-                foreground = JBColor.GRAY
+            left.add(JBLabel(ts).apply {
+                foreground = TimelineTheme.MUTED_FG
                 font = font.deriveFont(11f)
             })
         }
         row.add(left, BorderLayout.WEST)
 
-        // Right: status badge + ⋮ menu
-        val right = JPanel(FlowLayout(FlowLayout.RIGHT, 4, 0)).apply { isOpaque = false }
+        val right = JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0)).apply { isOpaque = false }
         if (entry.threadStatus != null && entry.threadStatus != ThreadStatus.Unknown) {
-            right.add(createStatusBadge(entry.threadStatus!!))
+            right.add(StatusPill(entry.threadStatus!!))
         }
         if (entry.threadId != null) {
-            right.add(createOverflowMenuButton())
+            right.add(createOverflowButton())
         }
         row.add(right, BorderLayout.EAST)
 
         return row
     }
 
-    // ----------------------------------------------------------------
-    //  Content
-    // ----------------------------------------------------------------
+    // ── Content ─────────────────────────────────────────────────────
 
     private fun createContentLabel(text: String): JComponent {
-        return JBLabel("<html><div style='width:500px'>${TimelineUtils.escapeHtml(text)}</div></html>").apply {
-            font = UIUtil.getLabelFont().deriveFont(12f)
+        return JBLabel("<html><div style='width:500px;line-height:1.5'>${TimelineUtils.escapeHtml(text)}</div></html>").apply {
+            font = UIUtil.getLabelFont().deriveFont(12.5f)
+            foreground = TimelineTheme.PRIMARY_FG
             alignmentX = Component.LEFT_ALIGNMENT
         }
     }
 
-    private fun createFilePathLabel(path: String): JComponent {
-        return JBLabel(path).apply {
-            icon = AllIcons.FileTypes.Any_type
-            foreground = JBColor(Color(70, 130, 180), Color(100, 149, 237))
-            font = font.deriveFont(11f)
+    private fun createFilePathChip(path: String): JComponent {
+        return JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply {
+            isOpaque = false
             alignmentX = Component.LEFT_ALIGNMENT
-            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+            add(JBLabel(AllIcons.FileTypes.Any_type))
+            add(JBLabel(path).apply {
+                foreground = TimelineTheme.LINK_FG
+                font = font.deriveFont(11f)
+                cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+            })
         }
     }
 
-    // ----------------------------------------------------------------
-    //  Reply toggle
-    // ----------------------------------------------------------------
+    // ── Reply toggle ────────────────────────────────────────────────
 
     private fun createReplyToggle(count: Int): JComponent {
-        val label = JBLabel("💬 $count ${if (count == 1) "reply" else "replies"}").apply {
-            foreground = JBColor(Color(70, 130, 180), Color(100, 149, 237))
+        val text = "$count ${if (count == 1) "reply" else "replies"}"
+        return JBLabel(text).apply {
+            icon = AllIcons.General.Balloon
+            foreground = TimelineTheme.LINK_FG
             font = font.deriveFont(Font.BOLD, 11f)
             cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
             alignmentX = Component.LEFT_ALIGNMENT
-        }
-        label.addMouseListener(object : java.awt.event.MouseAdapter() {
-            override fun mouseClicked(e: java.awt.event.MouseEvent) {
-                repliesVisible = !repliesVisible
-                // Toggle the replies container visibility
-                (parent as? JPanel)?.components?.filterIsInstance<JPanel>()?.forEach { child ->
-                    if (child.border == JBUI.Borders.emptyLeft(28)) {
-                        child.isVisible = repliesVisible
+            addMouseListener(object : java.awt.event.MouseAdapter() {
+                override fun mouseClicked(e: java.awt.event.MouseEvent) {
+                    repliesVisible = !repliesVisible
+                    val card = this@CommentCardComponent.getComponent(0) as? JPanel ?: return
+                    for (comp in card.components) {
+                        if (comp is JPanel && comp.name == "replies-container") {
+                            comp.isVisible = repliesVisible
+                        }
                     }
+                    revalidate()
+                    repaint()
                 }
-                revalidate()
-                repaint()
-            }
-        })
-        return label
-    }
-
-    // ----------------------------------------------------------------
-    //  Status badge
-    // ----------------------------------------------------------------
-
-    private fun createStatusBadge(status: ThreadStatus): JComponent {
-        val (text, bg, fg) = when (status) {
-            ThreadStatus.Active, ThreadStatus.Pending -> Triple(
-                status.getDisplayName(),
-                activeBadgeBg,
-                JBColor(Color(0, 100, 180), Color(80, 180, 255))
-            )
-            ThreadStatus.Fixed, ThreadStatus.Closed, ThreadStatus.ByDesign, ThreadStatus.WontFix -> Triple(
-                status.getDisplayName(),
-                resolvedBadgeBg,
-                JBColor(Color(34, 139, 34), Color(50, 200, 50))
-            )
-            else -> Triple(
-                status.getDisplayName(),
-                UIUtil.getPanelBackground(),
-                JBColor.GRAY
-            )
-        }
-        return JBLabel(text).apply {
-            isOpaque = true
-            background = bg
-            foreground = fg
-            border = JBUI.Borders.empty(2, 8, 2, 8)
-            font = font.deriveFont(Font.BOLD, 10f)
+            })
         }
     }
 
-    // ----------------------------------------------------------------
-    //  Overflow (⋮) menu button
-    // ----------------------------------------------------------------
+    // ── Overflow menu ───────────────────────────────────────────────
 
-    private fun createOverflowMenuButton(): JComponent {
-        val btn = JButton("⋮").apply {
-            preferredSize = Dimension(28, 24)
+    private fun createOverflowButton(): JComponent {
+        return JButton(AllIcons.Actions.More).apply {
+            preferredSize = Dimension(24, 24)
             isBorderPainted = false
             isContentAreaFilled = false
             isFocusPainted = false
             cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-            font = font.deriveFont(Font.BOLD, 16f)
             toolTipText = "Actions"
+            addActionListener {
+                val popup = TimelineDropdownMenu.createThreadPopup(
+                    threadId = entry.threadId!!,
+                    currentStatus = entry.threadStatus ?: ThreadStatus.Active,
+                    onStatusChange = { newStatus -> onStatusChange(entry.threadId!!, newStatus) }
+                )
+                popup.show(this, 0, height)
+            }
         }
-        btn.addActionListener { e ->
-            val popup = TimelineDropdownMenu.createThreadPopup(
-                threadId = entry.threadId!!,
-                currentStatus = entry.threadStatus ?: ThreadStatus.Active,
-                onStatusChange = { newStatus -> onStatusChange(entry.threadId!!, newStatus) }
-            )
-            popup.show(btn, 0, btn.height)
-        }
-        return btn
     }
 
-    // ----------------------------------------------------------------
-    //  Reply area
-    // ----------------------------------------------------------------
+    // ── Reply area ──────────────────────────────────────────────────
 
     private fun createReplyArea(threadId: Int): JComponent {
-        val panel = JPanel(BorderLayout(6, 0)).apply {
+        val panel = JPanel(BorderLayout(8, 0)).apply {
             isOpaque = false
             alignmentX = Component.LEFT_ALIGNMENT
             maximumSize = Dimension(Int.MAX_VALUE, 36)
-            border = JBUI.Borders.emptyTop(2)
         }
 
-        val field = javax.swing.JTextField().apply {
+        val field = JTextField().apply {
             border = BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(cardBorder),
-                JBUI.Borders.empty(4, 8)
+                BorderFactory.createLineBorder(TimelineTheme.CARD_BORDER, 1, true),
+                JBUI.Borders.empty(6, 10)
             )
             font = UIUtil.getLabelFont().deriveFont(12f)
-            toolTipText = "Write a reply…"
+            putClientProperty("JTextField.placeholderText", "Write a reply\u2026")
         }
-        // Placeholder
-        field.text = ""
-        field.putClientProperty("JTextField.placeholderText", "Write a reply…")
 
-        val sendBtn = JButton("Reply").apply {
-            font = font.deriveFont(11f)
-            preferredSize = Dimension(70, 28)
+        val sendBtn = object : JButton("Reply") {
+            init {
+                font = getFont().deriveFont(Font.BOLD, 11f)
+                preferredSize = Dimension(72, 30)
+                cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+                isOpaque = false
+                isBorderPainted = false
+                isContentAreaFilled = false
+                isFocusPainted = false
+            }
+            override fun paintComponent(g: Graphics) {
+                val g2 = g.create() as Graphics2D
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+                g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
+                // Background
+                val bgColor = if (model.isRollover) TimelineTheme.LINK_FG.brighter() else TimelineTheme.LINK_FG
+                g2.color = bgColor
+                g2.fill(RoundRectangle2D.Float(0f, 0f, width.toFloat(), height.toFloat(), 8f, 8f))
+                // Text (white, centered)
+                g2.color = Color.WHITE
+                g2.font = font
+                val fm = g2.fontMetrics
+                val textX = (width - fm.stringWidth(text)) / 2
+                val textY = (height + fm.ascent - fm.descent) / 2
+                g2.drawString(text, textX, textY)
+                g2.dispose()
+            }
         }
         sendBtn.addActionListener {
             val txt = field.text.trim()
@@ -294,10 +270,7 @@ class CommentCardComponent(
                 field.text = ""
             }
         }
-        // Allow Enter to send
-        field.addActionListener {
-            sendBtn.doClick()
-        }
+        field.addActionListener { sendBtn.doClick() }
 
         panel.add(field, BorderLayout.CENTER)
         panel.add(sendBtn, BorderLayout.EAST)
@@ -306,18 +279,49 @@ class CommentCardComponent(
 }
 
 /**
- * A simple JPanel with rounded corners and a thin border.
+ * Rounded pill badge for thread status (Active, Fixed, Closed, etc.)
+ */
+class StatusPill(status: ThreadStatus) : JBLabel(status.getDisplayName()) {
+
+    private val bg: Color
+    private val pillFg: Color
+
+    init {
+        val (b, f) = when (status) {
+            ThreadStatus.Active, ThreadStatus.Pending ->
+                TimelineTheme.ACTIVE_BG to TimelineTheme.ACTIVE_FG
+            ThreadStatus.Fixed, ThreadStatus.Closed, ThreadStatus.ByDesign, ThreadStatus.WontFix ->
+                TimelineTheme.RESOLVED_BG to TimelineTheme.RESOLVED_FG
+            else ->
+                TimelineTheme.NOVOTE_BG to TimelineTheme.NOVOTE_FG
+        }
+        bg = b
+        pillFg = f
+        foreground = pillFg
+        border = JBUI.Borders.empty(3, 10)
+        font = getFont().deriveFont(Font.BOLD, 10f)
+        isOpaque = false
+    }
+
+    override fun paintComponent(g: Graphics) {
+        val g2 = g.create() as Graphics2D
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+        g2.color = bg
+        g2.fill(RoundRectangle2D.Float(0f, 0f, width.toFloat(), height.toFloat(), height.toFloat(), height.toFloat()))
+        g2.dispose()
+        super.paintComponent(g)
+    }
+}
+
+/**
+ * Legacy alias — kept for any external references.
  */
 class RoundedPanel(
     private val cornerRadius: Int,
     private val fillColor: Color,
     private val borderColor: Color
 ) : JPanel() {
-
-    init {
-        isOpaque = false
-    }
-
+    init { isOpaque = false }
     override fun paintComponent(g: Graphics) {
         val g2 = g.create() as Graphics2D
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
@@ -328,3 +332,5 @@ class RoundedPanel(
         g2.dispose()
     }
 }
+
+// Remove old ModernCard — replaced by ElevatedCard

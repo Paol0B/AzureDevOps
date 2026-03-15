@@ -214,17 +214,38 @@ class GitRepositoryService(private val project: Project) {
     fun getRepository(): GitRepository? = getCurrentRepository()
 
     /**
+     * Resolves a branch name (possibly from Azure DevOps refs/heads/ format) to a
+     * git ref that the local repository can understand.
+     *
+     * Local branches are returned as-is (e.g. "main").
+     * Remote-only branches are returned with the remote prefix (e.g. "origin/aa").
+     */
+    private fun resolveGitRef(branchName: String): String {
+        val name = branchName.removePrefix("refs/heads/")
+        val repository = getCurrentRepository() ?: return name
+
+        // If a local branch with this name exists, use it directly
+        if (repository.branches.localBranches.any { it.name == name }) {
+            return name
+        }
+
+        // Otherwise look for a remote branch and use its full name (e.g. origin/aa)
+        val remoteBranch = repository.branches.remoteBranches.firstOrNull {
+            it.nameForRemoteOperations == name
+        }
+        return remoteBranch?.name ?: name
+    }
+
+    /**
      * Gets the changes between two branches
      */
     fun getChangesBetweenBranches(sourceBranch: String, targetBranch: String): List<Change> {
         val repository = getCurrentRepository() ?: return emptyList()
-        
+
         try {
-            // Remove the refs/heads/ prefix if present
-            val sourceRef = sourceBranch.removePrefix("refs/heads/")
-            val targetRef = targetBranch.removePrefix("refs/heads/")
-            
-            // Use GitChangeUtils.getDiff which is a stable API for getting changes between revisions
+            val sourceRef = resolveGitRef(sourceBranch)
+            val targetRef = resolveGitRef(targetBranch)
+
             return GitChangeUtils.getDiff(project, repository.root, targetRef, sourceRef, null).toList()
         } catch (e: Exception) {
             logger.error("Error getting changes between branches", e)
@@ -237,13 +258,11 @@ class GitRepositoryService(private val project: Project) {
      */
     fun getCommitsBetweenBranches(sourceBranch: String, targetBranch: String): List<git4idea.GitCommit> {
         val repository = getCurrentRepository() ?: return emptyList()
-        
+
         try {
-            // Remove the refs/heads/ prefix if present
-            val sourceRef = sourceBranch.removePrefix("refs/heads/")
-            val targetRef = targetBranch.removePrefix("refs/heads/")
-            
-            // Get the commits between the two branches (from target to source)
+            val sourceRef = resolveGitRef(sourceBranch)
+            val targetRef = resolveGitRef(targetBranch)
+
             return GitHistoryUtils.history(project, repository.root, "$targetRef..$sourceRef")
         } catch (e: Exception) {
             logger.error("Error getting commits between branches", e)

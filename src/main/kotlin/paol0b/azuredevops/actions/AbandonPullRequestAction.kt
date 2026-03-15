@@ -1,7 +1,5 @@
 package paol0b.azuredevops.actions
 
-import com.intellij.notification.NotificationGroupManager
-import com.intellij.notification.NotificationType
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.application.ApplicationManager
@@ -12,6 +10,8 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import paol0b.azuredevops.model.PullRequest
 import paol0b.azuredevops.services.AzureDevOpsApiClient
+import paol0b.azuredevops.util.NotificationUtil
+import paol0b.azuredevops.util.PluginUtil
 
 class AbandonPullRequestAction(
     private val pullRequest: PullRequest,
@@ -46,26 +46,12 @@ class AbandonPullRequestAction(
                     apiClient.abandonPullRequest(pullRequest)
 
                     ApplicationManager.getApplication().invokeLater {
-                        NotificationGroupManager.getInstance()
-                            .getNotificationGroup("Azure DevOps Notifications")
-                            .createNotification(
-                                "Pull Request Abandoned",
-                                "PR #${pullRequest.pullRequestId} has been abandoned",
-                                NotificationType.INFORMATION
-                            )
-                            .notify(project)
+                        NotificationUtil.info(project, "Pull Request Abandoned", "PR #${pullRequest.pullRequestId} has been abandoned")
                         onAbandoned?.invoke()
                     }
                 } catch (e: Exception) {
                     ApplicationManager.getApplication().invokeLater {
-                        NotificationGroupManager.getInstance()
-                            .getNotificationGroup("Azure DevOps Notifications")
-                            .createNotification(
-                                "Failed to Abandon PR",
-                                parseErrorMessage(e.message),
-                                NotificationType.ERROR
-                            )
-                            .notify(project)
+                        NotificationUtil.error(project, "Failed to Abandon PR", PluginUtil.parseApiErrorMessage(e.message))
                     }
                 }
             }
@@ -83,13 +69,4 @@ class AbandonPullRequestAction(
             pullRequest.isCreatedByUser(currentUserId)
     }
 
-    private fun parseErrorMessage(message: String?): String {
-        if (message == null) return "Unknown error occurred"
-
-        return when {
-            message.contains("TF401179") -> "Only the pull request author can abandon this Pull Request."
-            message.contains("TF401171") -> "You don't have permission to abandon this Pull Request."
-            else -> message.take(200)
-        }
-    }
 }
