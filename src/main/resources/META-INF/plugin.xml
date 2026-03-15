@@ -3,7 +3,7 @@
     <idea-version since-build="253" />
     <!-- Unique identifier of the plugin. It should be FQN. It cannot be changed between the plugin versions. -->
     <id>paol0b.AzureDevOps</id>
-    <version>3.6</version>
+    <version>4.0</version>
 
     <!-- Public plugin name should be written in Title Case.
          Guidelines: https://plugins.jetbrains.com/docs/marketplace/best-practices-for-listing.html#plugin-name -->
@@ -16,7 +16,7 @@
          Guidelines: https://plugins.jetbrains.com/docs/marketplace/best-practices-for-listing.html#plugin-description -->
     <description><![CDATA[
         <h2>Azure DevOps Integration for JetBrains IDEs</h2>
-        <p>Manage Azure DevOps Pull Requests directly from your IDE - clone repositories, view PRs, browse code changes, read comments, and handle reviews without switching to the browser.</p>
+        <p>The complete Azure DevOps experience without leaving your editor. Manage pull requests, work items, pipelines, and code reviews — all from your JetBrains IDE.</p>
 
         <h3>✨ Core Features:</h3>
 
@@ -28,22 +28,34 @@
             <li><b>Multiple Accounts:</b> Switch between different Azure DevOps accounts</li>
         </ul>
 
-        <h4>📋 Pull Request Management Tool</h4>
+        <h4>📋 Pull Request Management</h4>
         <ul>
-            <li><b>View All PRs:</b> Browse PRs filtered by status (Active, Completed, Abandoned, All)</li>
+            <li><b>View All PRs:</b> Browse PRs filtered by status (Active, Completed, Abandoned, Draft)</li>
             <li><b>PR Details:</b> See title, description, author, reviewers, and source/target branches</li>
-            <li><b>Create PRs:</b> New PR dialog with branch autocomplete and reviewer selection</li>
-            <li><b>Quick Actions:</b> Approve, Complete, or Abandon PRs directly from the IDE</li>
-            <li><b>Open in Browser:</b> Jump to the PR in Azure DevOps for advanced options</li>
-            <li><b>File Changes:</b> View which files were modified in each PR</li>
-            <li><b>Commit History:</b> See all commits included in the PR</li>
-            <li><b>Review Experience:</b> Open PR diffs, timeline, and comments directly in the IDE</li>
+            <li><b>Create PRs:</b> Redesigned creation panel with integrated diff preview in editor tabs</li>
+            <li><b>Quick Actions:</b> Approve, Complete, Abandon, Draft/Publish PRs directly from the IDE</li>
+            <li><b>Review Experience:</b> Full diffs, timeline, comments, and file tree — no browser needed</li>
+            <li><b>Inline Comments:</b> Add feedback directly on code lines with threaded discussions</li>
+            <li><b>PR Metrics Dashboard:</b> Visual analytics with bar charts, donut charts, leaderboard, and key metrics</li>
+        </ul>
+
+        <h4>📌 Work Items Management</h4>
+        <ul>
+            <li><b>Browse Work Items:</b> List view with advanced filtering by type, state, assigned to, and area path</li>
+            <li><b>Kanban Board:</b> Visual board view with work items organized by state columns</li>
+            <li><b>Sprint View:</b> Track work items within sprints and iterations</li>
+            <li><b>Work Item Details:</b> Rich detail panel with description, comments, history, and related items</li>
+            <li><b>Create & Edit:</b> Full dialogs for creating and editing work items with all fields</li>
+            <li><b>Create Branch from Work Item:</b> One-click branch creation linked to a work item</li>
+            <li><b>Auto Commit Messages:</b> Commit messages auto-populated with linked work item ID</li>
         </ul>
 
         <h4>🚦 Pipelines Visualization</h4>
         <ul>
             <li><b>Full Pipeline View:</b> Visualize stages, jobs, and steps in a single diagram</li>
-            <li><b>Logs at Hand:</b> Open pipeline logs from the IDE without switching to the browser</li>
+            <li><b>Advanced Filtering:</b> Filter pipelines by name, status, branch, and date range</li>
+            <li><b>Logs at Hand:</b> Stream pipeline logs with search and auto-refresh</li>
+            <li><b>Status Bar Widget:</b> Real-time build status and metrics in the IDE status bar</li>
         </ul>
 
         <h4>💬 Comment Browser Tool</h4>
@@ -69,7 +81,7 @@
 
         <h3>📋 Requirements:</h3>
         <ul>
-            <li>IntelliJ IDEA 2025.1 or newer (supports all JetBrains IDEs)</li>
+            <li>IntelliJ IDEA 2025.3 or newer (supports all JetBrains IDEs)</li>
             <li>Git repository cloned from Azure DevOps</li>
             <li>Microsoft account with access to your Azure DevOps organization</li>
         </ul>
@@ -79,8 +91,8 @@
             <li><b>Install & Restart:</b> Install plugin and restart your IDE</li>
             <li><b>Add Account:</b> Go to Settings → Tools → Azure DevOps Accounts → Add</li>
             <li><b>Sign In:</b> Click "Sign in with Browser" and authenticate with Microsoft</li>
-            <li><b>Open PR Tool:</b> Look for "Azure DevOps PRs" in the right-side tool windows</li>
-            <li><b>Start Managing:</b> View PRs, create new ones, browse comments, and merge code</li>
+            <li><b>Explore:</b> Open "Azure DevOps PRs", "Azure DevOps Pipelines", or "Azure DevOps Work Items" tool windows</li>
+            <li><b>Start Managing:</b> View PRs, track work items, monitor pipelines, and collaborate</li>
         </ol>
 
         <h3>📚 Documentation:</h3>
