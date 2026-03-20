@@ -129,7 +129,7 @@ class PullRequestDetailsPanel(private val project: Project) {
 
         // Title with colored ID
         titleLabel.text = "<html><span style='color: #6897BB;'>PR #${pullRequest.pullRequestId}:</span> " +
-                "${pullRequest.title}</html>"
+                "${escapeHtml(pullRequest.title)}</html>"
 
         // Status badge with improved colors
         updateStatusBadge(pullRequest.status, pullRequest.isDraft == true)
@@ -142,7 +142,7 @@ class PullRequestDetailsPanel(private val project: Project) {
 
         // Author with improved icon and style
         val authorName = pullRequest.createdBy?.displayName ?: "Unknown"
-        authorLabel.text = "<html><b>Created by:</b> <span style='color: #6897BB;'>$authorName</span></html>"
+        authorLabel.text = "<html><b>Created by:</b> <span style='color: #6897BB;'>${escapeHtml(authorName)}</span></html>"
 
         // Created date with improved formatting
         val createdDate = pullRequest.creationDate ?: "Unknown"
@@ -456,5 +456,9 @@ class PullRequestDetailsPanel(private val project: Project) {
             background = UIUtil.getPanelBackground()
             alignmentX = Component.LEFT_ALIGNMENT
         }
+    }
+
+    private fun escapeHtml(text: String): String {
+        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     }
 }

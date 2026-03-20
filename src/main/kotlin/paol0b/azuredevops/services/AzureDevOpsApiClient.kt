@@ -296,6 +296,12 @@ The plugin will automatically use your authenticated account for this repository
         return URLEncoder.encode(value, StandardCharsets.UTF_8.toString()).replace("+", "%20")
     }
 
+    private fun encodeQueryParamValue(value: String): String {
+        return URLEncoder.encode(value, StandardCharsets.UTF_8.toString())
+            .replace("+", "%20")
+            .replace("%2F", "/")  // Preserve forward slashes for ref names like refs/heads/...
+    }
+
     /**
      * Creates a Pull Request on Azure DevOps
      * @param sourceBranch Source branch (e.g., "refs/heads/feature/xyz")
@@ -462,7 +468,7 @@ The plugin will automatically use your authenticated account for this repository
         val url = buildApiUrl(
             config.project, 
             config.repository, 
-            "/pullrequests?searchCriteria.status=active&searchCriteria.sourceRefName=$sourceBranch&searchCriteria.targetRefName=$targetBranch&api-version=$API_VERSION"
+            "/pullrequests?searchCriteria.status=active&searchCriteria.sourceRefName=${encodeQueryParamValue(sourceBranch)}&searchCriteria.targetRefName=${encodeQueryParamValue(targetBranch)}&api-version=$API_VERSION"
         )
         
         logger.info("Searching for active PR from $sourceBranch to $targetBranch")
@@ -603,7 +609,7 @@ The plugin will automatically use your authenticated account for this repository
 
         val refName = "refs/heads/$branchName"
         val url = buildApiUrl(config.project, config.repository, 
-            "/pullrequests?searchCriteria.status=active&searchCriteria.sourceRefName=$refName&api-version=$API_VERSION")
+            "/pullrequests?searchCriteria.status=active&searchCriteria.sourceRefName=${encodeQueryParamValue(refName)}&api-version=$API_VERSION")
         
         logger.info("Searching for active PR with source branch: $branchName")
         
@@ -1413,7 +1419,7 @@ The plugin will automatically use your authenticated account for this repository
         requestedFor?.let { params.add("requestedFor=${encodePathSegment(it)}") }
         branchName?.let {
             val ref = if (it.startsWith("refs/")) it else "refs/heads/$it"
-            params.add("branchName=$ref")
+            params.add("branchName=${encodeQueryParamValue(ref)}")
         }
         statusFilter?.let { if (it != "all") params.add("statusFilter=$it") }
         resultFilter?.let { if (it != "all") params.add("resultFilter=$it") }

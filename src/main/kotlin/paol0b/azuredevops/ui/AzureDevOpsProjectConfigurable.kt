@@ -59,9 +59,9 @@ class AzureDevOpsProjectConfigurable(private val project: Project) : Configurabl
         if (detectedInfo != null) {
             detectorInfoLabel.text = "<html><b style='color: green;'>✓ Azure DevOps Repository Detected</b><br>" +
                 "<font color='gray' size='-1'>" +
-                "Organization: <b>${detectedInfo.organization}</b><br>" +
-                "Project: <b>${detectedInfo.project}</b><br>" +
-                "Repository: <b>${detectedInfo.repository}</b>" +
+                "Organization: <b>${escapeHtml(detectedInfo.organization)}</b><br>" +
+                "Project: <b>${escapeHtml(detectedInfo.project)}</b><br>" +
+                "Repository: <b>${escapeHtml(detectedInfo.repository)}</b>" +
                 "</font></html>"
         } else {
             detectorInfoLabel.text = "<html><b style='color: orange;'>⚠ Not an Azure DevOps Repository</b><br>" +
@@ -322,5 +322,9 @@ class AzureDevOpsProjectConfigurable(private val project: Project) : Configurabl
 
     override fun disposeUIResources() {
         mainPanel = null
+    }
+
+    private fun escapeHtml(text: String): String {
+        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     }
 }

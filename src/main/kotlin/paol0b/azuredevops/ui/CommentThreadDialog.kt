@@ -41,6 +41,7 @@ class CommentThreadDialog(
     private val headerPanel = JPanel(BorderLayout())
     private lateinit var sendButton: JButton
     private var refreshTimer: Timer? = null
+    private var statusHideTimer: Timer? = null
     private var isLoading = false
     private var isRefreshing = false
     private var isUpdatingUi = false
@@ -382,7 +383,8 @@ class CommentThreadDialog(
                     }
                     
                     // Auto-hide success message after 3 seconds
-                    Timer(3000) {
+                    statusHideTimer?.stop()
+                    statusHideTimer = Timer(3000) {
                         hideStatus()
                     }.apply {
                         isRepeats = false
@@ -537,7 +539,9 @@ class CommentThreadDialog(
                         }
                     }
                 }
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                com.intellij.openapi.diagnostic.Logger.getInstance(CommentThreadDialog::class.java)
+                    .warn("Failed to refresh comment thread", e)
                 ApplicationManager.getApplication().invokeLater {
                     isRefreshing = false
                 }
@@ -596,6 +600,8 @@ class CommentThreadDialog(
     override fun dispose() {
         refreshTimer?.stop()
         refreshTimer = null
+        statusHideTimer?.stop()
+        statusHideTimer = null
         super.dispose()
     }
 }

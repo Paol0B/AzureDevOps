@@ -142,7 +142,7 @@ class FileWithCommentsDecorator(private val project: Project) : ProjectViewNodeD
 
     private fun buildFileTooltip(total: Int, active: Int, fileName: String): String {
         return buildString {
-            append("<html><b>$fileName</b><br>")
+            append("<html><b>${this@FileWithCommentsDecorator.escapeHtml(fileName)}</b><br>")
             if (active > 0) {
                 append("<font color='orange'>● $active active PR comment${if (active != 1) "s" else ""}</font>")
                 if (total > active) {
@@ -183,4 +183,7 @@ class FileWithCommentsDecorator(private val project: Project) : ProjectViewNodeD
         return baseIcon
     }
 
+    private fun escapeHtml(text: String): String {
+        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    }
 }

@@ -175,9 +175,9 @@ class CompletePullRequestDialog(
         }
 
         val branchInfo = JBLabel().apply {
-            text = "<html><span style='color: #6A9955;'>${pullRequest.getSourceBranchName()}</span> " +
+            text = "<html><span style='color: #6A9955;'>${escapeHtml(pullRequest.getSourceBranchName())}</span> " +
                     "<span style='color: gray;'>→</span> " +
-                    "<span style='color: #4FC1E9;'>${pullRequest.getTargetBranchName()}</span></html>"
+                    "<span style='color: #4FC1E9;'>${escapeHtml(pullRequest.getTargetBranchName())}</span></html>"
             alignmentX = JComponent.LEFT_ALIGNMENT
         }
 
@@ -249,7 +249,7 @@ class CompletePullRequestDialog(
         val isUserPRCreator = pullRequest.isCreatedByUser(currentUserId)
         if (!isUserPRCreator) {
             panel.add(Box.createVerticalStrut(4))
-            panel.add(JBLabel("<html><small style='color: #BB5544;'>⚠ Only ${pullRequest.createdBy?.displayName ?: "the PR creator"} can delete the source branch</small></html>").apply {
+            panel.add(JBLabel("<html><small style='color: #BB5544;'>⚠ Only ${escapeHtml(pullRequest.createdBy?.displayName ?: "the PR creator")} can delete the source branch</small></html>").apply {
                 alignmentX = JComponent.LEFT_ALIGNMENT
                 border = JBUI.Borders.emptyLeft(24)
                 maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
@@ -440,5 +440,9 @@ class CompletePullRequestDialog(
             
             return component
         }
+    }
+
+    private fun escapeHtml(text: String): String {
+        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     }
 }

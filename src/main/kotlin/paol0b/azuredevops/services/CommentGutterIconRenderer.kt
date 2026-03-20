@@ -27,31 +27,28 @@ class CommentGutterIconRenderer(
         val status = if (thread.isResolved()) "✓ Resolved" else "⚠ Active"
         val count = comments.size
         
-        return buildString {
-            append("<html><b>PR Comment - $status</b>")
-            
-            if (firstComment != null) {
-                append("<br><b>Author:</b> ${firstComment.author?.displayName ?: "Unknown"}")
-                
-                val content = firstComment.content ?: ""
-                if (content.isNotEmpty()) {
-                    append("<br><hr>")
-                    val preview = if (content.length > 150) {
-                        content.take(150).replace("\n", "<br>") + "..."
-                    } else {
-                        content.replace("\n", "<br>")
-                    }
-                    append(preview)
-                }
+        val sb = StringBuilder()
+        sb.append("<html><b>PR Comment - $status</b>")
+
+        if (firstComment != null) {
+            sb.append("<br><b>Author:</b> ${escapeHtml(firstComment.author?.displayName ?: "Unknown")}")
+
+            val content = firstComment.content ?: ""
+            if (content.isNotEmpty()) {
+                sb.append("<br><hr>")
+                val escaped = escapeHtml(content)
+                val preview: String = if (escaped.length > 150) escaped.take(150) + "..." else escaped
+                sb.append(preview)
             }
-            
-            if (count > 1) {
-                append("<br><hr><i>+${count - 1} ${if (count == 2) "reply" else "replies"}</i>")
-            }
-            
-            append("<br><br><font size='-2' color='gray'>Click to view and reply</font>")
-            append("</html>")
         }
+
+        if (count > 1) {
+            sb.append("<br><hr><i>+${count - 1} ${if (count == 2) "reply" else "replies"}</i>")
+        }
+
+        sb.append("<br><br><font size='-2' color='gray'>Click to view and reply</font>")
+        sb.append("</html>")
+        return sb.toString()
     }
 
     override fun getClickAction(): AnAction {
@@ -79,5 +76,9 @@ class CommentGutterIconRenderer(
 
     override fun hashCode(): Int {
         return thread.id?.hashCode() ?: 0
+    }
+
+    private fun escapeHtml(text: String): String {
+        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
     }
 }

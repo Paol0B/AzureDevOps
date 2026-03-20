@@ -280,7 +280,9 @@ data class User(
 
 data class CreatedBy(
     val displayName: String?,
-    val uniqueName: String?
+    val uniqueName: String?,
+    @SerializedName("imageUrl")
+    val imageUrl: String?
 )
 
 /**
