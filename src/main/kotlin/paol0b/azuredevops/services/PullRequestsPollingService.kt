@@ -1,5 +1,6 @@
 package paol0b.azuredevops.services
 
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
@@ -13,10 +14,11 @@ import java.util.concurrent.TimeUnit
  * Uses self-rescheduling to prevent overlapping requests and support configurable intervals.
  */
 @Service(Service.Level.PROJECT)
-class PullRequestsPollingService(private val project: Project) {
+class PullRequestsPollingService(private val project: Project) : Disposable {
 
     private val logger = Logger.getInstance(PullRequestsPollingService::class.java)
     private var scheduler: ScheduledExecutorService? = null
+    @Volatile
     private var isPolling = false
     private var refreshAction: (() -> Unit)? = null
 
@@ -70,8 +72,19 @@ class PullRequestsPollingService(private val project: Project) {
         if (!isPolling) return
         logger.info("Stopping pull requests polling")
         isPolling = false
-        scheduler?.shutdown()
+        scheduler?.let {
+            it.shutdown()
+            try {
+                it.awaitTermination(5, TimeUnit.SECONDS)
+            } catch (_: InterruptedException) {
+                it.shutdownNow()
+            }
+        }
         scheduler = null
+    }
+
+    override fun dispose() {
+        stopPolling()
     }
 
     /**

@@ -30,6 +30,7 @@ class AzureDevOpsStatusBarService(private val project: Project) : Disposable {
     @Volatile
     private var cachedData: StatusBarData = StatusBarData()
     private var scheduler: ScheduledExecutorService? = null
+    @Volatile
     private var isRunning = false
     private val listeners = CopyOnWriteArrayList<() -> Unit>()
 
@@ -75,7 +76,14 @@ class AzureDevOpsStatusBarService(private val project: Project) : Disposable {
     fun stopPolling() {
         if (!isRunning) return
         isRunning = false
-        scheduler?.shutdown()
+        scheduler?.let {
+            it.shutdown()
+            try {
+                it.awaitTermination(5, TimeUnit.SECONDS)
+            } catch (_: InterruptedException) {
+                it.shutdownNow()
+            }
+        }
         scheduler = null
     }
 

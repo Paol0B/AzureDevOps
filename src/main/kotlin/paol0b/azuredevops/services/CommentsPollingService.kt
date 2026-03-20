@@ -1,6 +1,7 @@
 package paol0b.azuredevops.services
 
 import com.intellij.ide.projectView.ProjectView
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
@@ -20,11 +21,12 @@ import java.util.concurrent.TimeUnit
  * Notifies registered change listeners when comments change (hash-based detection).
  */
 @Service(Service.Level.PROJECT)
-class CommentsPollingService(private val project: Project) {
+class CommentsPollingService(private val project: Project) : Disposable {
 
     private val logger = Logger.getInstance(CommentsPollingService::class.java)
     private var scheduler: ScheduledExecutorService? = null
     private var currentPullRequest: PullRequest? = null
+    @Volatile
     private var isPollingActive = false
     private var lastCommentsHash: Int = 0
     private val changeListeners = CopyOnWriteArrayList<() -> Unit>()
@@ -54,6 +56,9 @@ class CommentsPollingService(private val project: Project) {
             logger.info("Polling already active, stopping previous...")
             stopPolling()
         }
+
+        // Clear stale comments from the previous PR
+        PullRequestCommentsTracker.getInstance(project).clearAllComments()
 
         currentPullRequest = pullRequest
         isPollingActive = true
@@ -90,8 +95,20 @@ class CommentsPollingService(private val project: Project) {
         currentPullRequest = null
         lastCommentsHash = 0
 
-        scheduler?.shutdown()
+        scheduler?.let {
+            it.shutdown()
+            try {
+                it.awaitTermination(5, TimeUnit.SECONDS)
+            } catch (_: InterruptedException) {
+                it.shutdownNow()
+            }
+        }
         scheduler = null
+    }
+
+    override fun dispose() {
+        stopPolling()
+        changeListeners.clear()
     }
 
     /**
@@ -148,36 +165,36 @@ class CommentsPollingService(private val project: Project) {
                 return
             }
 
-            // Update comments in open files
-            ApplicationManager.getApplication().invokeLater {
-                val fileEditorManager = FileEditorManager.getInstance(project)
-                val openFiles = fileEditorManager.openFiles
-
-                val commentsService = PullRequestCommentsService.getInstance(project)
-
-                openFiles.forEach { file ->
-                    val editor = fileEditorManager.selectedTextEditor
-                    if (editor != null && file == fileEditorManager.selectedFiles.firstOrNull()) {
-                        // Reload comments in the current file
-                        commentsService.loadCommentsInEditor(editor, file, pr)
+            // Pre-compute VFS lookups and thread grouping OFF the EDT (current thread is background)
+            val projectBasePath = project.basePath
+            val threadsByFile = mutableMapOf<VirtualFile, List<CommentThread>>()
+            if (projectBasePath != null) {
+                val groupedByPath = threads.filter { it.getFilePath() != null }.groupBy { it.getFilePath()!! }
+                for ((filePath, fileThreads) in groupedByPath) {
+                    val fullPath = "$projectBasePath/${filePath.trimStart('/')}"
+                    val virtualFile = com.intellij.openapi.vfs.LocalFileSystem.getInstance()
+                        .findFileByPath(fullPath)
+                    if (virtualFile != null) {
+                        threadsByFile[virtualFile] = fileThreads
                     }
                 }
+            }
 
-                // Update the global tracker for decorators
+            // Only minimal UI work on EDT
+            ApplicationManager.getApplication().invokeLater {
+                val fileEditorManager = FileEditorManager.getInstance(project)
+                val commentsService = PullRequestCommentsService.getInstance(project)
+
+                val editor = fileEditorManager.selectedTextEditor
+                val selectedFile = fileEditorManager.selectedFiles.firstOrNull()
+                if (editor != null && selectedFile != null) {
+                    commentsService.loadCommentsInEditor(editor, selectedFile, pr)
+                }
+
+                // Update tracker with pre-computed data
                 val tracker = PullRequestCommentsTracker.getInstance(project)
-                threads.forEach { thread ->
-                    val filePath = thread.getFilePath()
-                    if (filePath != null) {
-                        val projectBasePath = project.basePath ?: return@forEach
-                        val fullPath = "$projectBasePath/${filePath.trimStart('/')}"
-                        val virtualFile = com.intellij.openapi.vfs.LocalFileSystem.getInstance()
-                            .findFileByPath(fullPath)
-
-                        if (virtualFile != null) {
-                            val fileThreads = threads.filter { it.getFilePath() == filePath }
-                            tracker.setCommentsForFile(virtualFile, fileThreads)
-                        }
-                    }
+                for ((virtualFile, fileThreads) in threadsByFile) {
+                    tracker.setCommentsForFile(virtualFile, fileThreads)
                 }
 
                 // Refresh the project view to update badges

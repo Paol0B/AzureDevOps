@@ -15,6 +15,7 @@ import com.intellij.util.ui.UIUtil
 import paol0b.azuredevops.model.*
 import paol0b.azuredevops.services.AvatarService
 import paol0b.azuredevops.services.AzureDevOpsApiClient
+import paol0b.azuredevops.services.AzureDevOpsSettingsService
 import paol0b.azuredevops.services.PrReviewStateService
 import paol0b.azuredevops.services.PrReviewTabService
 import java.awt.*
@@ -73,7 +74,6 @@ class PrReviewTabPanel(
     private var commitCount = 0
     private var ignoringVoteChange = false
     private var refreshTimer: Timer? = null
-    private val REFRESH_INTERVAL = 30000
     private var activeCommentThreads: List<CommentThread> = emptyList()
 
     init {
@@ -679,7 +679,8 @@ class PrReviewTabPanel(
     // ========================
 
     private fun startAutoRefresh() {
-        refreshTimer = Timer(REFRESH_INTERVAL) { refreshData() }.apply {
+        val intervalMs = (AzureDevOpsSettingsService.getInstance(project).state.pullRequestIntervalSeconds * 1000).toInt()
+        refreshTimer = Timer(intervalMs) { refreshData() }.apply {
             isRepeats = true
             start()
         }

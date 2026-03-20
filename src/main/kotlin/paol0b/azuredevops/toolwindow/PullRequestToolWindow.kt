@@ -80,6 +80,9 @@ class PullRequestToolWindow(private val project: Project) {
     fun dispose() {
         try {
             pollingService.stopPolling()
-        } catch (_: Exception) { }
+        } catch (e: Exception) {
+            com.intellij.openapi.diagnostic.Logger.getInstance(PullRequestToolWindow::class.java)
+                .warn("Error stopping polling during dispose", e)
+        }
     }
 }

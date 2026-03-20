@@ -190,28 +190,32 @@ class AvatarService(private val project: Project) {
             val configService = AzureDevOpsConfigService.getInstance(project)
             val token = configService.getConfig().personalAccessToken
 
-            val connection = URI(url).toURL().openConnection()
-            if (token.isNotBlank()) {
-                val credentials = ":$token"
-                val encoded = java.util.Base64.getEncoder().encodeToString(credentials.toByteArray())
-                connection.setRequestProperty("Authorization", "Basic $encoded")
+            val connection = URI(url).toURL().openConnection() as java.net.HttpURLConnection
+            try {
+                if (token.isNotBlank()) {
+                    val credentials = ":$token"
+                    val encoded = java.util.Base64.getEncoder().encodeToString(credentials.toByteArray())
+                    connection.setRequestProperty("Authorization", "Basic $encoded")
+                }
+                connection.connectTimeout = 5000
+                connection.readTimeout = 5000
+
+                val raw = connection.inputStream.use { stream ->
+                    ImageIO.read(stream)
+                } ?: return null
+
+                val result = BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB)
+                val g2d = result.createGraphics()
+                g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC)
+                g2d.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
+                g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+                g2d.drawImage(raw, 0, 0, size, size, null)
+                g2d.dispose()
+
+                makeCircular(result)
+            } finally {
+                connection.disconnect()
             }
-            connection.connectTimeout = 5000
-            connection.readTimeout = 5000
-
-            val raw = connection.getInputStream().use { stream ->
-                ImageIO.read(stream)
-            } ?: return null
-
-            val result = BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB)
-            val g2d = result.createGraphics()
-            g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC)
-            g2d.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
-            g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-            g2d.drawImage(raw, 0, 0, size, size, null)
-            g2d.dispose()
-
-            makeCircular(result)
         } catch (e: Throwable) {
             logger.debug("Error loading image from $url: ${e.message}")
             null

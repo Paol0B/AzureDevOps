@@ -445,7 +445,14 @@ class TimelinePanel(
     }
 
     fun stopPolling() {
-        scheduler?.shutdown()
+        scheduler?.let {
+            it.shutdown()
+            try {
+                it.awaitTermination(5, TimeUnit.SECONDS)
+            } catch (_: InterruptedException) {
+                it.shutdownNow()
+            }
+        }
         scheduler = null
     }
 

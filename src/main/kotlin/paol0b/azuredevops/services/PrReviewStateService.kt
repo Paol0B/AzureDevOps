@@ -27,6 +27,8 @@ class PrReviewStateService(private val project: Project) : PersistentStateCompon
     private val stateChangeListeners = mutableListOf<StateChangeListener>()
 
     companion object {
+        private const val MAX_TRACKED_PRS = 50
+
         fun getInstance(project: Project): PrReviewStateService {
             return project.getService(PrReviewStateService::class.java)
         }
@@ -43,7 +45,17 @@ class PrReviewStateService(private val project: Project) : PersistentStateCompon
         var prVotes: MutableMap<Int, Int> = mutableMapOf()
     )
 
-    override fun getState(): State = myState
+    override fun getState(): State {
+        // Evict old entries keeping only the last 50 PRs to prevent unbounded growth
+        if (myState.reviewedFiles.size > MAX_TRACKED_PRS) {
+            val keysToRemove = myState.reviewedFiles.keys.sorted().take(myState.reviewedFiles.size - MAX_TRACKED_PRS)
+            keysToRemove.forEach {
+                myState.reviewedFiles.remove(it)
+                myState.prVotes.remove(it)
+            }
+        }
+        return myState
+    }
 
     override fun loadState(state: State) {
         XmlSerializerUtil.copyBean(state, myState)

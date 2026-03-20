@@ -26,7 +26,7 @@ import paol0b.azuredevops.services.PullRequestCommentsService
 class FileOpenedListener(private val project: Project) : FileEditorManagerListener {
 
     private val logger = Logger.getInstance(FileOpenedListener::class.java)
-    private val notifiedBranches = mutableSetOf<String>()
+    private val notifiedBranches = LinkedHashSet<String>()
     private var currentPullRequest: PullRequest? = null
 
     override fun fileOpened(source: FileEditorManager, file: VirtualFile) {
@@ -80,6 +80,9 @@ class FileOpenedListener(private val project: Project) : FileEditorManagerListen
                         
                         // Notify only the first time
                         if (!notifiedBranches.contains(currentBranch.displayName)) {
+                            if (notifiedBranches.size >= 100) {
+                                notifiedBranches.remove(notifiedBranches.first())
+                            }
                             notifiedBranches.add(currentBranch.displayName)
                             showPullRequestNotification(pullRequest, currentBranch.displayName, source, file)
                         }
@@ -107,11 +110,9 @@ class FileOpenedListener(private val project: Project) : FileEditorManagerListen
         
         val commentsService = PullRequestCommentsService.getInstance(project)
         commentsService.loadCommentsInEditor(editor, file, pullRequest)
-        
+
         // Refresh project view to update file decorators
-        ApplicationManager.getApplication().invokeLater {
-            ProjectView.getInstance(project)?.refresh()
-        }
+        ProjectView.getInstance(project)?.refresh()
     }
     
     /**

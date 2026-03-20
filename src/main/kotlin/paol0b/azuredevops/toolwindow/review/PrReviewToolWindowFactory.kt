@@ -22,7 +22,7 @@ class PrReviewToolWindowFactory : ToolWindowFactory, DumbAware {
         toolWindow.contentManager.addContent(content)
         
         // Refresh when tool window becomes visible (e.g., after user authenticates)
-        project.messageBus.connect().subscribe(ToolWindowManagerListener.TOPIC, object : ToolWindowManagerListener {
+        project.messageBus.connect(toolWindow.disposable).subscribe(ToolWindowManagerListener.TOPIC, object : ToolWindowManagerListener {
             override fun toolWindowShown(shownToolWindow: ToolWindow) {
                 if (shownToolWindow.id == toolWindow.id) {
                     reviewWindow.refreshPullRequestsList()
