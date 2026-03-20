@@ -146,13 +146,14 @@
             displayName="Azure DevOps Accounts"/>
             
         <!-- Project-level configuration -->
-        <!--
         <projectConfigurable
             parentId="tools"
             instance="paol0b.azuredevops.ui.AzureDevOpsProjectConfigurable"
             id="paol0b.azuredevops.project"
             displayName="Azure DevOps"/>
-        -->
+
+        <!-- Plugin settings (polling intervals, etc.) -->
+        <projectService serviceImplementation="paol0b.azuredevops.services.AzureDevOpsSettingsService"/>
 
         <!-- Notification Group -->
         <notificationGroup

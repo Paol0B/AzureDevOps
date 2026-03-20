@@ -13,13 +13,17 @@ import paol0b.azuredevops.model.AzureDevOpsConfig
 import paol0b.azuredevops.services.AzureDevOpsApiClient
 import paol0b.azuredevops.services.AzureDevOpsConfigService
 import paol0b.azuredevops.services.AzureDevOpsRepositoryDetector
+import paol0b.azuredevops.services.AzureDevOpsSettingsService
+import paol0b.azuredevops.services.AzureDevOpsStatusBarService
+import paol0b.azuredevops.services.CommentsPollingService
+import paol0b.azuredevops.services.PullRequestsPollingService
 import java.awt.BorderLayout
 import java.awt.event.ItemEvent
 import javax.swing.*
 
 /**
- * Project-level configuration for Azure DevOps
- * Now simplified: just select which global account to use
+ * Project-level configuration for Azure DevOps.
+ * Contains account selection and plugin settings (polling intervals, etc.)
  */
 class AzureDevOpsProjectConfigurable(private val project: Project) : Configurable {
 
@@ -27,9 +31,15 @@ class AzureDevOpsProjectConfigurable(private val project: Project) : Configurabl
     private val accountComboBox = ComboBox<AccountItem>()
     private val testConnectionButton = JButton("Test Connection")
     private val manageAccountsButton = JButton("Manage Global Accounts...")
-    
+
     private val detectorInfoLabel = JBLabel()
     private val accountStatusLabel = JBLabel()
+
+    // Polling spinners
+    private val prIntervalSpinner = JSpinner(SpinnerNumberModel(30L, 10L, 300L, 5L))
+    private val commentsIntervalSpinner = JSpinner(SpinnerNumberModel(15L, 5L, 120L, 5L))
+    private val timelineIntervalSpinner = JSpinner(SpinnerNumberModel(15L, 5L, 120L, 5L))
+    private val statusBarIntervalSpinner = JSpinner(SpinnerNumberModel(60L, 15L, 300L, 15L))
 
     data class AccountItem(
         val account: AzureDevOpsAccount?,
@@ -44,7 +54,7 @@ class AzureDevOpsProjectConfigurable(private val project: Project) : Configurabl
         val configService = AzureDevOpsConfigService.getInstance(project)
         val detector = AzureDevOpsRepositoryDetector.getInstance(project)
         val detectedInfo = detector.detectAzureDevOpsInfo()
-        
+
         // Setup detector info
         if (detectedInfo != null) {
             detectorInfoLabel.text = "<html><b style='color: green;'>✓ Azure DevOps Repository Detected</b><br>" +
@@ -88,7 +98,15 @@ class AzureDevOpsProjectConfigurable(private val project: Project) : Configurabl
             add(manageAccountsButton)
         }
 
+        // Load current polling settings
+        val settings = AzureDevOpsSettingsService.getInstance(project).state
+        prIntervalSpinner.value = settings.pullRequestIntervalSeconds
+        commentsIntervalSpinner.value = settings.commentsIntervalSeconds
+        timelineIntervalSpinner.value = settings.timelineIntervalSeconds
+        statusBarIntervalSpinner.value = settings.statusBarIntervalSeconds
+
         val formBuilder = FormBuilder.createFormBuilder()
+            // --- Repository & Account ---
             .addComponent(detectorInfoLabel)
             .addSeparator()
             .addLabeledComponent(JBLabel("Account:"), accountComboBox, 1, false)
@@ -99,6 +117,17 @@ class AzureDevOpsProjectConfigurable(private val project: Project) : Configurabl
             .addComponent(JBLabel("<html><font size='-1' color='gray'>" +
                 "<b>Note:</b> Accounts are managed globally. Use 'Manage Global Accounts...' to add, remove, or refresh tokens." +
                 "</font></html>"), 1)
+            // --- Polling ---
+            .addVerticalGap(15)
+            .addComponent(JBLabel("<html><b>Polling Intervals</b></html>"))
+            .addComponent(JBLabel("<html><font size='-1' color='gray'>" +
+                "Configure how often the plugin checks for updates. Lower values mean faster updates but more network usage." +
+                "</font></html>"), 1)
+            .addVerticalGap(5)
+            .addLabeledComponent(JBLabel("Pull Requests (seconds):"), prIntervalSpinner, 1, false)
+            .addLabeledComponent(JBLabel("Comments (seconds):"), commentsIntervalSpinner, 1, false)
+            .addLabeledComponent(JBLabel("Timeline (seconds):"), timelineIntervalSpinner, 1, false)
+            .addLabeledComponent(JBLabel("Status Bar (seconds):"), statusBarIntervalSpinner, 1, false)
             .addComponentFillVertically(JPanel(), 0)
 
         val formPanel = formBuilder.panel
@@ -116,12 +145,12 @@ class AzureDevOpsProjectConfigurable(private val project: Project) : Configurabl
     private fun loadAccounts() {
         val accountManager = AzureDevOpsAccountManager.getInstance()
         val accounts = accountManager.getAccounts()
-        
+
         accountComboBox.removeAllItems()
-        
+
         // Add "None" option
         accountComboBox.addItem(AccountItem(null, "-- No Account (Use PAT from settings) --"))
-        
+
         // Add all accounts
         accounts.forEach { account ->
             val state = accountManager.getAccountAuthState(account.id)
@@ -133,12 +162,12 @@ class AzureDevOpsProjectConfigurable(private val project: Project) : Configurabl
             }
             accountComboBox.addItem(AccountItem(account, "$statusIcon ${account.displayName}"))
         }
-        
+
         // Try to select current account (match by URL)
         val detector = AzureDevOpsRepositoryDetector.getInstance(project)
         val detectedInfo = detector.detectAzureDevOpsInfo()
         if (detectedInfo != null) {
-            val matchingAccount = accounts.find { 
+            val matchingAccount = accounts.find {
                 it.serverUrl.contains(detectedInfo.organization, ignoreCase = true)
             }
             if (matchingAccount != null) {
@@ -158,15 +187,15 @@ class AzureDevOpsProjectConfigurable(private val project: Project) : Configurabl
         if (selectedItem?.account != null) {
             val accountManager = AzureDevOpsAccountManager.getInstance()
             val state = accountManager.getAccountAuthState(selectedItem.account.id)
-            
+
             accountStatusLabel.text = when (state) {
-                AzureDevOpsAccountManager.AccountAuthState.VALID -> 
+                AzureDevOpsAccountManager.AccountAuthState.VALID ->
                     "<html><font color='green'>✓ Token is valid</font></html>"
-                AzureDevOpsAccountManager.AccountAuthState.EXPIRED -> 
+                AzureDevOpsAccountManager.AccountAuthState.EXPIRED ->
                     "<html><font color='orange'>⚠ Token expired - use 'Manage Accounts' to refresh</font></html>"
-                AzureDevOpsAccountManager.AccountAuthState.REVOKED -> 
+                AzureDevOpsAccountManager.AccountAuthState.REVOKED ->
                     "<html><font color='red'>✗ Token revoked - use 'Manage Accounts' to re-authenticate</font></html>"
-                else -> 
+                else ->
                     "<html><font color='gray'>? Token status unknown</font></html>"
             }
         } else {
@@ -177,7 +206,7 @@ class AzureDevOpsProjectConfigurable(private val project: Project) : Configurabl
     private fun testConnection() {
         val detector = AzureDevOpsRepositoryDetector.getInstance(project)
         val repoInfo = detector.detectAzureDevOpsInfo()
-        
+
         if (repoInfo == null) {
             Messages.showErrorDialog(
                 project,
@@ -208,9 +237,9 @@ class AzureDevOpsProjectConfigurable(private val project: Project) : Configurabl
         try {
             val apiClient = AzureDevOpsApiClient.getInstance(project)
             val url = apiClient.buildApiUrl(repoInfo.project, repoInfo.repository, "?api-version=7.0")
-            
+
             testConnectionDirectly(url, token)
-            
+
             Messages.showInfoMessage(
                 project,
                 "Successfully connected to Azure DevOps!\n\n" +
@@ -230,7 +259,7 @@ class AzureDevOpsProjectConfigurable(private val project: Project) : Configurabl
 
     private fun testConnectionDirectly(url: String, token: String) {
         val connection = java.net.URI(url).toURL().openConnection() as java.net.HttpURLConnection
-        
+
         try {
             connection.requestMethod = "GET"
             val credentials = ":$token"
@@ -243,7 +272,7 @@ class AzureDevOpsProjectConfigurable(private val project: Project) : Configurabl
             connection.readTimeout = 10000
 
             val responseCode = connection.responseCode
-            
+
             if (responseCode != java.net.HttpURLConnection.HTTP_OK) {
                 val errorBody = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
                 throw Exception(when (responseCode) {
@@ -259,18 +288,36 @@ class AzureDevOpsProjectConfigurable(private val project: Project) : Configurabl
     }
 
     override fun isModified(): Boolean {
-        // Currently no project-level state to modify
-        // Account selection doesn't need to be persisted as it's auto-matched
-        return false
+        val settings = AzureDevOpsSettingsService.getInstance(project).state
+        return prIntervalSpinner.value as Long != settings.pullRequestIntervalSeconds ||
+                commentsIntervalSpinner.value as Long != settings.commentsIntervalSeconds ||
+                timelineIntervalSpinner.value as Long != settings.timelineIntervalSeconds ||
+                statusBarIntervalSpinner.value as Long != settings.statusBarIntervalSeconds
     }
 
     override fun apply() {
-        // No-op: account is selected automatically based on URL match
+        val settings = AzureDevOpsSettingsService.getInstance(project)
+        val state = settings.state
+        state.pullRequestIntervalSeconds = prIntervalSpinner.value as Long
+        state.commentsIntervalSeconds = commentsIntervalSpinner.value as Long
+        state.timelineIntervalSeconds = timelineIntervalSpinner.value as Long
+        state.statusBarIntervalSeconds = statusBarIntervalSpinner.value as Long
+
+        // Reschedule active polling services with new intervals
+        PullRequestsPollingService.getInstance(project).reschedule()
+        CommentsPollingService.getInstance(project).reschedule()
+        AzureDevOpsStatusBarService.getInstance(project).reschedule()
     }
 
     override fun reset() {
         loadAccounts()
         updateAccountStatus()
+
+        val settings = AzureDevOpsSettingsService.getInstance(project).state
+        prIntervalSpinner.value = settings.pullRequestIntervalSeconds
+        commentsIntervalSpinner.value = settings.commentsIntervalSeconds
+        timelineIntervalSpinner.value = settings.timelineIntervalSeconds
+        statusBarIntervalSpinner.value = settings.statusBarIntervalSeconds
     }
 
     override fun disposeUIResources() {

@@ -12,6 +12,7 @@ import com.intellij.util.ui.UIUtil
 import paol0b.azuredevops.model.*
 import paol0b.azuredevops.services.AvatarService
 import paol0b.azuredevops.services.AzureDevOpsApiClient
+import paol0b.azuredevops.services.AzureDevOpsSettingsService
 import paol0b.azuredevops.toolwindow.review.timeline.*
 import java.awt.*
 import java.util.concurrent.ScheduledExecutorService
@@ -59,9 +60,7 @@ class TimelinePanel(
     private var lastDataHash: Int = 0
     @Volatile private var latestPullRequest: PullRequest = pullRequest
 
-    companion object {
-        private const val POLLING_INTERVAL_SECONDS = 8L
-    }
+    companion object;
 
     init {
         background = UIUtil.getPanelBackground()
@@ -428,14 +427,21 @@ class TimelinePanel(
     // ==================================================================
 
     private fun startPolling() {
-        scheduler = ScheduledThreadPoolExecutor(1).apply {
-            scheduleAtFixedRate(
-                { loadTimeline() },
-                POLLING_INTERVAL_SECONDS,
-                POLLING_INTERVAL_SECONDS,
-                TimeUnit.SECONDS
-            )
-        }
+        scheduler = ScheduledThreadPoolExecutor(1)
+        scheduleNext()
+    }
+
+    private fun scheduleNext() {
+        val interval = AzureDevOpsSettingsService.getInstance(project).state.timelineIntervalSeconds
+        scheduler?.schedule({
+            try {
+                loadTimeline()
+            } catch (e: Exception) {
+                logger.warn("Error during timeline refresh", e)
+            } finally {
+                scheduleNext()
+            }
+        }, interval, TimeUnit.SECONDS)
     }
 
     fun stopPolling() {
