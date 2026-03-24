@@ -7,14 +7,17 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
+import paol0b.azuredevops.model.CommentThread
 import paol0b.azuredevops.model.PullRequest
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.ScheduledThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 
 /**
- * Service that performs automatic polling to update PR comments
- * Automatic refresh every 30 seconds
+ * Service that performs automatic polling to update PR comments.
+ * Uses self-rescheduling to prevent overlapping requests and support configurable intervals.
+ * Notifies registered change listeners when comments change (hash-based detection).
  */
 @Service(Service.Level.PROJECT)
 class CommentsPollingService(private val project: Project) {
@@ -23,40 +26,58 @@ class CommentsPollingService(private val project: Project) {
     private var scheduler: ScheduledExecutorService? = null
     private var currentPullRequest: PullRequest? = null
     private var isPollingActive = false
+    private var lastCommentsHash: Int = 0
+    private val changeListeners = CopyOnWriteArrayList<() -> Unit>()
 
     companion object {
-        private const val POLLING_INTERVAL_SECONDS = 5L
-
         fun getInstance(project: Project): CommentsPollingService {
             return project.getService(CommentsPollingService::class.java)
         }
     }
 
+    fun addChangeListener(listener: () -> Unit) {
+        changeListeners.add(listener)
+    }
+
+    fun removeChangeListener(listener: () -> Unit) {
+        changeListeners.remove(listener)
+    }
+
     /**
-     * Starts polling for a specific PR
+     * Starts polling for a specific PR.
+     * Uses self-rescheduling: the next poll is scheduled only after the current one completes.
      */
     fun startPolling(pullRequest: PullRequest) {
         logger.info("Starting polling for PR #${pullRequest.pullRequestId}")
-
-        currentPullRequest = pullRequest
 
         if (isPollingActive) {
             logger.info("Polling already active, stopping previous...")
             stopPolling()
         }
 
+        currentPullRequest = pullRequest
         isPollingActive = true
+        lastCommentsHash = 0
 
-        scheduler = ScheduledThreadPoolExecutor(1).apply {
-            scheduleAtFixedRate(
-                { refreshComments() },
-                POLLING_INTERVAL_SECONDS,
-                POLLING_INTERVAL_SECONDS,
-                TimeUnit.SECONDS
-            )
-        }
+        val interval = AzureDevOpsSettingsService.getInstance(project).state.commentsIntervalSeconds
+        scheduler = ScheduledThreadPoolExecutor(1)
+        scheduleNext()
 
-        logger.info("Polling started with ${POLLING_INTERVAL_SECONDS}s interval")
+        logger.info("Polling started with ${interval}s interval")
+    }
+
+    private fun scheduleNext() {
+        if (!isPollingActive) return
+        val interval = AzureDevOpsSettingsService.getInstance(project).state.commentsIntervalSeconds
+        scheduler?.schedule({
+            try {
+                refreshComments()
+            } catch (e: Exception) {
+                logger.warn("Error during comments refresh", e)
+            } finally {
+                scheduleNext()
+            }
+        }, interval, TimeUnit.SECONDS)
     }
 
     /**
@@ -67,9 +88,22 @@ class CommentsPollingService(private val project: Project) {
 
         isPollingActive = false
         currentPullRequest = null
+        lastCommentsHash = 0
 
         scheduler?.shutdown()
         scheduler = null
+    }
+
+    /**
+     * Reschedule polling with the current settings.
+     * Called when polling interval settings change.
+     */
+    fun reschedule() {
+        if (!isPollingActive) return
+        val pr = currentPullRequest ?: return
+        logger.info("Rescheduling comments polling with updated interval")
+        stopPolling()
+        startPolling(pr)
     }
 
     /**
@@ -87,7 +121,7 @@ class CommentsPollingService(private val project: Project) {
      */
     private fun refreshComments() {
         val pr = currentPullRequest ?: return
-        
+
         // Check if comments visibility is enabled globally
         val visibilityService = CommentsVisibilityService.getInstance(project)
         if (!visibilityService.isCommentsVisible()) {
@@ -102,6 +136,17 @@ class CommentsPollingService(private val project: Project) {
             val threads = apiClient.getCommentThreads(pr.pullRequestId)
 
             logger.info("Fetched ${threads.size} threads")
+
+            // Hash-based change detection
+            val newHash = calculateCommentsHash(threads)
+            val hasChanged = newHash != lastCommentsHash
+            if (hasChanged) {
+                logger.info("Comments changed (hash: $lastCommentsHash -> $newHash)")
+                lastCommentsHash = newHash
+            } else {
+                logger.info("No changes in comments, skipping UI update")
+                return
+            }
 
             // Update comments in open files
             ApplicationManager.getApplication().invokeLater {
@@ -138,6 +183,9 @@ class CommentsPollingService(private val project: Project) {
                 // Refresh the project view to update badges
                 ProjectView.getInstance(project)?.refresh()
 
+                // Notify change listeners
+                changeListeners.forEach { it() }
+
                 logger.info("Comments refreshed successfully")
             }
 
@@ -146,13 +194,18 @@ class CommentsPollingService(private val project: Project) {
         }
     }
 
-    /**
-     * Verifica se il polling è attivo
-     */
+    private fun calculateCommentsHash(threads: List<CommentThread>): Int {
+        return threads.hashCode() + threads.sumOf { thread ->
+            var hash = thread.id ?: 0
+            hash = 31 * hash + (thread.status?.hashCode() ?: 0)
+            hash = 31 * hash + (thread.comments?.size ?: 0)
+            hash = 31 * hash + (thread.comments?.firstOrNull()?.content?.hashCode() ?: 0)
+            hash = 31 * hash + (thread.comments?.lastOrNull()?.content?.hashCode() ?: 0)
+            hash
+        }
+    }
+
     fun isPolling(): Boolean = isPollingActive
 
-    /**
-     * Ottiene la PR corrente in polling
-     */
     fun getCurrentPullRequest(): PullRequest? = currentPullRequest
 }

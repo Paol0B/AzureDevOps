@@ -10,7 +10,7 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Project service that triggers a periodic refresh of the Pull Requests list.
- * The polling interval is set to 5 seconds.
+ * Uses self-rescheduling to prevent overlapping requests and support configurable intervals.
  */
 @Service(Service.Level.PROJECT)
 class PullRequestsPollingService(private val project: Project) {
@@ -18,18 +18,18 @@ class PullRequestsPollingService(private val project: Project) {
     private val logger = Logger.getInstance(PullRequestsPollingService::class.java)
     private var scheduler: ScheduledExecutorService? = null
     private var isPolling = false
+    private var refreshAction: (() -> Unit)? = null
 
     companion object {
-        private const val POLLING_INTERVAL_SECONDS = 5L
-
         fun getInstance(project: Project): PullRequestsPollingService {
             return project.getService(PullRequestsPollingService::class.java)
         }
     }
 
     /**
-     * Start polling and execute the provided refresh action every interval.
-     * The action is invoked on the EDT via ApplicationManager.invokeLater.
+     * Start polling and execute the provided refresh action at the configured interval.
+     * Uses self-rescheduling: the next poll is scheduled only after the current one completes,
+     * naturally preventing overlapping requests.
      */
     fun startPolling(refreshAction: () -> Unit) {
         if (isPolling) {
@@ -37,24 +37,33 @@ class PullRequestsPollingService(private val project: Project) {
             return
         }
 
-        logger.info("Starting pull requests polling with ${POLLING_INTERVAL_SECONDS}s interval")
+        this.refreshAction = refreshAction
+        val interval = AzureDevOpsSettingsService.getInstance(project).state.pullRequestIntervalSeconds
+        logger.info("Starting pull requests polling with ${interval}s interval")
         isPolling = true
 
-        scheduler = ScheduledThreadPoolExecutor(1).apply {
-            scheduleAtFixedRate({
-                try {
-                    ApplicationManager.getApplication().invokeLater {
-                        try {
-                            refreshAction()
-                        } catch (e: Exception) {
-                            logger.warn("Error while executing pull requests refresh action", e)
-                        }
+        scheduler = ScheduledThreadPoolExecutor(1)
+        scheduleNext()
+    }
+
+    private fun scheduleNext() {
+        if (!isPolling) return
+        val interval = AzureDevOpsSettingsService.getInstance(project).state.pullRequestIntervalSeconds
+        scheduler?.schedule({
+            try {
+                ApplicationManager.getApplication().invokeLater {
+                    try {
+                        refreshAction?.invoke()
+                    } catch (e: Exception) {
+                        logger.warn("Error while executing pull requests refresh action", e)
                     }
-                } catch (e: Exception) {
-                    logger.warn("Error scheduling pull requests refresh", e)
                 }
-            }, POLLING_INTERVAL_SECONDS, POLLING_INTERVAL_SECONDS, TimeUnit.SECONDS)
-        }
+            } catch (e: Exception) {
+                logger.warn("Error scheduling pull requests refresh", e)
+            } finally {
+                scheduleNext()
+            }
+        }, interval, TimeUnit.SECONDS)
     }
 
     fun stopPolling() {
@@ -63,6 +72,18 @@ class PullRequestsPollingService(private val project: Project) {
         isPolling = false
         scheduler?.shutdown()
         scheduler = null
+    }
+
+    /**
+     * Reschedule polling with the current settings.
+     * Called when polling interval settings change.
+     */
+    fun reschedule() {
+        if (!isPolling) return
+        val action = refreshAction ?: return
+        logger.info("Rescheduling pull requests polling with updated interval")
+        stopPolling()
+        startPolling(action)
     }
 
     fun isPolling(): Boolean = isPolling

@@ -23,6 +23,7 @@ import com.intellij.util.ui.UIUtil
 import paol0b.azuredevops.model.CommentThread
 import paol0b.azuredevops.model.PullRequest
 import paol0b.azuredevops.services.AzureDevOpsApiClient
+import paol0b.azuredevops.services.CommentsPollingService
 import paol0b.azuredevops.services.GitRepositoryService
 import paol0b.azuredevops.services.PullRequestCommentsService
 import paol0b.azuredevops.ui.CommentThreadDialog
@@ -98,9 +99,8 @@ class CommentsNavigatorPanel(private val project: Project) : JPanel(BorderLayout
     private var currentFilter: CommentFilter = CommentFilter.ALL
     private var fileEditorListener: FileEditorManagerListener? = null
     private var messageConnection: com.intellij.util.messages.MessageBusConnection? = null
-    private var lastCommentsHash: Int = 0
-    private var autoRefreshTimer: javax.swing.Timer? = null
     private var isInitialLoadDone: Boolean = false
+    private val commentsChangeListener: () -> Unit = { onCommentsChanged() }
     
     private enum class CommentFilter {
         ALL, ACTIVE, RESOLVED, GENERAL
@@ -176,8 +176,13 @@ class CommentsNavigatorPanel(private val project: Project) : JPanel(BorderLayout
             registerFileChangeListener()
         }
         
-        // Start auto-refresh timer (every 30 seconds)
-        startAutoRefresh()
+        // Listen to CommentsPollingService for real-time updates
+        CommentsPollingService.getInstance(project).addChangeListener(commentsChangeListener)
+    }
+
+    private fun onCommentsChanged() {
+        logger.info("Comments changed notification from polling service")
+        loadComments()
     }
     
     fun loadCommentsIfNeeded() {
@@ -193,60 +198,6 @@ class CommentsNavigatorPanel(private val project: Project) : JPanel(BorderLayout
         loadComments()
     }
     
-    private fun startAutoRefresh() {
-        // Auto-refresh every 30 seconds, but only update UI if there are changes
-        autoRefreshTimer = javax.swing.Timer(30000) {
-            // Only check for changes if toggle is enabled - don't restart comments when disabled
-            if (currentPullRequest != null && showCommentsToggle.isSelected) {
-                logger.info("Auto-refresh triggered")
-                checkForCommentsChanges()
-            }
-        }.apply {
-            isRepeats = true
-            start()
-        }
-    }
-    
-    private fun checkForCommentsChanges() {
-        ApplicationManager.getApplication().executeOnPooledThread {
-            try {
-                val pr = currentPullRequest ?: return@executeOnPooledThread
-                
-                val apiClient = AzureDevOpsApiClient.getInstance(project)
-                val threads = apiClient.getCommentThreads(pr.pullRequestId)
-                
-                // Calculate hash of current comments for comparison
-                val newHash = calculateCommentsHash(threads)
-                
-                if (newHash != lastCommentsHash) {
-                    logger.info("Comments changed detected (hash: $lastCommentsHash -> $newHash), updating UI")
-                    lastCommentsHash = newHash
-                    
-                    ApplicationManager.getApplication().invokeLater {
-                        loadComments()
-                    }
-                } else {
-                    logger.info("No changes in comments, skipping UI update")
-                    updateStatus("${statusLabel.text} · Checked ${java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))}")
-                }
-            } catch (e: Exception) {
-                logger.warn("Auto-refresh failed: ${e.message}")
-            }
-        }
-    }
-    
-    private fun calculateCommentsHash(threads: List<CommentThread>): Int {
-        // Create a stable hash based on: thread count, comment count, status, content
-        return threads.hashCode() + threads.sumOf { thread ->
-            var hash = thread.id ?: 0
-            hash = 31 * hash + (thread.status?.hashCode() ?: 0)
-            hash = 31 * hash + (thread.comments?.size ?: 0)
-            hash = 31 * hash + (thread.comments?.firstOrNull()?.content?.hashCode() ?: 0)
-            hash = 31 * hash + (thread.comments?.lastOrNull()?.content?.hashCode() ?: 0)
-            hash
-        }
-    }
-
     private fun createHeaderPanel(): JPanel {
         val panel = JPanel(BorderLayout(0, 10)).apply {
             border = JBUI.Borders.empty(8, 12, 8, 12)
@@ -394,10 +345,7 @@ class CommentsNavigatorPanel(private val project: Project) : JPanel(BorderLayout
 
                 currentPullRequest = pullRequest
                 val threads = apiClient.getCommentThreads(pullRequest.pullRequestId)
-                
-                // Update hash for change detection
-                lastCommentsHash = calculateCommentsHash(threads)
-                
+
                 // Build comment items with proper escaping
                 // Exclude only system-generated comments (auto-generated by Azure DevOps)
                 allComments = threads
@@ -660,15 +608,15 @@ class CommentsNavigatorPanel(private val project: Project) : JPanel(BorderLayout
     
     // Cleanup when panel is disposed
     fun dispose() {
-        autoRefreshTimer?.stop()
-        autoRefreshTimer = null
-        
+        // Remove polling service listener
+        CommentsPollingService.getInstance(project).removeChangeListener(commentsChangeListener)
+
         // Always hide comments when closing the tool window
         hideCommentsFromAllFiles()
-        
+
         // Unregister listener if it was registered
         unregisterFileChangeListener()
-        
+
         logger.info("Tool window disposed - comments cleared and listeners removed")
     }
 }

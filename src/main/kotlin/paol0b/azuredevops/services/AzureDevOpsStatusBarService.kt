@@ -34,8 +34,6 @@ class AzureDevOpsStatusBarService(private val project: Project) : Disposable {
     private val listeners = CopyOnWriteArrayList<() -> Unit>()
 
     companion object {
-        private const val POLLING_INTERVAL_SECONDS = 30L
-
         fun getInstance(project: Project): AzureDevOpsStatusBarService {
             return project.getService(AzureDevOpsStatusBarService::class.java)
         }
@@ -55,11 +53,23 @@ class AzureDevOpsStatusBarService(private val project: Project) : Disposable {
         if (isRunning) return
         isRunning = true
 
-        scheduler = ScheduledThreadPoolExecutor(1).apply {
-            scheduleAtFixedRate({
+        scheduler = ScheduledThreadPoolExecutor(1)
+        scheduleNext(initialDelay = 0)
+    }
+
+    private fun scheduleNext(initialDelay: Long? = null) {
+        if (!isRunning) return
+        val interval = AzureDevOpsSettingsService.getInstance(project).state.statusBarIntervalSeconds
+        val delay = initialDelay ?: interval
+        scheduler?.schedule({
+            try {
                 refreshAll()
-            }, 0, POLLING_INTERVAL_SECONDS, TimeUnit.SECONDS)
-        }
+            } catch (e: Exception) {
+                logger.warn("Error during status bar refresh: ${e.message}")
+            } finally {
+                scheduleNext()
+            }
+        }, delay, TimeUnit.SECONDS)
     }
 
     fun stopPolling() {
@@ -67,6 +77,17 @@ class AzureDevOpsStatusBarService(private val project: Project) : Disposable {
         isRunning = false
         scheduler?.shutdown()
         scheduler = null
+    }
+
+    /**
+     * Reschedule polling with the current settings.
+     * Called when polling interval settings change.
+     */
+    fun reschedule() {
+        if (!isRunning) return
+        logger.info("Rescheduling status bar polling with updated interval")
+        stopPolling()
+        startPolling()
     }
 
     fun refreshAll() {
