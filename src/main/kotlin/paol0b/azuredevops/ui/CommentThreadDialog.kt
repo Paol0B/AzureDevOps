@@ -34,7 +34,9 @@ class CommentThreadDialog(
 ) : DialogWrapper(project) {
 
     private val replyTextArea = JBTextArea(4, 60)
-    private val commentsPanel = JPanel()
+    private val commentsPanel = JPanel().apply {
+        layout = BoxLayout(this, BoxLayout.Y_AXIS)
+    }
     private lateinit var commentsScrollPane: JBScrollPane
     private val statusComboBox = javax.swing.JComboBox<paol0b.azuredevops.model.ThreadStatus>()
     private val statusPanel = JPanel(BorderLayout())
@@ -61,7 +63,8 @@ class CommentThreadDialog(
         refreshHeaderPanel()
         panel.add(headerPanel, BorderLayout.NORTH)
 
-        // Comments list
+        // Comments list — populate before wrapping in scroll pane
+        buildCommentsPanel()
         commentsScrollPane = JBScrollPane(commentsPanel).apply {
             preferredSize = Dimension(660, 300)
             border = JBUI.Borders.customLine(JBUI.CurrentTheme.CustomFrameDecorations.separatorForeground(), 1)
