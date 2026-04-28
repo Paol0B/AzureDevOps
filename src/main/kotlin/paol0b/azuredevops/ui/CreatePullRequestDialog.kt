@@ -14,6 +14,7 @@ import com.intellij.openapi.ui.ValidationInfo
 import com.intellij.openapi.vcs.changes.Change
 import com.intellij.openapi.vcs.changes.ui.ChangesBrowserNode
 import com.intellij.openapi.vcs.changes.ui.ChangesTree
+import com.intellij.ui.ComboboxSpeedSearch
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.*
 import com.intellij.util.ui.FormBuilder
@@ -181,6 +182,11 @@ class CreatePullRequestDialog private constructor(
         // Set renderer to show only displayName
         sourceBranchCombo.renderer = BranchListCellRenderer()
         targetBranchCombo.renderer = BranchListCellRenderer()
+
+        // Enable type-to-filter inside the dropdown popup, matching by branch displayName
+        val branchTextExtractor: (Any?) -> String? = { (it as? GitBranch)?.displayName }
+        ComboboxSpeedSearch(sourceBranchCombo, branchTextExtractor)
+        ComboboxSpeedSearch(targetBranchCombo, branchTextExtractor)
 
         // Description area setup
         descriptionArea.lineWrap = true
