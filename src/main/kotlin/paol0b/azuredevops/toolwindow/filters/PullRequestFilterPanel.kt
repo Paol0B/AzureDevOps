@@ -2,6 +2,8 @@ package paol0b.azuredevops.toolwindow.filters
 
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.intellij.ui.JBColor
 import com.intellij.ui.SearchTextField
@@ -14,8 +16,11 @@ import com.intellij.openapi.ui.popup.PopupStep
 import com.intellij.openapi.ui.popup.util.BaseListPopupStep
 import com.intellij.ui.awt.RelativePoint
 import com.intellij.util.ui.JBUI
+import paol0b.azuredevops.checkout.AzureDevOpsCloneApiClient
+import paol0b.azuredevops.checkout.ProjectFilterPopup
 import paol0b.azuredevops.model.PullRequest
 import paol0b.azuredevops.services.AvatarService
+import paol0b.azuredevops.services.AzureDevOpsApiClient
 import java.awt.*
 import javax.swing.*
 
@@ -52,10 +57,34 @@ class PullRequestFilterPanel(
     private val filterBadgeIcon = FilterBadgeIcon(AllIcons.General.Filter)
     private val quickFilterButton: JButton
 
-    // Cached lists (populated from loaded PR data)
+    // Cached lists. Authors and repositories are still derived from loaded PR data (the
+    // filter values are only meaningful for things that actually appear in PRs). Projects,
+    // however, are pre-fetched directly from the org's projects endpoint so the user can
+    // pick any project — even one with zero PRs in the current state — to narrow the load.
+    //
+    // We keep two sources for projects: the authoritative API list, and a fallback derived
+    // from loaded PRs. If the API call fails (commonly: PAT missing the `vso.project` /
+    // "Project and Team (read)" scope) we still want the multi-select popup to be usable
+    // — populated from whatever projects the user's PRs already revealed.
     private var cachedAuthors: List<PullRequestSearchValue.AuthorFilter>? = null
-    private var cachedProjects: List<PullRequestSearchValue.ProjectFilter> = emptyList()
+    private var orgProjectsFromApi: List<AzureDevOpsApiClient.OrgProject> = emptyList()
+    // Keyed by project id, kept as an accumulating union across every refresh — once we've
+    // seen a project from a PR, it stays in the fallback even if a later (narrower) refresh
+    // doesn't include it. Without this, narrowing the project filter would visibly shrink
+    // the list of projects available in the chip on the next refresh.
+    private val projectsFromPrData: MutableMap<String, AzureDevOpsApiClient.OrgProject> = mutableMapOf()
     private var cachedRepositories: List<PullRequestSearchValue.RepositoryFilter> = emptyList()
+
+    private val logger = Logger.getInstance(PullRequestFilterPanel::class.java)
+
+    private enum class LoadState { NOT_STARTED, LOADING, LOADED, FAILED }
+    private var orgProjectsLoadState: LoadState = LoadState.NOT_STARTED
+
+    /** Combined view: prefer the authoritative API list; fall back to the accumulated
+     *  PR-derived list if empty. The fallback is sorted alphabetically by project name. */
+    private val effectiveProjects: List<AzureDevOpsApiClient.OrgProject>
+        get() = if (orgProjectsFromApi.isNotEmpty()) orgProjectsFromApi
+        else projectsFromPrData.values.sortedBy { it.name.lowercase() }
 
     init {
         // Create quick filter button (funnel icon)
@@ -81,10 +110,14 @@ class PullRequestFilterPanel(
         // Set default state
         stateChip.setValue(PullRequestSearchValue.State.OPEN.displayName)
 
-        // Project filter
+        // Project filter (multi-select). Clearing the chip wipes both project ids and the
+        // dependent repository filter, since "all projects" no longer constrains repos.
         projectChip = FilterChipComponent("Project",
             onShowPopup = { chip -> showProjectPopup(chip) },
-            onClear = { updateFilter(currentValue.copy(projectFilter = null, repositoryFilter = null)); repositoryChip.clearValue() }
+            onClear = {
+                updateFilter(currentValue.copy(selectedProjectIds = emptySet(), repositoryFilter = null))
+                repositoryChip.clearValue()
+            }
         )
 
         // Repository filter
@@ -158,11 +191,56 @@ class PullRequestFilterPanel(
             add(searchField, BorderLayout.CENTER)
             add(filterBar, BorderLayout.SOUTH)
         }
+
+        // Kick off the projects fetch on construction so the filter popup is ready to use
+        // by the time the user actually clicks it. Failures are non-fatal — the popup will
+        // just show a "no projects" message until the next reload.
+        fetchOrgProjectsAsync()
     }
 
     fun getComponent(): JPanel = panel
 
     fun getCurrentFilter(): PullRequestSearchValue = currentValue
+
+    /**
+     * Replaces the panel's filter value without firing [onFilterChanged]. Used by the list
+     * panel at startup to restore the persisted project selection before the first refresh
+     * runs, so that refresh already knows which projects to scope to.
+     */
+    fun setInitialFilter(value: PullRequestSearchValue) {
+        currentValue = value
+        syncChipsFromValue()
+        updateBadge()
+    }
+
+    private fun fetchOrgProjectsAsync() {
+        // Don't pile up concurrent fetches.
+        if (orgProjectsLoadState == LoadState.LOADING) return
+        orgProjectsLoadState = LoadState.LOADING
+
+        ApplicationManager.getApplication().executeOnPooledThread {
+            var result: List<AzureDevOpsApiClient.OrgProject> = emptyList()
+            var failure: Throwable? = null
+            try {
+                result = AzureDevOpsApiClient.getInstance(project).getProjects()
+            } catch (e: Throwable) {
+                failure = e
+                logger.warn(
+                    "Failed to fetch projects for PR filter; falling back to PR-derived list. " +
+                        "If you expected the full project list, ensure your PAT has the " +
+                        "'Project and Team (read)' (vso.project) scope.",
+                    e
+                )
+            }
+            ApplicationManager.getApplication().invokeLater({
+                orgProjectsFromApi = result
+                orgProjectsLoadState = if (failure != null) LoadState.FAILED else LoadState.LOADED
+                // The chip label may have been a count placeholder from a persisted selection
+                // before names were known — refresh it once we have data.
+                syncProjectChipFromValue()
+            }, ModalityState.any())
+        }
+    }
 
     /**
      * Update the cached list of authors from the loaded PR data.
@@ -184,20 +262,29 @@ class PullRequestFilterPanel(
             .sortedBy { it.displayName.lowercase() }
         cachedAuthors = authors
 
-        // Extract distinct projects from PR data
-        cachedProjects = pullRequests
-            .mapNotNull { pr ->
-                pr.repository?.project?.let { proj ->
-                    PullRequestSearchValue.ProjectFilter(
-                        id = proj.id,
-                        name = proj.name ?: "Unknown"
-                    )
-                }
+        // Still derive a PR-data project list as a fallback. The authoritative source for
+        // the filter popup is the API list (see fetchOrgProjectsAsync) — that one covers
+        // projects with zero PRs — but if the API call failed (e.g. PAT lacks the project
+        // scope) we want to keep the popup functional with whatever projects the loaded PRs
+        // have ever revealed. We MERGE into the existing map rather than replacing so that
+        // a narrower refresh (e.g. after the user filters down to 3 projects) doesn't
+        // visibly shrink the list of projects available in the chip.
+        pullRequests.forEach { pr ->
+            val proj = pr.repository?.project
+            val id = proj?.id
+            val name = proj?.name
+            if (id != null && name != null) {
+                projectsFromPrData.putIfAbsent(id, AzureDevOpsApiClient.OrgProject(id, name, null))
             }
-            .distinctBy { it.id ?: it.name }
-            .sortedBy { it.name.lowercase() }
+        }
 
-        // Extract distinct repositories from PR data
+        // If the org projects fetch previously failed, give it another shot now that PR
+        // loading is clearly working — credentials may have been refreshed, or the failure
+        // may have been transient.
+        if (orgProjectsLoadState == LoadState.FAILED) {
+            fetchOrgProjectsAsync()
+        }
+
         cachedRepositories = pullRequests
             .mapNotNull { pr ->
                 pr.repository?.let { repo ->
@@ -358,34 +445,62 @@ class PullRequestFilterPanel(
     }
 
     private fun showProjectPopup(chip: FilterChipComponent) {
-        if (cachedProjects.isEmpty()) {
+        val available = effectiveProjects
+
+        // If we have nothing yet, surface a state-appropriate message and (re)kick off a
+        // fetch — that way a user who opens the popup before the eager init fetch had a
+        // chance to complete, or whose first attempt failed, doesn't get stuck staring at
+        // a static "Loading…" forever.
+        if (available.isEmpty()) {
+            when (orgProjectsLoadState) {
+                LoadState.NOT_STARTED, LoadState.FAILED -> fetchOrgProjectsAsync()
+                LoadState.LOADING, LoadState.LOADED -> Unit
+            }
+            val message = when (orgProjectsLoadState) {
+                LoadState.LOADING -> "Loading projects… open this menu again in a moment"
+                LoadState.FAILED -> "Failed to load projects (check idea.log) — retrying…"
+                LoadState.NOT_STARTED -> "Loading projects…"
+                LoadState.LOADED -> "No projects available"
+            }
             FilterPopupUtil.showSimplePopup(
                 component = chip,
-                items = listOf("No projects available"),
+                items = listOf(message),
                 presenter = { it },
                 onSelected = {}
             )
             return
         }
-        FilterPopupUtil.showSearchablePopup(
-            component = chip,
-            items = cachedProjects,
-            presenter = { it.name },
-            icon = AllIcons.Nodes.Project,
-            onSelected = { proj ->
-                chip.setValue(proj.name)
-                // When project changes, clear repository filter since repos may differ
-                repositoryChip.clearValue()
-                updateFilter(currentValue.copy(projectFilter = proj, repositoryFilter = null))
+
+        // ProjectFilterPopup (used by the clone dialog) wants its own Project type — convert
+        // each OrgProject to that shape so we can reuse the multi-select popup verbatim.
+        val popupProjects = available.map {
+            AzureDevOpsCloneApiClient.Project(id = it.id, name = it.name, description = it.description)
+        }
+        ProjectFilterPopup.show(
+            anchor = chip,
+            projects = popupProjects,
+            initiallySelected = currentValue.selectedProjectIds
+        ) { newSelection ->
+            // Project selection invalidates any repo selection (the chosen repo may no
+            // longer be in any selected project).
+            val newRepo = currentValue.repositoryFilter?.takeIf { repo ->
+                newSelection.isEmpty() || available
+                    .filter { it.id in newSelection }
+                    .any { it.name == repo.projectName }
             }
-        )
+            if (newRepo == null) repositoryChip.clearValue()
+            updateFilter(currentValue.copy(selectedProjectIds = newSelection, repositoryFilter = newRepo))
+            syncProjectChipFromValue()
+        }
     }
 
     private fun showRepositoryPopup(chip: FilterChipComponent) {
-        // If a project filter is active, only show repos from that project
-        val repos = currentValue.projectFilter?.let { proj ->
-            cachedRepositories.filter { it.projectName == proj.name }
-        } ?: cachedRepositories
+        // Constrain the repo list to the projects the user has explicitly selected (if any).
+        val selectedProjectNames = if (currentValue.selectedProjectIds.isNotEmpty()) {
+            effectiveProjects.filter { it.id in currentValue.selectedProjectIds }.map { it.name }.toSet()
+        } else emptySet()
+        val repos = if (selectedProjectNames.isEmpty()) cachedRepositories
+        else cachedRepositories.filter { it.projectName in selectedProjectNames }
 
         if (repos.isEmpty()) {
             FilterPopupUtil.showSimplePopup(
@@ -400,7 +515,7 @@ class PullRequestFilterPanel(
             component = chip,
             items = repos,
             presenter = { repo ->
-                if (currentValue.projectFilter == null && repo.projectName != null) {
+                if (selectedProjectNames.isEmpty() && repo.projectName != null) {
                     "${repo.name}  (${repo.projectName})"
                 } else {
                     repo.name
@@ -412,6 +527,19 @@ class PullRequestFilterPanel(
                 updateFilter(currentValue.copy(repositoryFilter = repo))
             }
         )
+    }
+
+    /** Sets the project chip's label to match the current [PullRequestSearchValue.selectedProjectIds]. */
+    private fun syncProjectChipFromValue() {
+        val ids = currentValue.selectedProjectIds
+        when {
+            ids.isEmpty() -> projectChip.clearValue()
+            ids.size == 1 -> {
+                val name = effectiveProjects.firstOrNull { it.id in ids }?.name ?: "1 project"
+                projectChip.setValue(name)
+            }
+            else -> projectChip.setValue("${ids.size} projects")
+        }
     }
 
     private fun updateFilter(newValue: PullRequestSearchValue) {
@@ -453,11 +581,7 @@ class PullRequestFilterPanel(
             sortChip.clearValue()
         }
 
-        if (v.projectFilter != null) {
-            projectChip.setValue(v.projectFilter.name)
-        } else {
-            projectChip.clearValue()
-        }
+        syncProjectChipFromValue()
 
         if (v.repositoryFilter != null) {
             repositoryChip.setValue(v.repositoryFilter.name)
@@ -480,7 +604,7 @@ class PullRequestFilterPanel(
         if (currentValue.author != null) count++
         if (currentValue.review != null) count++
         if (currentValue.sort != null) count++
-        if (currentValue.projectFilter != null) count++
+        if (currentValue.selectedProjectIds.isNotEmpty()) count++
         if (currentValue.repositoryFilter != null) count++
         if (currentValue.searchQuery != null) count++
         return count

@@ -331,16 +331,22 @@ class AzureDevOpsCloneDialog private constructor(
             return
         }
 
-        val token = AzureDevOpsAccountManager.getInstance().getToken(account.id)
-        if (token == null) {
-            CloneTreeHelper.showEmptyState(rootNode, treeModel, "Authentication failed. Please re-login.")
-            updateProjectFilterField(null)
-            return
+        CloneTreeHelper.showEmptyState(rootNode, treeModel, "Loading account…")
+        ApplicationManager.getApplication().executeOnPooledThread {
+            val token = AzureDevOpsAccountManager.getInstance().getToken(account.id)
+            ApplicationManager.getApplication().invokeLater({
+                if (selectedAccount?.id != account.id) return@invokeLater  // user switched mid-fetch
+                if (token == null) {
+                    CloneTreeHelper.showEmptyState(rootNode, treeModel, "Authentication failed. Please re-login.")
+                    updateProjectFilterField(null)
+                    return@invokeLater
+                }
+                val state = AccountState(account, AzureDevOpsCloneApiClient(account.serverUrl, token))
+                accountStates[account.id] = state
+                updateProjectFilterField(state)
+                loadProjectsThenInitRepos(state)
+            }, ModalityState.any())
         }
-        val state = AccountState(account, AzureDevOpsCloneApiClient(account.serverUrl, token))
-        accountStates[account.id] = state
-        updateProjectFilterField(state)
-        loadProjectsThenInitRepos(state)
     }
 
     private fun loadProjectsThenInitRepos(state: AccountState) {

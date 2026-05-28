@@ -275,7 +275,6 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
         val targetDirectory = directoryField.text.trim()
 
         val cloneUrl = normalizeAzureDevOpsUrl(repo.remoteUrl)
-        val token = AzureDevOpsAccountManager.getInstance().getToken(account.id)
 
         val isShallowClone = shallowCloneCheckbox.isSelected
         val shallowDepth = shallowCloneDepthField.text.toIntOrNull() ?: 1
@@ -286,6 +285,7 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
             true
         ) {
             override fun run(indicator: ProgressIndicator) {
+                val token = AzureDevOpsAccountManager.getInstance().getToken(account.id)
                 try {
                     indicator.text = "Cloning repository from Azure DevOps..."
                     indicator.text2 = cloneUrl
@@ -401,16 +401,25 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
             return
         }
 
-        val token = AzureDevOpsAccountManager.getInstance().getToken(account.id)
-        if (token == null) {
-            CloneTreeHelper.showEmptyState(rootNode, treeModel, "Authentication failed. Please re-login.")
-            updateProjectFilterField(null)
-            return
+        // PasswordSafe.get() does disk / OS-keychain I/O and is flagged as a slow op when
+        // called from the EDT — hop to a pooled thread for the token fetch, then come back
+        // to the EDT for the AccountState wiring.
+        CloneTreeHelper.showEmptyState(rootNode, treeModel, "Loading account…")
+        ApplicationManager.getApplication().executeOnPooledThread {
+            val token = AzureDevOpsAccountManager.getInstance().getToken(account.id)
+            ApplicationManager.getApplication().invokeLater({
+                if (selectedAccount?.id != account.id) return@invokeLater  // user switched mid-fetch
+                if (token == null) {
+                    CloneTreeHelper.showEmptyState(rootNode, treeModel, "Authentication failed. Please re-login.")
+                    updateProjectFilterField(null)
+                    return@invokeLater
+                }
+                val state = AccountState(account, AzureDevOpsCloneApiClient(account.serverUrl, token))
+                accountStates[account.id] = state
+                updateProjectFilterField(state)
+                loadProjectsThenInitRepos(state)
+            }, ModalityState.any())
         }
-        val state = AccountState(account, AzureDevOpsCloneApiClient(account.serverUrl, token))
-        accountStates[account.id] = state
-        updateProjectFilterField(state)
-        loadProjectsThenInitRepos(state)
     }
 
     private fun loadProjectsThenInitRepos(state: AccountState) {

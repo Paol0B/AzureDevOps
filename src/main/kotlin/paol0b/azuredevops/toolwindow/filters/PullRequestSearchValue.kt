@@ -10,7 +10,9 @@ data class PullRequestSearchValue(
     val author: AuthorFilter? = null,
     val review: ReviewState? = null,
     val sort: Sort? = null,
-    val projectFilter: ProjectFilter? = null,
+    /** Multi-select set of project ids the user has chosen. Empty = no project filter (the
+     *  list panel falls back to its org-wide or repo-scoped fetch behavior). */
+    val selectedProjectIds: Set<String> = emptySet(),
     val repositoryFilter: RepositoryFilter? = null,
     val showAllOrg: Boolean = false
 ) {
@@ -22,7 +24,7 @@ data class PullRequestSearchValue(
             if (author != null) count++
             if (review != null) count++
             if (sort != null) count++
-            if (projectFilter != null) count++
+            if (selectedProjectIds.isNotEmpty()) count++
             if (repositoryFilter != null) count++
             return count
         }
