@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "paol0b"
-version = "4.0"
+version = "4.1"
 
 repositories {
     mavenCentral()
@@ -39,6 +39,22 @@ intellijPlatform {
         }
 
         changeNotes = """
+            <h2>Version 4.1 - Clone Dialog Overhaul</h2>
+
+            <h3>Performance</h3>
+            <ul>
+                <li><b>Per-project repo fetching</b> – Replaced the old loop that called the org-wide repositories endpoint once per project (returning the full org each time) with bounded-parallel project-scoped calls. ~50x less data over the wire for large orgs.</li>
+                <li><b>Incremental tree population</b> – Clone tree fills in as each project's repos arrive instead of waiting for everything; first results visible in &lt;1s on big organizations.</li>
+            </ul>
+
+            <h3>New Features</h3>
+            <ul>
+                <li><b>Project filter</b> – Multi-select popup with search and Select All / Deselect All. Selection is persisted per account so subsequent clones jump straight to the projects you care about.</li>
+                <li><b>Chip-style selection field</b> – Selected projects render as removable chips; overflow falls back to a compact "X of Y projects selected" label. Empty selection is treated as "no filter" and shows everything.</li>
+            </ul>
+
+            <hr>
+
             <h2>Version 4.0 - Work Items, Metrics Dashboard & Status Bar</h2>
 
             <h3>New Features</h3>
