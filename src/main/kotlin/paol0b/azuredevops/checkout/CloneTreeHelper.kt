@@ -56,12 +56,17 @@ object CloneTreeHelper {
             return
         }
 
+        // Empty [selectedProjectIds] is treated the same as null: show everything. An empty
+        // filter is "no filter applied", not "show nothing" — the latter would be confusing
+        // since the user has no other UI cue for why the tree is blank.
+        val activeFilter = selectedProjectIds?.takeIf { it.isNotEmpty() }
         val visibleProjects = projects
-            .filter { selectedProjectIds == null || it.id in selectedProjectIds }
+            .filter { activeFilter == null || it.id in activeFilter }
             .sortedBy { it.name.lowercase() }
 
         if (visibleProjects.isEmpty()) {
-            rootNode.add(DefaultMutableTreeNode("No projects selected. Use the Projects filter to pick some."))
+            // Only reachable if [selectedProjectIds] contains ids that no longer exist.
+            rootNode.add(DefaultMutableTreeNode("No matching projects"))
             treeModel.reload()
             return
         }

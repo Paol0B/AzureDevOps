@@ -96,11 +96,12 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
         isContentAreaFilled = false
     }
 
-    // Project filter button (multi-select popup)
-    private val projectFilterButton = JButton("Projects: —").apply {
+    // Project filter field — chips + click-to-open-popup
+    private val projectFilterField = SelectedProjectsField(
+        onClick = { openProjectFilterPopup() },
+        onRemove = { projectId -> removeProjectFromSelection(projectId) }
+    ).apply {
         toolTipText = "Pick which Azure DevOps projects should be loaded"
-        horizontalAlignment = SwingConstants.LEFT
-        margin = JBUI.insets(2, 10)
     }
 
     // Search and tree
@@ -183,10 +184,6 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
             }
         }
 
-        projectFilterButton.addActionListener {
-            openProjectFilterPopup()
-        }
-
         // Directory field setup
         val fileChooserDescriptor = FileChooserDescriptorFactory.createSingleFolderDescriptor()
         directoryField.addBrowseFolderListener(
@@ -227,7 +224,7 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
             val filterRow = JPanel(BorderLayout(4, 0)).apply {
                 border = JBUI.Borders.emptyTop(6)
                 add(JBLabel("Projects:"), BorderLayout.WEST)
-                add(projectFilterButton, BorderLayout.CENTER)
+                add(projectFilterField, BorderLayout.CENTER)
                 alignmentX = 0f
             }
             add(filterRow)
@@ -378,7 +375,7 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
 
         if (accounts.isEmpty()) {
             selectedAccount = null
-            updateProjectFilterButton(null)
+            updateProjectFilterField(null)
             CloneTreeHelper.showEmptyState(rootNode, treeModel, "No accounts configured. Click '+' to add an account.")
         } else {
             accountComboBox.selectedIndex = 0
@@ -393,11 +390,10 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
 
         val existing = accountStates[account.id]
         if (existing != null) {
-            updateProjectFilterButton(existing)
+            updateProjectFilterField(existing)
             renderTree(existing)
-            // If projects exist but some selected ones have no repos yet, kick off their fetch.
             if (existing.projectsLoaded) {
-                val toLoad = existing.selectedProjectIds.filter {
+                val toLoad = effectiveSelection(existing).filter {
                     it !in existing.repos && it !in existing.loadingProjectIds
                 }
                 if (toLoad.isNotEmpty()) loadReposFor(existing, toLoad)
@@ -408,12 +404,12 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
         val token = AzureDevOpsAccountManager.getInstance().getToken(account.id)
         if (token == null) {
             CloneTreeHelper.showEmptyState(rootNode, treeModel, "Authentication failed. Please re-login.")
-            updateProjectFilterButton(null)
+            updateProjectFilterField(null)
             return
         }
         val state = AccountState(account, AzureDevOpsCloneApiClient(account.serverUrl, token))
         accountStates[account.id] = state
-        updateProjectFilterButton(state)
+        updateProjectFilterField(state)
         loadProjectsThenInitRepos(state)
     }
 
@@ -435,13 +431,11 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
                     state.selectedProjectIds = initialSelection.toMutableSet()
 
                     if (selectedAccount?.id == state.account.id) {
-                        updateProjectFilterButton(state)
+                        updateProjectFilterField(state)
                         renderTree(state)
                     }
 
-                    if (state.selectedProjectIds.isNotEmpty()) {
-                        loadReposFor(state, state.selectedProjectIds.toList())
-                    }
+                    loadReposFor(state, effectiveSelection(state).toList())
                 }, ModalityState.any())
             } catch (e: Exception) {
                 logger.error("Failed to load projects for ${state.account.displayName}", e)
@@ -496,34 +490,60 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
         notifyDialogStateChanged()
     }
 
-    private fun updateProjectFilterButton(state: AccountState?) {
+    private fun updateProjectFilterField(state: AccountState?) {
         if (state == null || !state.projectsLoaded) {
-            projectFilterButton.text = "Loading…"
-            projectFilterButton.isEnabled = false
+            projectFilterField.setSelection(projectsLoaded = false, totalProjects = 0, selected = emptyList())
+            projectFilterField.isEnabled = false
             return
         }
-        projectFilterButton.text = ProjectFilterPopup.label(state.selectedProjectIds.size, state.projects.size)
-        projectFilterButton.isEnabled = state.projects.isNotEmpty()
+        val selected = state.projects.filter { it.id in state.selectedProjectIds }
+        projectFilterField.setSelection(
+            projectsLoaded = true,
+            totalProjects = state.projects.size,
+            selected = selected
+        )
+        projectFilterField.isEnabled = state.projects.isNotEmpty()
+    }
+
+    private fun removeProjectFromSelection(projectId: String) {
+        val state = currentAccountState() ?: return
+        if (!state.projectsLoaded) return
+        if (!state.selectedProjectIds.remove(projectId)) return
+        ProjectSelectionStore.save(state.account.id, state.selectedProjectIds)
+        updateProjectFilterField(state)
+        renderTree(state)
     }
 
     private fun openProjectFilterPopup() {
         val state = currentAccountState() ?: return
         if (!state.projectsLoaded) return
 
+        // Empty stored selection means "no filter" — open the popup with everything ticked
+        // so the user sees what's effectively in scope, not a misleadingly blank checklist.
+        val initiallySelected = effectiveSelection(state)
+
         ProjectFilterPopup.show(
-            anchor = projectFilterButton,
+            anchor = projectFilterField,
             projects = state.projects,
-            initiallySelected = state.selectedProjectIds
+            initiallySelected = initiallySelected
         ) { newSelection ->
             state.selectedProjectIds = newSelection.toMutableSet()
             ProjectSelectionStore.save(state.account.id, newSelection)
-            updateProjectFilterButton(state)
+            updateProjectFilterField(state)
             renderTree(state)
 
-            val toLoad = newSelection.filter { it !in state.repos && it !in state.loadingProjectIds }
-            if (toLoad.isNotEmpty()) loadReposFor(state, toLoad)
+            val toFetch = effectiveSelection(state).filter {
+                it !in state.repos && it !in state.loadingProjectIds
+            }
+            if (toFetch.isNotEmpty()) loadReposFor(state, toFetch)
         }
     }
+
+    /** Project ids that should currently be visible: the explicit selection, or every
+     *  project when the explicit selection is empty (= "no filter"). */
+    private fun effectiveSelection(state: AccountState): Set<String> =
+        if (state.selectedProjectIds.isEmpty()) state.projects.map { it.id }.toSet()
+        else state.selectedProjectIds.toSet()
 
     private fun currentAccountState(): AccountState? {
         val id = selectedAccount?.id ?: return null

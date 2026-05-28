@@ -49,10 +49,11 @@ class AzureDevOpsCloneDialog private constructor(
         icon = AllIcons.General.Remove
         toolTipText = "Remove selected account"
     }
-    private val projectFilterButton = JButton("Loading…").apply {
+    private val projectFilterField = SelectedProjectsField(
+        onClick = { openProjectFilterPopup() },
+        onRemove = { projectId -> removeProjectFromSelection(projectId) }
+    ).apply {
         toolTipText = "Pick which Azure DevOps projects should be loaded"
-        horizontalAlignment = SwingConstants.LEFT
-        margin = JBUI.insets(2, 10)
         isEnabled = false
     }
 
@@ -122,7 +123,6 @@ class AzureDevOpsCloneDialog private constructor(
 
         loginButton.addActionListener { showLoginDialog() }
         removeButton.addActionListener { removeSelectedAccount() }
-        projectFilterButton.addActionListener { openProjectFilterPopup() }
 
         accountComboBox.addActionListener {
             if (!isLoadingAccounts) {
@@ -200,7 +200,7 @@ class AzureDevOpsCloneDialog private constructor(
             add(JBLabel("Projects:").apply {
                 font = font.deriveFont(Font.BOLD)
             }, BorderLayout.WEST)
-            add(projectFilterButton, BorderLayout.CENTER)
+            add(projectFilterField, BorderLayout.CENTER)
             border = JBUI.Borders.empty(0, 0, 10, 0)
         }
 
@@ -303,7 +303,7 @@ class AzureDevOpsCloneDialog private constructor(
         if (accounts.isEmpty()) {
             selectedAccount = null
             removeButton.isEnabled = false
-            updateProjectFilterButton(null)
+            updateProjectFilterField(null)
             CloneTreeHelper.showEmptyState(rootNode, treeModel, "No accounts configured.")
             return
         }
@@ -320,24 +320,26 @@ class AzureDevOpsCloneDialog private constructor(
 
         val existing = accountStates[account.id]
         if (existing != null) {
-            updateProjectFilterButton(existing)
+            updateProjectFilterField(existing)
             renderTree(existing)
-            val toLoad = existing.selectedProjectIds.filter {
-                it !in existing.repos && it !in existing.loadingProjectIds
+            if (existing.projectsLoaded) {
+                val toLoad = effectiveSelection(existing).filter {
+                    it !in existing.repos && it !in existing.loadingProjectIds
+                }
+                if (toLoad.isNotEmpty()) loadReposFor(existing, toLoad)
             }
-            if (toLoad.isNotEmpty()) loadReposFor(existing, toLoad)
             return
         }
 
         val token = AzureDevOpsAccountManager.getInstance().getToken(account.id)
         if (token == null) {
             CloneTreeHelper.showEmptyState(rootNode, treeModel, "Authentication failed. Please re-login.")
-            updateProjectFilterButton(null)
+            updateProjectFilterField(null)
             return
         }
         val state = AccountState(account, AzureDevOpsCloneApiClient(account.serverUrl, token))
         accountStates[account.id] = state
-        updateProjectFilterButton(state)
+        updateProjectFilterField(state)
         loadProjectsThenInitRepos(state)
     }
 
@@ -359,13 +361,11 @@ class AzureDevOpsCloneDialog private constructor(
                     state.selectedProjectIds = initialSelection.toMutableSet()
 
                     if (selectedAccount?.id == state.account.id) {
-                        updateProjectFilterButton(state)
+                        updateProjectFilterField(state)
                         renderTree(state)
                     }
 
-                    if (state.selectedProjectIds.isNotEmpty()) {
-                        loadReposFor(state, state.selectedProjectIds.toList())
-                    }
+                    loadReposFor(state, effectiveSelection(state).toList())
                 }, ModalityState.any())
             } catch (e: Exception) {
                 logger.error("Failed to load projects for ${state.account.displayName}", e)
@@ -423,14 +423,28 @@ class AzureDevOpsCloneDialog private constructor(
         currentAccountState()?.let { renderTree(it) }
     }
 
-    private fun updateProjectFilterButton(state: AccountState?) {
+    private fun updateProjectFilterField(state: AccountState?) {
         if (state == null || !state.projectsLoaded) {
-            projectFilterButton.text = "Loading…"
-            projectFilterButton.isEnabled = false
+            projectFilterField.setSelection(projectsLoaded = false, totalProjects = 0, selected = emptyList())
+            projectFilterField.isEnabled = false
             return
         }
-        projectFilterButton.text = ProjectFilterPopup.label(state.selectedProjectIds.size, state.projects.size)
-        projectFilterButton.isEnabled = state.projects.isNotEmpty()
+        val selected = state.projects.filter { it.id in state.selectedProjectIds }
+        projectFilterField.setSelection(
+            projectsLoaded = true,
+            totalProjects = state.projects.size,
+            selected = selected
+        )
+        projectFilterField.isEnabled = state.projects.isNotEmpty()
+    }
+
+    private fun removeProjectFromSelection(projectId: String) {
+        val state = currentAccountState() ?: return
+        if (!state.projectsLoaded) return
+        if (!state.selectedProjectIds.remove(projectId)) return
+        ProjectSelectionStore.save(state.account.id, state.selectedProjectIds)
+        updateProjectFilterField(state)
+        renderTree(state)
     }
 
     private fun openProjectFilterPopup() {
@@ -438,19 +452,27 @@ class AzureDevOpsCloneDialog private constructor(
         if (!state.projectsLoaded) return
 
         ProjectFilterPopup.show(
-            anchor = projectFilterButton,
+            anchor = projectFilterField,
             projects = state.projects,
-            initiallySelected = state.selectedProjectIds
+            initiallySelected = effectiveSelection(state)
         ) { newSelection ->
             state.selectedProjectIds = newSelection.toMutableSet()
             ProjectSelectionStore.save(state.account.id, newSelection)
-            updateProjectFilterButton(state)
+            updateProjectFilterField(state)
             renderTree(state)
 
-            val toLoad = newSelection.filter { it !in state.repos && it !in state.loadingProjectIds }
-            if (toLoad.isNotEmpty()) loadReposFor(state, toLoad)
+            val toFetch = effectiveSelection(state).filter {
+                it !in state.repos && it !in state.loadingProjectIds
+            }
+            if (toFetch.isNotEmpty()) loadReposFor(state, toFetch)
         }
     }
+
+    /** Project ids that should currently be visible: the explicit selection, or every
+     *  project when the explicit selection is empty (= "no filter"). */
+    private fun effectiveSelection(state: AccountState): Set<String> =
+        if (state.selectedProjectIds.isEmpty()) state.projects.map { it.id }.toSet()
+        else state.selectedProjectIds.toSet()
 
     private fun currentAccountState(): AccountState? {
         val id = selectedAccount?.id ?: return null
