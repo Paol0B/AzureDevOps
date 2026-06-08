@@ -18,6 +18,7 @@ import paol0b.azuredevops.actions.SetAutoCompletePullRequestAction
 import paol0b.azuredevops.model.PullRequest
 import paol0b.azuredevops.services.AvatarService
 import paol0b.azuredevops.services.AzureDevOpsApiClient
+import paol0b.azuredevops.services.AzureDevOpsSettingsService
 import paol0b.azuredevops.toolwindow.filters.PullRequestFilterPanel
 import paol0b.azuredevops.toolwindow.filters.PullRequestSearchValue
 import java.awt.BorderLayout
@@ -25,6 +26,7 @@ import java.awt.Dimension
 import java.awt.Font
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
+import java.util.concurrent.atomic.AtomicLong
 import javax.swing.*
 
 /**
@@ -47,6 +49,12 @@ class PullRequestListPanel(
     private var lastLoadedPullRequests: List<PullRequest> = emptyList()
     private var isErrorState: Boolean = false
     private var currentUserId: String? = null
+
+    // Each refresh increments this; streaming page/complete callbacks compare their captured
+    // generation against the current one and silently no-op if the user has since triggered
+    // another refresh. Without this, late pages from an aborted load would clobber the new
+    // results.
+    private val refreshGeneration = AtomicLong(0)
 
     // Derived from filter panel state
     private var currentSearchValue = PullRequestSearchValue.DEFAULT
@@ -97,6 +105,17 @@ class PullRequestListPanel(
             onFilterChanged(newFilter)
         }
 
+        // Restore the persisted project filter selection so the very first refresh already
+        // scopes to the projects the user last cared about, instead of re-fetching everything
+        // and then narrowing once the filter chip wakes up.
+        val persistedProjectIds = AzureDevOpsSettingsService.getInstance(project).state
+            .prFilterSelectedProjectIds
+            .toSet()
+        if (persistedProjectIds.isNotEmpty()) {
+            currentSearchValue = currentSearchValue.copy(selectedProjectIds = persistedProjectIds)
+            filterPanel.setInitialFilter(currentSearchValue)
+        }
+
         val scrollPane = JBScrollPane(prList).apply {
             border = JBUI.Borders.empty()
             verticalScrollBar.unitIncrement = 16
@@ -118,9 +137,16 @@ class PullRequestListPanel(
     private fun onFilterChanged(newValue: PullRequestSearchValue) {
         val statusChanged = currentSearchValue.state != newValue.state
         val orgChanged = currentSearchValue.showAllOrg != newValue.showAllOrg
+        val projectsChanged = currentSearchValue.selectedProjectIds != newValue.selectedProjectIds
         currentSearchValue = newValue
 
-        if (statusChanged || orgChanged) {
+        if (projectsChanged) {
+            // Persist immediately so a hard restart preserves the user's narrowed view.
+            AzureDevOpsSettingsService.getInstance(project).state.prFilterSelectedProjectIds =
+                newValue.selectedProjectIds.toMutableList()
+        }
+
+        if (statusChanged || orgChanged || projectsChanged) {
             refreshPullRequests()
         } else {
             applyClientFilters()
@@ -128,6 +154,7 @@ class PullRequestListPanel(
     }
 
     fun refreshPullRequests() {
+        val generation = refreshGeneration.incrementAndGet()
         statusLabel.text = "Loading Pull Requests..."
         statusLabel.icon = AllIcons.Process.Step_1
 
@@ -142,25 +169,66 @@ class PullRequestListPanel(
                 indicator.isIndeterminate = true
                 try {
                     val apiClient = AzureDevOpsApiClient.getInstance(project)
-                    val pullRequests = if (showAllOrg) {
-                        apiClient.getAllOrganizationPullRequests(status = apiStatus, top = 100)
-                    } else {
-                        apiClient.getPullRequests(status = apiStatus)
-                    }
                     val resolvedCurrentUserId = apiClient.getCurrentUserIdCached()
 
-                    ApplicationManager.getApplication().invokeLater {
-                        currentUserId = resolvedCurrentUserId
-                        cachedPullRequests = pullRequests
-                        lastLoadedPullRequests = pullRequests
-                        filterPanel.updateAuthorsFromPullRequests(pullRequests)
-                        val filtered = applyAllFilters(pullRequests)
-                        updateList(filtered, selectedPrId)
-                        updateStatusLabel(filtered.size, pullRequests.size)
-                        isErrorState = false
+                    val onPage: (List<PullRequest>, List<PullRequest>) -> Unit = { _, accumulated ->
+                        ApplicationManager.getApplication().invokeLater {
+                            if (refreshGeneration.get() != generation) return@invokeLater
+                            applyStreamingUpdate(
+                                accumulated = accumulated,
+                                resolvedCurrentUserId = resolvedCurrentUserId,
+                                originalSelectedPrId = selectedPrId,
+                                isFinal = false
+                            )
+                        }
+                    }
+
+                    val onComplete: (List<PullRequest>) -> Unit = { total ->
+                        ApplicationManager.getApplication().invokeLater {
+                            if (refreshGeneration.get() != generation) return@invokeLater
+                            applyStreamingUpdate(
+                                accumulated = total,
+                                resolvedCurrentUserId = resolvedCurrentUserId,
+                                originalSelectedPrId = selectedPrId,
+                                isFinal = true
+                            )
+                        }
+                    }
+
+                    val selectedProjectIds = currentSearchValue.selectedProjectIds
+                    when {
+                        // Per-project server-side scoping: fetch only the projects the user
+                        // selected, sequentially. Pages from each project flow into the same
+                        // aggregated list so the UI fills in across project boundaries.
+                        selectedProjectIds.isNotEmpty() -> {
+                            val aggregated = mutableListOf<PullRequest>()
+                            val seenIds = HashSet<Int>()
+                            selectedProjectIds.forEach { projectId ->
+                                apiClient.getProjectPullRequestsStreaming(
+                                    projectIdOrName = projectId,
+                                    status = apiStatus,
+                                    onPage = { page, _ ->
+                                        val fresh = page.filter { seenIds.add(it.pullRequestId) }
+                                        aggregated.addAll(fresh)
+                                        onPage(fresh, aggregated.toList())
+                                    },
+                                    // Per-project complete is intentionally a no-op — the
+                                    // aggregated onComplete fires once after every project.
+                                    onComplete = { /* aggregated below */ }
+                                )
+                            }
+                            onComplete(aggregated.toList())
+                        }
+                        showAllOrg -> apiClient.getAllOrganizationPullRequestsStreaming(
+                            status = apiStatus, onPage = onPage, onComplete = onComplete
+                        )
+                        else -> apiClient.getPullRequestsStreaming(
+                            status = apiStatus, onPage = onPage, onComplete = onComplete
+                        )
                     }
                 } catch (e: Exception) {
                     ApplicationManager.getApplication().invokeLater {
+                        if (refreshGeneration.get() != generation) return@invokeLater
                         isErrorState = true
                         listModel.clear()
                         val isConfigError = e.message?.contains("not configured", ignoreCase = true) == true
@@ -175,6 +243,38 @@ class PullRequestListPanel(
                 }
             }
         })
+    }
+
+    /**
+     * Folds the latest streaming snapshot into the panel state on the EDT.
+     *
+     * Called once per arriving page (with `isFinal = false`) and once more when pagination
+     * exits (with `isFinal = true`). The list is rebuilt from scratch each call rather than
+     * appended-to because sort/filter outcomes can depend on the full set (e.g. an "oldest
+     * first" sort puts newly-arrived older PRs at the top).
+     */
+    private fun applyStreamingUpdate(
+        accumulated: List<PullRequest>,
+        resolvedCurrentUserId: String?,
+        originalSelectedPrId: Int?,
+        isFinal: Boolean
+    ) {
+        currentUserId = resolvedCurrentUserId
+        cachedPullRequests = accumulated
+        lastLoadedPullRequests = accumulated
+        filterPanel.updateAuthorsFromPullRequests(accumulated)
+        val filtered = applyAllFilters(accumulated)
+        // Prefer the user's live selection if they've clicked something while loading;
+        // otherwise restore the selection captured at the start of this refresh.
+        val selectionToRestore = getSelectedPullRequest()?.pullRequestId ?: originalSelectedPrId
+        updateList(filtered, selectionToRestore)
+        if (isFinal) {
+            updateStatusLabel(filtered.size, accumulated.size)
+        } else {
+            statusLabel.icon = AllIcons.Process.Step_1
+            statusLabel.text = "Loading Pull Requests… ${accumulated.size} so far"
+        }
+        isErrorState = false
     }
 
     fun getSelectedPullRequest(): PullRequest? = prList.selectedValue
@@ -214,11 +314,13 @@ class PullRequestListPanel(
             }
         }
 
-        // Project filter
-        val projFilter = sv.projectFilter
-        if (projFilter != null) {
+        // Project filter (defensive — the server has already done the filtering for the
+        // per-project fetch path, but this also covers the org-wide / repo-scoped paths
+        // and keeps applyClientFilters() correct if only the project chip changed).
+        val projectIds = sv.selectedProjectIds
+        if (projectIds.isNotEmpty()) {
             result = result.filter { pr ->
-                pr.repository?.project?.id == projFilter.id || pr.repository?.project?.name == projFilter.name
+                pr.repository?.project?.id in projectIds
             }
         }
 

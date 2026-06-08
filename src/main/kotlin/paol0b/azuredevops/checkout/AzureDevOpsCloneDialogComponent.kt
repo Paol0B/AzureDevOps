@@ -79,6 +79,10 @@ fun normalizeAzureDevOpsUrl(url: String): String {
 /**
  * Main component for Azure DevOps in the Clone Repository dialog.
  * Matches GitHub/GitLab style: account at top, tree in middle, clone options at bottom.
+ *
+ * Loading strategy: per-account, lightweight project list first, then bounded-parallel
+ * per-project repo fetches that fill the tree incrementally. Selected projects are
+ * persisted per account via [ProjectSelectionStore].
  */
 class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDialogExtensionComponent() {
 
@@ -90,6 +94,14 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
         toolTipText = "Add Account"
         isBorderPainted = false
         isContentAreaFilled = false
+    }
+
+    // Project filter field — chips + click-to-open-popup
+    private val projectFilterField = SelectedProjectsField(
+        onClick = { openProjectFilterPopup() },
+        onRemove = { projectId -> removeProjectFromSelection(projectId) }
+    ).apply {
+        toolTipText = "Pick which Azure DevOps projects should be loaded"
     }
 
     // Search and tree
@@ -104,7 +116,7 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
     private val shallowCloneDepthField = JTextField("1", 5)
     private val commitsLabel = JBLabel("commits")
 
-    private var preloadedData: MutableMap<String, ProjectsData> = mutableMapOf()
+    private val accountStates = mutableMapOf<String, AccountState>()
     private var selectedRepository: AzureDevOpsRepository? = null
     private var selectedAccount: AzureDevOpsAccount? = null
     private var isLoadingAccounts = false
@@ -148,20 +160,17 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
 
             if (userObject is AzureDevOpsRepository) {
                 selectedRepository = userObject
-                // Update directory with repo name
                 val repoDir = File(baseCloneDir, userObject.name).absolutePath
                 directoryField.text = repoDir
             } else {
                 selectedRepository = null
             }
-            // Notify dialog of state change to enable/disable Clone button
             notifyDialogStateChanged()
         }
 
-        // Search field listener
         searchField.addDocumentListener(object : DocumentAdapter() {
             override fun textChanged(e: DocumentEvent) {
-                filterTree()
+                currentAccountState()?.let { renderTree(it) }
             }
         })
 
@@ -171,8 +180,7 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
 
         accountComboBox.addActionListener {
             if (!isLoadingAccounts) {
-                selectedAccount = accountComboBox.selectedItem as? AzureDevOpsAccount
-                loadRepositoriesForCurrentAccount()
+                handleAccountChanged()
             }
         }
 
@@ -183,7 +191,6 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
         )
         directoryField.text = defaultCloneDir
 
-        // Listen for directory changes to trigger validation
         directoryField.textField.document.addDocumentListener(object : DocumentAdapter() {
             override fun textChanged(e: DocumentEvent) {
                 notifyDialogStateChanged()
@@ -202,24 +209,31 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
     private fun createMainPanel(): JPanel {
         val panel = JPanel(BorderLayout())
 
-        // === TOP: Account selection with logo ===
-        val accountPanel = JPanel(BorderLayout(8, 0)).apply {
+        // === TOP: Account selection + project filter ===
+        val topPanel = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
             border = JBUI.Borders.empty(0, 0, 8, 0)
 
-            // Account combo + add button
             val accountRow = JPanel(BorderLayout(4, 0)).apply {
                 add(accountComboBox, BorderLayout.CENTER)
                 add(addAccountButton, BorderLayout.EAST)
+                alignmentX = 0f
             }
-            add(accountRow, BorderLayout.CENTER)
+            add(accountRow)
+
+            val filterRow = JPanel(BorderLayout(4, 0)).apply {
+                border = JBUI.Borders.emptyTop(6)
+                add(JBLabel("Projects:"), BorderLayout.WEST)
+                add(projectFilterField, BorderLayout.CENTER)
+                alignmentX = 0f
+            }
+            add(filterRow)
         }
 
         // === MIDDLE: Search + Tree ===
         val centerPanel = JPanel(BorderLayout(0, 8)).apply {
-            // Search at top
             add(searchField, BorderLayout.NORTH)
 
-            // Tree in scroll pane
             val scrollPane = JBScrollPane(tree).apply {
                 border = JBUI.Borders.customLine(UIUtil.getBoundsColor(), 1)
             }
@@ -230,14 +244,12 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
         val bottomPanel = JPanel(BorderLayout(0, 8)).apply {
             border = JBUI.Borders.empty(8, 0, 0, 0)
 
-            // Directory row
             val directoryRow = JPanel(BorderLayout(8, 0)).apply {
                 add(JBLabel("Directory:"), BorderLayout.WEST)
                 add(directoryField, BorderLayout.CENTER)
             }
             add(directoryRow, BorderLayout.NORTH)
 
-            // Shallow clone row
             val shallowRow = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply {
                 add(shallowCloneCheckbox)
                 add(shallowCloneDepthField)
@@ -246,7 +258,7 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
             add(shallowRow, BorderLayout.SOUTH)
         }
 
-        panel.add(accountPanel, BorderLayout.NORTH)
+        panel.add(topPanel, BorderLayout.NORTH)
         panel.add(centerPanel, BorderLayout.CENTER)
         panel.add(bottomPanel, BorderLayout.SOUTH)
 
@@ -263,7 +275,6 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
         val targetDirectory = directoryField.text.trim()
 
         val cloneUrl = normalizeAzureDevOpsUrl(repo.remoteUrl)
-        val token = AzureDevOpsAccountManager.getInstance().getToken(account.id)
 
         val isShallowClone = shallowCloneCheckbox.isSelected
         val shallowDepth = shallowCloneDepthField.text.toIntOrNull() ?: 1
@@ -274,6 +285,7 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
             true
         ) {
             override fun run(indicator: ProgressIndicator) {
+                val token = AzureDevOpsAccountManager.getInstance().getToken(account.id)
                 try {
                     indicator.text = "Cloning repository from Azure DevOps..."
                     indicator.text2 = cloneUrl
@@ -294,7 +306,6 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
 
                     handler.addParameters("--progress")
 
-                    // Add shallow clone option if enabled
                     if (isShallowClone) {
                         handler.addParameters("--depth", shallowDepth.toString())
                     }
@@ -318,20 +329,12 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
                     indicator.fraction = 1.0
 
                     if (result.success()) {
-                        // Persist auth token directly in the repo's local git config so that
-                        // all subsequent git operations (pull, push, fetch) are authenticated
-                        // without relying on the OS credential store, and so the token can be
-                        // refreshed automatically when it expires.
                         val gitTokenManager = GitTokenManager.getInstance()
                         gitTokenManager.registerRepo(checkoutDir.absolutePath, account.id)
                         if (token != null) {
                             gitTokenManager.writeAuthHeader(checkoutDir.absolutePath, token)
                         }
 
-                        // Refresh VFS so IntelliJ picks up the new directory, then notify the
-                        // framework listener directly from the background thread — this is the
-                        // same pattern used by GitCheckoutProvider.doClone.  The listener
-                        // implementations internally dispatch close() onto the EDT.
                         VfsUtil.markDirtyAndRefresh(false, true, true, checkoutDir.parentFile)
                         checkoutListener.directoryCheckedOut(checkoutDir, GitVcs.getKey())
                         checkoutListener.checkoutCompleted()
@@ -371,74 +374,189 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
         isLoadingAccounts = false
 
         if (accounts.isEmpty()) {
+            selectedAccount = null
+            updateProjectFilterField(null)
             CloneTreeHelper.showEmptyState(rootNode, treeModel, "No accounts configured. Click '+' to add an account.")
         } else {
             accountComboBox.selectedIndex = 0
-            selectedAccount = accounts.firstOrNull()
-            loadRepositoriesForCurrentAccount()
-            // Notify dialog to check validation
+            handleAccountChanged()
             notifyDialogStateChanged()
         }
     }
 
-    private fun loadRepositoriesForCurrentAccount() {
+    private fun handleAccountChanged() {
         val account = accountComboBox.selectedItem as? AzureDevOpsAccount ?: return
         selectedAccount = account
 
-        // Check if we have preloaded data
-        val data = preloadedData[account.id]
-        if (data != null) {
-            CloneTreeHelper.populateTree(rootNode, treeModel, tree, data)
-            notifyDialogStateChanged()
+        val existing = accountStates[account.id]
+        if (existing != null) {
+            updateProjectFilterField(existing)
+            renderTree(existing)
+            if (existing.projectsLoaded) {
+                val toLoad = effectiveSelection(existing).filter {
+                    it !in existing.repos && it !in existing.loadingProjectIds
+                }
+                if (toLoad.isNotEmpty()) loadReposFor(existing, toLoad)
+            }
             return
         }
 
-        // Show loading state
-        CloneTreeHelper.showEmptyState(rootNode, treeModel, "Loading repositories...")
+        // PasswordSafe.get() does disk / OS-keychain I/O and is flagged as a slow op when
+        // called from the EDT — hop to a pooled thread for the token fetch, then come back
+        // to the EDT for the AccountState wiring.
+        CloneTreeHelper.showEmptyState(rootNode, treeModel, "Loading account…")
+        ApplicationManager.getApplication().executeOnPooledThread {
+            val token = AzureDevOpsAccountManager.getInstance().getToken(account.id)
+            ApplicationManager.getApplication().invokeLater({
+                if (selectedAccount?.id != account.id) return@invokeLater  // user switched mid-fetch
+                if (token == null) {
+                    CloneTreeHelper.showEmptyState(rootNode, treeModel, "Authentication failed. Please re-login.")
+                    updateProjectFilterField(null)
+                    return@invokeLater
+                }
+                val state = AccountState(account, AzureDevOpsCloneApiClient(account.serverUrl, token))
+                accountStates[account.id] = state
+                updateProjectFilterField(state)
+                loadProjectsThenInitRepos(state)
+            }, ModalityState.any())
+        }
+    }
 
-        // Load in background
+    private fun loadProjectsThenInitRepos(state: AccountState) {
+        CloneTreeHelper.showEmptyState(rootNode, treeModel, "Loading projects…")
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
-                val accountManager = AzureDevOpsAccountManager.getInstance()
-                val token = accountManager.getToken(account.id)
+                val projects = state.apiClient.getProjects()
+                ApplicationManager.getApplication().invokeLater({
+                    state.projects = projects
+                    state.projectsLoaded = true
 
-                if (token != null) {
-                    val apiClient = AzureDevOpsCloneApiClient(account.serverUrl, token)
-                    val projects = apiClient.getProjects()
+                    val knownIds = projects.map { it.id }.toSet()
+                    val initialSelection = if (ProjectSelectionStore.isStored(state.account.id)) {
+                        ProjectSelectionStore.load(state.account.id).intersect(knownIds)
+                    } else {
+                        knownIds
+                    }
+                    state.selectedProjectIds = initialSelection.toMutableSet()
 
-                    val repoMap = mutableMapOf<String, List<AzureDevOpsCloneApiClient.Repository>>()
-                    projects.forEach { proj ->
-                        try {
-                            val repos = apiClient.getRepositories(proj.id)
-                            repoMap[proj.id] = repos
-                        } catch (e: Exception) {
-                            logger.warn("Failed to load repos for project ${proj.name}", e)
-                            repoMap[proj.id] = emptyList()
-                        }
+                    if (selectedAccount?.id == state.account.id) {
+                        updateProjectFilterField(state)
+                        renderTree(state)
                     }
 
-                    val projectsData = ProjectsData(projects, repoMap)
-                    preloadedData[account.id] = projectsData
-
-                    ApplicationManager.getApplication().invokeLater({
-                        CloneTreeHelper.populateTree(rootNode, treeModel, tree, projectsData)
-                        // Notify dialog after tree is populated
-                        notifyDialogStateChanged()
-                    }, ModalityState.any())
-                } else {
-                    ApplicationManager.getApplication().invokeLater({
-                        CloneTreeHelper.showEmptyState(rootNode, treeModel, "Authentication failed. Please re-login.")
-                        notifyDialogStateChanged()
-                    }, ModalityState.any())
-                }
+                    loadReposFor(state, effectiveSelection(state).toList())
+                }, ModalityState.any())
             } catch (e: Exception) {
-                logger.error("Failed to load repositories", e)
+                logger.error("Failed to load projects for ${state.account.displayName}", e)
                 ApplicationManager.getApplication().invokeLater({
-                    CloneTreeHelper.showEmptyState(rootNode, treeModel, "Error loading repositories: ${e.message}")
-                    notifyDialogStateChanged()
+                    if (selectedAccount?.id == state.account.id) {
+                        CloneTreeHelper.showEmptyState(rootNode, treeModel, "Error loading projects: ${e.message}")
+                    }
                 }, ModalityState.any())
             }
         }
+    }
+
+    private fun loadReposFor(state: AccountState, projectIds: List<String>) {
+        val toFetch = projectIds.filter { it !in state.repos && it !in state.loadingProjectIds }
+        if (toFetch.isEmpty()) return
+
+        state.loadingProjectIds.addAll(toFetch)
+        if (selectedAccount?.id == state.account.id) renderTree(state)
+
+        state.loader.load(
+            projectIds = toFetch,
+            onLoaded = { projectId, repos ->
+                ApplicationManager.getApplication().invokeLater({
+                    state.repos[projectId] = repos
+                    state.loadingProjectIds.remove(projectId)
+                    if (selectedAccount?.id == state.account.id) renderTree(state)
+                }, ModalityState.any())
+            },
+            onFailed = { projectId, _ ->
+                ApplicationManager.getApplication().invokeLater({
+                    state.repos[projectId] = emptyList()
+                    state.loadingProjectIds.remove(projectId)
+                    if (selectedAccount?.id == state.account.id) renderTree(state)
+                }, ModalityState.any())
+            },
+            onAllDone = { /* no-op; the tree is updated incrementally */ }
+        )
+    }
+
+    private fun renderTree(state: AccountState) {
+        if (!state.projectsLoaded) return
+        CloneTreeHelper.render(
+            rootNode = rootNode,
+            treeModel = treeModel,
+            tree = tree,
+            projects = state.projects,
+            repos = state.repos,
+            selectedProjectIds = state.selectedProjectIds,
+            loadingProjectIds = state.loadingProjectIds,
+            searchText = searchField.text
+        )
+        notifyDialogStateChanged()
+    }
+
+    private fun updateProjectFilterField(state: AccountState?) {
+        if (state == null || !state.projectsLoaded) {
+            projectFilterField.setSelection(projectsLoaded = false, totalProjects = 0, selected = emptyList())
+            projectFilterField.isEnabled = false
+            return
+        }
+        val selected = state.projects.filter { it.id in state.selectedProjectIds }
+        projectFilterField.setSelection(
+            projectsLoaded = true,
+            totalProjects = state.projects.size,
+            selected = selected
+        )
+        projectFilterField.isEnabled = state.projects.isNotEmpty()
+    }
+
+    private fun removeProjectFromSelection(projectId: String) {
+        val state = currentAccountState() ?: return
+        if (!state.projectsLoaded) return
+        if (!state.selectedProjectIds.remove(projectId)) return
+        ProjectSelectionStore.save(state.account.id, state.selectedProjectIds)
+        updateProjectFilterField(state)
+        renderTree(state)
+    }
+
+    private fun openProjectFilterPopup() {
+        val state = currentAccountState() ?: return
+        if (!state.projectsLoaded) return
+
+        // Empty stored selection means "no filter" — open the popup with everything ticked
+        // so the user sees what's effectively in scope, not a misleadingly blank checklist.
+        val initiallySelected = effectiveSelection(state)
+
+        ProjectFilterPopup.show(
+            anchor = projectFilterField,
+            projects = state.projects,
+            initiallySelected = initiallySelected
+        ) { newSelection ->
+            state.selectedProjectIds = newSelection.toMutableSet()
+            ProjectSelectionStore.save(state.account.id, newSelection)
+            updateProjectFilterField(state)
+            renderTree(state)
+
+            val toFetch = effectiveSelection(state).filter {
+                it !in state.repos && it !in state.loadingProjectIds
+            }
+            if (toFetch.isNotEmpty()) loadReposFor(state, toFetch)
+        }
+    }
+
+    /** Project ids that should currently be visible: the explicit selection, or every
+     *  project when the explicit selection is empty (= "no filter"). */
+    private fun effectiveSelection(state: AccountState): Set<String> =
+        if (state.selectedProjectIds.isEmpty()) state.projects.map { it.id }.toSet()
+        else state.selectedProjectIds.toSet()
+
+    private fun currentAccountState(): AccountState? {
+        val id = selectedAccount?.id ?: return null
+        return accountStates[id]
     }
 
     private fun notifyDialogStateChanged() {
@@ -455,17 +573,26 @@ class AzureDevOpsCloneDialogComponent(private val project: Project) : VcsCloneDi
         }
     }
 
-    private fun filterTree() {
-        val account = accountComboBox.selectedItem as? AzureDevOpsAccount ?: return
-        val data = preloadedData[account.id] ?: return
-        CloneTreeHelper.filterTree(rootNode, treeModel, tree, data, searchField.text)
-    }
-
     private fun showLoginDialog() {
         val loginDialog = AzureDevOpsLoginDialog(project)
         if (loginDialog.showAndGet()) {
-            // Reload accounts after login
             loadAccounts()
         }
+    }
+
+    /**
+     * Per-account snapshot of what's been loaded so far. Lives for the lifetime of the
+     * dialog so re-selecting an account keeps its already-fetched repos cached.
+     */
+    private class AccountState(
+        val account: AzureDevOpsAccount,
+        val apiClient: AzureDevOpsCloneApiClient
+    ) {
+        var projects: List<AzureDevOpsCloneApiClient.Project> = emptyList()
+        var projectsLoaded: Boolean = false
+        val repos: MutableMap<String, List<AzureDevOpsCloneApiClient.Repository>> = mutableMapOf()
+        var selectedProjectIds: MutableSet<String> = mutableSetOf()
+        val loadingProjectIds: MutableSet<String> = mutableSetOf()
+        val loader: RepositoryLoader = RepositoryLoader(apiClient)
     }
 }

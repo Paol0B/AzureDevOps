@@ -184,9 +184,9 @@ class CreatePullRequestDialog private constructor(
         targetBranchCombo.renderer = BranchListCellRenderer()
 
         // Enable type-to-filter inside the dropdown popup, matching by branch displayName
-        val branchTextExtractor: (Any?) -> String? = { (it as? GitBranch)?.displayName }
-        ComboboxSpeedSearch(sourceBranchCombo, branchTextExtractor)
-        ComboboxSpeedSearch(targetBranchCombo, branchTextExtractor)
+        val branchTextExtractor: (GitBranch) -> String = { it.displayName }
+        ComboboxSpeedSearch.installSpeedSearch(sourceBranchCombo, branchTextExtractor)
+        ComboboxSpeedSearch.installSpeedSearch(targetBranchCombo, branchTextExtractor)
 
         // Description area setup
         descriptionArea.lineWrap = true

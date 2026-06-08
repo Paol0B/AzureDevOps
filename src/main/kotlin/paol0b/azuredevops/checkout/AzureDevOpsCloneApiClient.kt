@@ -5,6 +5,8 @@ import com.google.gson.JsonObject
 import com.intellij.openapi.diagnostic.Logger
 import java.net.HttpURLConnection
 import java.net.URI
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 
 /**
  * API client for fetching projects and repositories from Azure DevOps
@@ -55,32 +57,31 @@ class AzureDevOpsCloneApiClient(
     }
 
     /**
-     * Fetch all repositories for a specific project
+     * Fetch repositories for a single project using the project-scoped endpoint.
+     * Each response only carries that project's repos, so a caller running N of these in
+     * bounded parallel can fill the UI incrementally without redownloading the entire org.
      */
-    fun getRepositories(projectId: String): List<Repository> {
-        val url = "$serverUrl/_apis/git/repositories?api-version=7.0"
+    fun getRepositoriesForProject(projectIdOrName: String): List<Repository> {
+        val encoded = URLEncoder.encode(projectIdOrName, StandardCharsets.UTF_8).replace("+", "%20")
+        val url = "$serverUrl/$encoded/_apis/git/repositories?api-version=7.0"
         val json = executeGet(url)
-        
+
         val jsonObject = gson.fromJson(json, JsonObject::class.java)
         val repositories = mutableListOf<Repository>()
-        
+
         jsonObject.getAsJsonArray("value")?.forEach { element ->
             val repoObj = element.asJsonObject
-            val repoProjectId = repoObj.getAsJsonObject("project")?.get("id")?.asString
-            
-            // Filter repositories by project
-            if (repoProjectId == projectId) {
-                repositories.add(Repository(
-                    id = repoObj.get("id").asString,
-                    name = repoObj.get("name").asString,
-                    remoteUrl = repoObj.get("remoteUrl").asString,
-                    webUrl = repoObj.get("webUrl").asString,
-                    projectId = repoProjectId
-                ))
-            }
+            val repoProjectId = repoObj.getAsJsonObject("project")?.get("id")?.asString ?: return@forEach
+            repositories.add(Repository(
+                id = repoObj.get("id").asString,
+                name = repoObj.get("name").asString,
+                remoteUrl = repoObj.get("remoteUrl").asString,
+                webUrl = repoObj.get("webUrl").asString,
+                projectId = repoProjectId
+            ))
         }
-        
-        logger.info("Fetched ${repositories.size} repositories for project $projectId")
+
+        logger.info("Fetched ${repositories.size} repositories for project $projectIdOrName")
         return repositories
     }
 

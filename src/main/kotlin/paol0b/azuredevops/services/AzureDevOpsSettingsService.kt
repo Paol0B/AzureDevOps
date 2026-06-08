@@ -20,7 +20,20 @@ class AzureDevOpsSettingsService(private val project: Project) : PersistentState
         var pullRequestIntervalSeconds: Long = 30,
         var commentsIntervalSeconds: Long = 15,
         var timelineIntervalSeconds: Long = 15,
-        var statusBarIntervalSeconds: Long = 60
+        var statusBarIntervalSeconds: Long = 60,
+
+        // --- PR list pagination ---
+        // pullRequestPageSize: how many PRs to ask Azure DevOps for per HTTP call.
+        // pullRequestMaxTotal: safety cap on the total accumulated across pages, so a
+        // misconfigured account or runaway loop can never blow up the IDE on huge orgs.
+        var pullRequestPageSize: Int = 200,
+        var pullRequestMaxTotal: Int = 2000,
+
+        // --- PR list project filter ---
+        // Project ids that the user has chosen to scope the PR list to. Empty means
+        // "no filter — use the org-wide/repo-scoped endpoint as before". Persisted across
+        // restarts so the user's narrowed view of a large org is restored on reopen.
+        var prFilterSelectedProjectIds: MutableList<String> = mutableListOf()
     )
 
     private var myState = State()

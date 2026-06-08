@@ -27,84 +27,92 @@ object CloneTreeHelper {
     )
 
     /**
-     * Populates the tree from [data], sorting projects and repositories alphabetically
-     * and expanding all project nodes.
+     * Rebuilds the tree from the given snapshot.
+     *
+     * @param projects every project known for the current account
+     * @param repos repos indexed by project id (a project missing here is either still
+     *              loading — see [loadingProjectIds] — or simply has no repos)
+     * @param selectedProjectIds project ids the user wants visible. `null` means "all".
+     * @param loadingProjectIds project ids whose repo fetch is in flight; these get a
+     *                          "Loading repositories..." placeholder child node.
+     * @param searchText filter applied to repo names (and project names) within the
+     *                   already-resolved projects.
      */
-    fun populateTree(
+    fun render(
         rootNode: DefaultMutableTreeNode,
         treeModel: DefaultTreeModel,
         tree: Tree,
-        data: ProjectsData
+        projects: List<AzureDevOpsCloneApiClient.Project>,
+        repos: Map<String, List<AzureDevOpsCloneApiClient.Repository>>,
+        selectedProjectIds: Set<String>?,
+        loadingProjectIds: Set<String>,
+        searchText: String
     ) {
         rootNode.removeAllChildren()
 
-        if (data.projects.isEmpty()) {
+        if (projects.isEmpty()) {
             rootNode.add(DefaultMutableTreeNode("No projects found for this account"))
             treeModel.reload()
             return
         }
 
-        val sortedProjects = data.projects.sortedBy { it.name.lowercase() }
+        // Empty [selectedProjectIds] is treated the same as null: show everything. An empty
+        // filter is "no filter applied", not "show nothing" — the latter would be confusing
+        // since the user has no other UI cue for why the tree is blank.
+        val activeFilter = selectedProjectIds?.takeIf { it.isNotEmpty() }
+        val visibleProjects = projects
+            .filter { activeFilter == null || it.id in activeFilter }
+            .sortedBy { it.name.lowercase() }
 
-        sortedProjects.forEach { proj ->
-            val projectNode = DefaultMutableTreeNode(proj)
-            rootNode.add(projectNode)
-
-            val repos = data.repositories[proj.id] ?: emptyList()
-            repos.sortedBy { it.name.lowercase() }.forEach { repo ->
-                val repoNode = DefaultMutableTreeNode(toAzureDevOpsRepository(repo, proj.name))
-                projectNode.add(repoNode)
-            }
-        }
-
-        treeModel.reload()
-
-        // Expand all projects
-        for (i in 0 until rootNode.childCount) {
-            tree.expandPath(TreePath(arrayOf(rootNode, rootNode.getChildAt(i))))
-        }
-    }
-
-    /**
-     * Filters the tree to show only projects/repos matching [searchText].
-     * If [searchText] is blank, delegates to [populateTree] to restore the full tree.
-     */
-    fun filterTree(
-        rootNode: DefaultMutableTreeNode,
-        treeModel: DefaultTreeModel,
-        tree: Tree,
-        data: ProjectsData,
-        searchText: String
-    ) {
-        val query = searchText.trim().lowercase()
-
-        if (query.isEmpty()) {
-            populateTree(rootNode, treeModel, tree, data)
+        if (visibleProjects.isEmpty()) {
+            // Only reachable if [selectedProjectIds] contains ids that no longer exist.
+            rootNode.add(DefaultMutableTreeNode("No matching projects"))
+            treeModel.reload()
             return
         }
 
-        rootNode.removeAllChildren()
+        val query = searchText.trim().lowercase()
 
-        data.projects.sortedBy { it.name.lowercase() }.forEach { proj ->
-            val repos = data.repositories[proj.id] ?: emptyList()
-            val matchingRepos = repos.filter { repo ->
-                repo.name.lowercase().contains(query) ||
-                    proj.name.lowercase().contains(query)
-            }.sortedBy { it.name.lowercase() }
+        visibleProjects.forEach { proj ->
+            val projectNameMatches = query.isEmpty() || proj.name.lowercase().contains(query)
+            val loading = proj.id in loadingProjectIds
+            val projectRepos = repos[proj.id].orEmpty()
 
-            if (matchingRepos.isNotEmpty()) {
-                val projectNode = DefaultMutableTreeNode(proj)
-                rootNode.add(projectNode)
+            val matchingRepos = projectRepos
+                .filter { repo ->
+                    query.isEmpty() ||
+                        projectNameMatches ||
+                        repo.name.lowercase().contains(query)
+                }
+                .sortedBy { it.name.lowercase() }
 
+            // Hide projects that contribute nothing under the current search (unless they're
+            // still loading — we want users to see them filling in).
+            if (!loading && matchingRepos.isEmpty() && query.isNotEmpty() && !projectNameMatches) {
+                return@forEach
+            }
+
+            val projectNode = DefaultMutableTreeNode(proj)
+            rootNode.add(projectNode)
+
+            if (loading) {
+                projectNode.add(DefaultMutableTreeNode("Loading repositories…"))
+            } else if (projectRepos.isEmpty()) {
+                projectNode.add(DefaultMutableTreeNode("No repositories"))
+            } else if (matchingRepos.isEmpty()) {
+                projectNode.add(DefaultMutableTreeNode("No matching repositories"))
+            } else {
                 matchingRepos.forEach { repo ->
                     projectNode.add(DefaultMutableTreeNode(toAzureDevOpsRepository(repo, proj.name)))
                 }
             }
         }
 
-        treeModel.reload()
+        if (rootNode.childCount == 0) {
+            rootNode.add(DefaultMutableTreeNode("No matches"))
+        }
 
-        // Expand all matching projects
+        treeModel.reload()
         for (i in 0 until rootNode.childCount) {
             tree.expandPath(TreePath(arrayOf(rootNode, rootNode.getChildAt(i))))
         }

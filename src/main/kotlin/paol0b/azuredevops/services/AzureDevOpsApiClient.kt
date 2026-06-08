@@ -35,7 +35,15 @@ class AzureDevOpsApiClient(private val project: Project) {
 
     companion object {
         private const val API_VERSION = "7.0"
-        
+
+        // Hard floor / ceiling for the configurable PR pagination, applied defensively
+        // regardless of what's in settings — guards against zero/negative values from a
+        // corrupted state file as well as absurdly large totals that could hang the IDE.
+        private const val PR_PAGE_SIZE_MIN = 50
+        private const val PR_PAGE_SIZE_MAX = 1000
+        private const val PR_MAX_TOTAL_MIN = 100
+        private const val PR_MAX_TOTAL_MAX = 20000
+
         private const val AUTH_ERROR_MESSAGE = """Authentication required. Please login:
 1. Go to File → Settings → Tools → Azure DevOps Accounts
 2. Click 'Add' button to add your account  
@@ -356,61 +364,258 @@ The plugin will automatically use your authenticated account for this repository
     }
 
     /**
-     * Retrieves the list of Pull Requests for the repository
+     * Retrieves the list of Pull Requests for the repository, paginating internally.
+     *
+     * Azure DevOps' `git/pullrequests` endpoint returns at most `$top` items per request and
+     * sometimes returns one less than asked when more pages exist (a known API quirk that is
+     * exactly why callers used to see "always 99" with `top = 100`). We paginate with `$skip`
+     * until we either run out of items or hit [top] as a safety cap.
+     *
      * @param status Filter by status (e.g., "active", "completed", "abandoned", "all")
-     * @param top Maximum number of PRs to retrieve
-     * @return List of Pull Requests
+     * @param top    Hard cap on the total number of PRs to accumulate across pages.
      */
     @Throws(AzureDevOpsApiException::class)
     fun getPullRequests(
         status: String = "active",
-        top: Int = 100
+        top: Int = effectiveMaxTotal()
     ): List<PullRequest> {
         val config = requireValidConfig()
-
         val statusParam = if (status == "all") "all" else status
-        val url = buildApiUrl(config.project, config.repository,
-            "/pullrequests?searchCriteria.status=$statusParam&\$top=$top&api-version=$API_VERSION")
-
-        logger.info("Fetching Pull Requests (status: $statusParam, top: $top)")
-        
-        return try {
-            val response = executeGet(url, config.personalAccessToken)
-            val listResponse = gson.fromJson(response, PullRequestListResponse::class.java)
-            listResponse.value
-        } catch (e: Exception) {
-            logger.error("Failed to fetch pull requests", e)
-            throw AzureDevOpsApiException("Error while retrieving Pull Requests: ${e.message}", e)
+        return paginatePullRequests(top, "(status: $statusParam, repo: ${config.repository})") { pageSize, skip ->
+            buildApiUrl(
+                config.project, config.repository,
+                "/pullrequests?searchCriteria.status=$statusParam&\$top=$pageSize&\$skip=$skip&api-version=$API_VERSION"
+            )
         }
     }
 
     /**
-     * Retrieves Pull Requests from all projects in the organization
-     * Uses the organization-level API to get PRs across all repositories
+     * Retrieves Pull Requests from every project in the organization, paginating internally.
+     *
+     * See [getPullRequests] for why we paginate; the org-wide endpoint exhibits the same
+     * "top - 1" behavior, which is exactly the cause of the project filter undercount (only
+     * projects whose PRs landed in the first 99 results showed up).
+     *
      * @param status Filter by status (e.g., "active", "completed", "abandoned", "all")
-     * @param top Maximum number of PRs to retrieve
-     * @return List of Pull Requests from all organization projects
+     * @param top    Hard cap on the total number of PRs to accumulate across pages.
      */
     @Throws(AzureDevOpsApiException::class)
     fun getAllOrganizationPullRequests(
         status: String = "active",
-        top: Int = 100
+        top: Int = effectiveMaxTotal()
     ): List<PullRequest> {
         val config = requireValidConfig()
-
         val statusParam = if (status == "all") "all" else status
-        val url = buildOrgApiUrl("/git/pullrequests?searchCriteria.status=$statusParam&\$top=$top&api-version=$API_VERSION")
+        return paginatePullRequests(top, "(status: $statusParam, org-wide)") { pageSize, skip ->
+            buildOrgApiUrl(
+                "/git/pullrequests?searchCriteria.status=$statusParam&\$top=$pageSize&\$skip=$skip&api-version=$API_VERSION"
+            )
+        }
+    }
 
-        logger.info("Fetching organization-wide Pull Requests (status: $statusParam, top: $top)")
+    /**
+     * Streaming variant of [getPullRequests]: invokes [onPage] after each page comes back so
+     * the UI can show repos progressively instead of waiting for the whole org. [onComplete]
+     * fires once when the loop exits, even if the result is empty.
+     *
+     * Both callbacks run on the calling thread — the caller is responsible for hopping to
+     * the EDT before touching UI state.
+     */
+    @Throws(AzureDevOpsApiException::class)
+    fun getPullRequestsStreaming(
+        status: String = "active",
+        top: Int = effectiveMaxTotal(),
+        onPage: (page: List<PullRequest>, accumulated: List<PullRequest>) -> Unit,
+        onComplete: (total: List<PullRequest>) -> Unit
+    ) {
+        val config = requireValidConfig()
+        val statusParam = if (status == "all") "all" else status
+        paginatePullRequestsStreaming(
+            maxTotal = top,
+            contextForLog = "(status: $statusParam, repo: ${config.repository})",
+            onPage = onPage,
+            onComplete = onComplete
+        ) { pageSize, skip ->
+            buildApiUrl(
+                config.project, config.repository,
+                "/pullrequests?searchCriteria.status=$statusParam&\$top=$pageSize&\$skip=$skip&api-version=$API_VERSION"
+            )
+        }
+    }
 
+    /** Streaming variant of [getAllOrganizationPullRequests]. See [getPullRequestsStreaming]. */
+    @Throws(AzureDevOpsApiException::class)
+    fun getAllOrganizationPullRequestsStreaming(
+        status: String = "active",
+        top: Int = effectiveMaxTotal(),
+        onPage: (page: List<PullRequest>, accumulated: List<PullRequest>) -> Unit,
+        onComplete: (total: List<PullRequest>) -> Unit
+    ) {
+        val statusParam = if (status == "all") "all" else status
+        paginatePullRequestsStreaming(
+            maxTotal = top,
+            contextForLog = "(status: $statusParam, org-wide)",
+            onPage = onPage,
+            onComplete = onComplete
+        ) { pageSize, skip ->
+            buildOrgApiUrl(
+                "/git/pullrequests?searchCriteria.status=$statusParam&\$top=$pageSize&\$skip=$skip&api-version=$API_VERSION"
+            )
+        }
+    }
+
+    /**
+     * Streaming, paginated PR fetch scoped to a single project (across every repo in that
+     * project). Lets the PR list filter avoid the org-wide endpoint when the user has
+     * narrowed the project filter down — we ask the server to do the filtering instead of
+     * pulling everything and discarding most of it.
+     */
+    @Throws(AzureDevOpsApiException::class)
+    fun getProjectPullRequestsStreaming(
+        projectIdOrName: String,
+        status: String = "active",
+        top: Int = effectiveMaxTotal(),
+        onPage: (page: List<PullRequest>, accumulated: List<PullRequest>) -> Unit,
+        onComplete: (total: List<PullRequest>) -> Unit
+    ) {
+        val configService = AzureDevOpsConfigService.getInstance(project)
+        val baseUrl = configService.getApiBaseUrl()
+        val encodedProject = encodePathSegment(projectIdOrName)
+        val statusParam = if (status == "all") "all" else status
+
+        paginatePullRequestsStreaming(
+            maxTotal = top,
+            contextForLog = "(status: $statusParam, project: $projectIdOrName)",
+            onPage = onPage,
+            onComplete = onComplete
+        ) { pageSize, skip ->
+            "$baseUrl/$encodedProject/_apis/git/pullrequests?searchCriteria.status=$statusParam&\$top=$pageSize&\$skip=$skip&api-version=$API_VERSION"
+        }
+    }
+
+    /** Summary of a project for the PR project filter. id is required (used for filtering),
+     *  name is the human-readable label, description is shown in the picker if non-blank. */
+    data class OrgProject(val id: String, val name: String, val description: String?)
+
+    /**
+     * Fetches every project in the organization. Used by the PR tool window to populate the
+     * project filter independently of which PRs happen to have been loaded, so a project with
+     * zero open PRs still shows up as a filter option.
+     */
+    @Throws(AzureDevOpsApiException::class)
+    fun getProjects(): List<OrgProject> {
+        val config = requireValidConfig()
+        val url = buildOrgApiUrl("/projects?api-version=$API_VERSION")
+        logger.info("Fetching projects for filter")
         return try {
             val response = executeGet(url, config.personalAccessToken)
-            val listResponse = gson.fromJson(response, PullRequestListResponse::class.java)
-            listResponse.value
+            val jsonObject = gson.fromJson(response, com.google.gson.JsonObject::class.java)
+            val out = mutableListOf<OrgProject>()
+            jsonObject.getAsJsonArray("value")?.forEach { element ->
+                val obj = element.asJsonObject
+                out.add(OrgProject(
+                    id = obj.get("id").asString,
+                    name = obj.get("name").asString,
+                    description = obj.get("description")?.takeIf { !it.isJsonNull }?.asString
+                ))
+            }
+            out
         } catch (e: Exception) {
-            logger.error("Failed to fetch organization pull requests", e)
-            throw AzureDevOpsApiException("Error while retrieving organization Pull Requests: ${e.message}", e)
+            logger.error("Failed to fetch projects", e)
+            throw AzureDevOpsApiException("Error while retrieving projects: ${e.message}", e)
         }
+    }
+
+    /**
+     * Shared pagination loop for the two PR listing endpoints. Stops when the server returns
+     * an empty page, when it returns only items we've already seen (defensive against unstable
+     * ordering across pages), or when [maxTotal] is reached.
+     *
+     * Uses received-count rather than requested-count for the `$skip` cursor so the ADO
+     * "$top - 1" quirk doesn't make us miss the next page. Returns the fully-accumulated list
+     * once the loop exits.
+     */
+    private fun paginatePullRequests(
+        maxTotal: Int,
+        contextForLog: String,
+        urlBuilder: (pageSize: Int, skip: Int) -> String
+    ): List<PullRequest> {
+        var result: List<PullRequest> = emptyList()
+        paginatePullRequestsStreaming(
+            maxTotal = maxTotal,
+            contextForLog = contextForLog,
+            onPage = { _, _ -> },
+            onComplete = { result = it },
+            urlBuilder = urlBuilder
+        )
+        return result
+    }
+
+    /**
+     * Returns the page-size from project settings, clamped to safe bounds so a corrupted
+     * state file (zero/negative/huge) can never break pagination.
+     */
+    private fun effectivePageSize(): Int {
+        val raw = AzureDevOpsSettingsService.getInstance(project).state.pullRequestPageSize
+        return raw.coerceIn(PR_PAGE_SIZE_MIN, PR_PAGE_SIZE_MAX)
+    }
+
+    /**
+     * Returns the safety cap on total PRs to accumulate, clamped to safe bounds. Used as the
+     * default value of `top` in the public PR listing methods.
+     */
+    private fun effectiveMaxTotal(): Int {
+        val raw = AzureDevOpsSettingsService.getInstance(project).state.pullRequestMaxTotal
+        return raw.coerceIn(PR_MAX_TOTAL_MIN, PR_MAX_TOTAL_MAX)
+    }
+
+    /**
+     * Underlying streaming pagination engine. Each page hands the caller two views:
+     *  - `page`: the new PRs from this round only.
+     *  - `accumulated`: an immutable snapshot of everything collected so far (already
+     *    deduped by `pullRequestId`).
+     * The snapshot is freshly copied each call so the caller can safely hand it off to
+     * another thread (e.g. [com.intellij.openapi.application.Application.invokeLater]).
+     */
+    private fun paginatePullRequestsStreaming(
+        maxTotal: Int,
+        contextForLog: String,
+        onPage: (page: List<PullRequest>, accumulated: List<PullRequest>) -> Unit,
+        onComplete: (total: List<PullRequest>) -> Unit,
+        urlBuilder: (pageSize: Int, skip: Int) -> String
+    ) {
+        val config = requireValidConfig()
+        val configuredPageSize = effectivePageSize()
+        val collected = mutableListOf<PullRequest>()
+        val seenIds = HashSet<Int>()
+        val maxHops = (maxTotal / configuredPageSize) * 2 + 5
+        var hops = 0
+
+        logger.info("Fetching Pull Requests $contextForLog (cap: $maxTotal, pageSize: $configuredPageSize)")
+
+        try {
+            while (collected.size < maxTotal && hops < maxHops) {
+                hops++
+                val remaining = maxTotal - collected.size
+                val pageSize = minOf(configuredPageSize, remaining)
+                val url = urlBuilder(pageSize, collected.size)
+                val response = executeGet(url, config.personalAccessToken)
+                val page = gson.fromJson(response, PullRequestListResponse::class.java).value
+                if (page.isEmpty()) break
+
+                val freshOnly = page.filter { seenIds.add(it.pullRequestId) }
+                if (freshOnly.isEmpty()) break
+                collected.addAll(freshOnly)
+
+                onPage(freshOnly, collected.toList())
+            }
+        } catch (e: Exception) {
+            logger.error("Failed to fetch pull requests $contextForLog after ${collected.size} collected", e)
+            throw AzureDevOpsApiException("Error while retrieving Pull Requests: ${e.message}", e)
+        }
+
+        onComplete(collected.toList())
+        logger.info("Fetched ${collected.size} Pull Requests $contextForLog in $hops page(s)")
     }
 
     /**
