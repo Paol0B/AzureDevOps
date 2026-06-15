@@ -45,7 +45,7 @@ class FileWithCommentsDecorator(private val project: Project) : ProjectViewNodeD
 
     private fun decorateDirectory(dir: VirtualFile, data: PresentationData) {
         val (totalComments, activeComments) = countCommentsInDirectory(dir)
-        
+
         if (totalComments > 0) {
             // Add icon and count badge AFTER the folder name
             val icon = if (activeComments > 0) {
@@ -53,26 +53,30 @@ class FileWithCommentsDecorator(private val project: Project) : ProjectViewNodeD
             } else {
                 AllIcons.RunConfigurations.TestPassed
             }
-            
+
             val badgeColor = if (activeComments > 0) {
                 JBColor(Color(255, 140, 0), Color(255, 160, 50)) // Orange for active
             } else {
                 JBColor(Color(100, 200, 100), Color(80, 150, 80)) // Green for resolved
             }
-            
+
+            // Preserve the original folder name and append the badge
+            val originalText = data.presentableText ?: dir.name
             val badgeText = " ($activeComments)"
             
-            // Append to existing text instead of replacing
+            // Clear existing text and rebuild with folder name + badge
+            data.clearText()
+            data.addText(originalText, SimpleTextAttributes.REGULAR_ATTRIBUTES)
             data.addText(badgeText, SimpleTextAttributes(
                 SimpleTextAttributes.STYLE_BOLD,
                 badgeColor
             ))
-            
+
             // Set appropriate icon
             if (activeComments > 0) {
                 data.setIcon(combineIcons(data.getIcon(false), icon))
             }
-            
+
             // Enhanced tooltip
             data.tooltip = buildDirectoryTooltip(totalComments, activeComments)
         }
@@ -81,33 +85,37 @@ class FileWithCommentsDecorator(private val project: Project) : ProjectViewNodeD
     private fun decorateFile(file: VirtualFile, data: PresentationData) {
         val commentCount = commentsTracker.getCommentCount(file)
         val activeCount = commentsTracker.getActiveCommentCount(file)
-        
+
         if (commentCount > 0) {
             val icon = if (activeCount > 0) {
                 AllIcons.Toolwindows.ToolWindowMessages
             } else {
                 AllIcons.RunConfigurations.TestPassed
             }
-            
+
             val badgeColor = if (activeCount > 0) {
                 JBColor(Color(255, 140, 0), Color(255, 160, 50)) // Orange
             } else {
                 JBColor(Color(100, 200, 100), Color(80, 150, 80)) // Green
             }
-            
+
+            // Preserve the original file name and append the badge
+            val originalText = data.presentableText ?: file.name
             val badgeText = " ($activeCount)"
             
-            // Append badge AFTER filename
+            // Clear existing text and rebuild with file name + badge
+            data.clearText()
+            data.addText(originalText, SimpleTextAttributes.REGULAR_ATTRIBUTES)
             data.addText(badgeText, SimpleTextAttributes(
                 SimpleTextAttributes.STYLE_BOLD,
                 badgeColor
             ))
-            
+
             // Set icon overlay (show comment icon alongside file icon)
             if (activeCount > 0) {
                 data.setIcon(combineIcons(data.getIcon(false), icon))
             }
-            
+
             // Enhanced tooltip
             data.tooltip = buildFileTooltip(commentCount, activeCount, file.name)
         }
