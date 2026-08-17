@@ -2,6 +2,7 @@ package paol0b.azuredevops.toolwindow
 
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
@@ -18,12 +19,15 @@ import paol0b.azuredevops.actions.SetAutoCompletePullRequestAction
 import paol0b.azuredevops.model.PullRequest
 import paol0b.azuredevops.services.AvatarService
 import paol0b.azuredevops.services.AzureDevOpsApiClient
+import paol0b.azuredevops.services.AzureDevOpsConfigService
 import paol0b.azuredevops.services.AzureDevOpsSettingsService
 import paol0b.azuredevops.toolwindow.filters.PullRequestFilterPanel
 import paol0b.azuredevops.toolwindow.filters.PullRequestSearchValue
+import paol0b.azuredevops.util.NotificationUtil
 import java.awt.BorderLayout
 import java.awt.Dimension
 import java.awt.Font
+import java.awt.datatransfer.StringSelection
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.util.concurrent.atomic.AtomicLong
@@ -396,6 +400,21 @@ class PullRequestListPanel(
         popup.add(JMenuItem("Open Review in Tab").apply {
             addActionListener { PullRequestToolWindowFactory.openPrReviewTab(project, pr) }
         })
+        popup.add(JMenuItem("Copy PR Link").apply {
+            addActionListener {
+                val url = pullRequestWebUrl(pr)
+                if (url != null) {
+                    CopyPasteManager.getInstance().setContents(StringSelection(url))
+                    NotificationUtil.info(project, "Pull Request link copied", url)
+                } else {
+                    NotificationUtil.warning(
+                        project,
+                        "Could not copy Pull Request link",
+                        "The repository or project could not be resolved for this pull request."
+                    )
+                }
+            }
+        })
         popup.addSeparator()
         popup.add(JMenuItem("Enter This Branch").apply {
             addActionListener {
@@ -450,6 +469,26 @@ class PullRequestListPanel(
         }
 
         popup.show(prList, e.x, e.y)
+    }
+
+    /**
+     * Builds the Azure DevOps web URL for a pull request. Prefers the repository/project
+     * embedded in the PR; falls back to the configured project/repository when those are
+     * missing. Mirrors PullRequestToolWindow.getPullRequestWebUrl. Returns null when the
+     * URL cannot be resolved.
+     */
+    private fun pullRequestWebUrl(pr: PullRequest): String? {
+        val apiClient = AzureDevOpsApiClient.getInstance(project)
+
+        pr.repository?.let { repo ->
+            if (repo.name != null && repo.project?.name != null) {
+                return apiClient.buildPullRequestWebUrl(repo.project.name, repo.name, pr.pullRequestId)
+            }
+        }
+
+        val config = AzureDevOpsConfigService.getInstance(project).getConfig()
+        if (!config.isValid()) return null
+        return apiClient.buildPullRequestWebUrl(config.project, config.repository, pr.pullRequestId)
     }
 
     private fun updateStatusLabel(filteredCount: Int, totalCount: Int) {
