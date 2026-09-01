@@ -3,6 +3,7 @@ package paol0b.azuredevops.toolwindow.review
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.project.Project
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
@@ -34,6 +35,7 @@ import javax.swing.*
  * └─────────────────────────────────────────────────────┘
  */
 class InlineCommentComponent(
+    private val project: Project,
     private val thread: CommentThread,
     private val apiClient: AzureDevOpsApiClient,
     private val pullRequestId: Int,
@@ -55,6 +57,14 @@ class InlineCommentComponent(
     private val resolvedBadgeBg = JBColor(Color(220, 255, 220), Color(35, 70, 45))
     private val resolvedBadgeFg = JBColor(Color(34, 139, 34), Color(50, 200, 50))
     private val replyBarColor = JBColor(Color(180, 195, 215), Color(80, 90, 105))
+    private var replyInput: ReviewCommentInput? = null
+
+    val preferredFocusComponent: JComponent
+        get() = replyInput ?: this
+
+    fun requestInputFocus() {
+        replyInput?.requestEditorFocus()
+    }
 
     init {
         layout = BorderLayout()
@@ -65,6 +75,7 @@ class InlineCommentComponent(
 
     private fun buildUI() {
         removeAll()
+        replyInput = null
 
         val card = RoundedPanel(8, cardBg, cardBorder)
         card.layout = BoxLayout(card, BoxLayout.Y_AXIS)
@@ -265,14 +276,12 @@ class InlineCommentComponent(
             border = JBUI.Borders.emptyTop(2)
         }
 
-        val field = JTextField().apply {
-            border = BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(cardBorder),
-                JBUI.Borders.empty(4, 8)
-            )
-            font = UIUtil.getLabelFont().deriveFont(12f)
-            putClientProperty("JTextField.placeholderText", "Reply…")
-        }
+        val field = ReviewCommentInput(
+            project = project,
+            oneLineMode = true,
+            placeholder = "Reply..."
+        )
+        replyInput = field
 
         val sendBtn = JButton("Reply").apply {
             font = font.deriveFont(11f)
@@ -280,14 +289,14 @@ class InlineCommentComponent(
         }
 
         sendBtn.addActionListener { submitReply(field, sendBtn) }
-        field.addActionListener { submitReply(field, sendBtn) }
+        field.registerSubmitShortcut { sendBtn.doClick() }
 
         panel.add(field, BorderLayout.CENTER)
         panel.add(sendBtn, BorderLayout.EAST)
         return panel
     }
 
-    private fun submitReply(field: JTextField, sendBtn: JButton) {
+    private fun submitReply(field: ReviewCommentInput, sendBtn: JButton) {
         val text = field.text.trim()
         if (text.isEmpty()) return
         val threadId = thread.id ?: return

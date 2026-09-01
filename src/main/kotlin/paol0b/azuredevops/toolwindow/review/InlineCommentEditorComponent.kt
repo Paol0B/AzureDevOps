@@ -5,7 +5,6 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
-import com.intellij.util.ui.UIUtil
 import paol0b.azuredevops.services.AzureDevOpsApiClient
 import paol0b.azuredevops.toolwindow.review.timeline.RoundedPanel
 import java.awt.*
@@ -39,6 +38,18 @@ class InlineCommentEditorComponent(
 
     private val cardBg = JBColor(Color(245, 247, 250), Color(50, 52, 56))
     private val cardBorder = JBColor(Color(208, 215, 222), Color(60, 63, 68))
+    private val commentInput = ReviewCommentInput(
+        project = project,
+        oneLineMode = false,
+        placeholder = "Write a comment..."
+    )
+
+    val preferredFocusComponent: JComponent
+        get() = commentInput
+
+    fun requestInputFocus() {
+        commentInput.requestEditorFocus()
+    }
 
     init {
         layout = BorderLayout()
@@ -60,22 +71,14 @@ class InlineCommentEditorComponent(
         })
         card.add(Box.createVerticalStrut(6))
 
-        // Text area
-        val textArea = JTextArea(3, 40).apply {
-            lineWrap = true
-            wrapStyleWord = true
-            font = UIUtil.getLabelFont().deriveFont(12f)
-            border = BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(cardBorder),
-                JBUI.Borders.empty(6, 8)
-            )
-        }
-        val scrollPane = JScrollPane(textArea).apply {
+        // Use the IDE editor component so Windows IME composition works in the popup.
+        commentInput.apply {
             alignmentX = Component.LEFT_ALIGNMENT
+            preferredSize = Dimension(440, 84)
             maximumSize = Dimension(Int.MAX_VALUE, 90)
-            border = null
+            border = BorderFactory.createLineBorder(cardBorder)
         }
-        card.add(scrollPane)
+        card.add(commentInput)
 
         card.add(Box.createVerticalStrut(8))
 
@@ -96,7 +99,7 @@ class InlineCommentEditorComponent(
         }
 
         submitBtn.addActionListener {
-            val text = textArea.text.trim()
+            val text = commentInput.text.trim()
             if (text.isEmpty()) return@addActionListener
 
             submitBtn.isEnabled = false
@@ -129,18 +132,8 @@ class InlineCommentEditorComponent(
             }
         }
 
-        // Allow Ctrl+Enter to submit
-        textArea.addKeyListener(object : java.awt.event.KeyAdapter() {
-            override fun keyPressed(e: java.awt.event.KeyEvent) {
-                if (e.keyCode == java.awt.event.KeyEvent.VK_ENTER && e.isControlDown) {
-                    submitBtn.doClick()
-                    e.consume()
-                } else if (e.keyCode == java.awt.event.KeyEvent.VK_ESCAPE) {
-                    onCancel()
-                    e.consume()
-                }
-            }
-        })
+        // Keep Enter available to the IME; only Ctrl+Enter submits.
+        commentInput.registerSubmitShortcut { submitBtn.doClick() }
 
         val leftBtns = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply { isOpaque = false }
         leftBtns.add(cancelBtn)
@@ -154,8 +147,5 @@ class InlineCommentEditorComponent(
         card.add(buttonsRow)
 
         add(card, BorderLayout.CENTER)
-
-        // Focus the text area when shown
-        SwingUtilities.invokeLater { textArea.requestFocusInWindow() }
     }
 }
