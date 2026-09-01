@@ -306,6 +306,7 @@ class PullRequestFilterPanel(
         val activeQuickFilter = getActiveQuickFilter()
 
         val items = mutableListOf<QuickFilterMenuItem>(
+            QuickFilterMenuItem.Filter(PullRequestQuickFilter.RELEVANT_TO_ME),
             QuickFilterMenuItem.Filter(PullRequestQuickFilter.OPEN),
             QuickFilterMenuItem.Filter(PullRequestQuickFilter.YOUR_PULL_REQUESTS),
             QuickFilterMenuItem.Filter(PullRequestQuickFilter.ASSIGNED_TO_YOU),
@@ -328,30 +329,34 @@ class PullRequestFilterPanel(
             override fun onChosen(selectedValue: QuickFilterMenuItem, finalChoice: Boolean): PopupStep<*>? {
                 when (selectedValue) {
                     is QuickFilterMenuItem.Filter -> when (selectedValue.filter) {
+                        PullRequestQuickFilter.RELEVANT_TO_ME -> applyQuickFilter(
+                            PullRequestSearchValue(
+                                state = PullRequestSearchValue.State.OPEN,
+                                involvement = PullRequestSearchValue.Involvement.RELEVANT_TO_ME,
+                                showAllOrg = true
+                            )
+                        )
                         PullRequestQuickFilter.OPEN -> applyQuickFilter(
                             PullRequestSearchValue(state = PullRequestSearchValue.State.OPEN, showAllOrg = true)
                         )
                         PullRequestQuickFilter.YOUR_PULL_REQUESTS -> applyQuickFilter(
                             PullRequestSearchValue(
                                 state = PullRequestSearchValue.State.OPEN,
-                                author = PullRequestSearchValue.AuthorFilter(
-                                    id = "@me", displayName = "Your pull requests",
-                                    uniqueName = null, imageUrl = null
-                                ),
+                                involvement = PullRequestSearchValue.Involvement.CREATED_BY_ME,
                                 showAllOrg = true
                             )
                         )
                         PullRequestQuickFilter.ASSIGNED_TO_YOU -> applyQuickFilter(
                             PullRequestSearchValue(
                                 state = PullRequestSearchValue.State.OPEN,
-                                review = PullRequestSearchValue.ReviewState.REVIEWED_BY_YOU,
+                                involvement = PullRequestSearchValue.Involvement.ASSIGNED_TO_ME,
                                 showAllOrg = true
                             )
                         )
                         PullRequestQuickFilter.REVIEW_REQUESTS -> applyQuickFilter(
                             PullRequestSearchValue(
                                 state = PullRequestSearchValue.State.OPEN,
-                                review = PullRequestSearchValue.ReviewState.NO_REVIEW,
+                                involvement = PullRequestSearchValue.Involvement.AWAITING_MY_REVIEW,
                                 showAllOrg = true
                             )
                         )
@@ -601,6 +606,7 @@ class PullRequestFilterPanel(
         val def = PullRequestSearchValue.DEFAULT
         var count = 0
         if (currentValue.state != def.state) count++
+        if (currentValue.involvement != def.involvement) count++
         if (currentValue.author != null) count++
         if (currentValue.review != null) count++
         if (currentValue.sort != null) count++
@@ -615,16 +621,23 @@ class PullRequestFilterPanel(
         val v = currentValue
         return when {
             v.state == PullRequestSearchValue.State.OPEN &&
-                v.author?.id == "@me" && v.review == null ->
+                v.involvement == PullRequestSearchValue.Involvement.RELEVANT_TO_ME &&
+                v.author == null && v.review == null ->
+                PullRequestQuickFilter.RELEVANT_TO_ME
+            v.state == PullRequestSearchValue.State.OPEN &&
+                v.involvement == PullRequestSearchValue.Involvement.CREATED_BY_ME &&
+                v.author == null && v.review == null ->
                 PullRequestQuickFilter.YOUR_PULL_REQUESTS
             v.state == PullRequestSearchValue.State.OPEN &&
-                v.review == PullRequestSearchValue.ReviewState.REVIEWED_BY_YOU && v.author == null ->
+                v.involvement == PullRequestSearchValue.Involvement.ASSIGNED_TO_ME &&
+                v.author == null && v.review == null ->
                 PullRequestQuickFilter.ASSIGNED_TO_YOU
             v.state == PullRequestSearchValue.State.OPEN &&
-                v.review == PullRequestSearchValue.ReviewState.NO_REVIEW && v.author == null ->
+                v.involvement == PullRequestSearchValue.Involvement.AWAITING_MY_REVIEW &&
+                v.author == null && v.review == null ->
                 PullRequestQuickFilter.REVIEW_REQUESTS
             v.state == PullRequestSearchValue.State.OPEN &&
-                v.author == null && v.review == null ->
+                v.involvement == null && v.author == null && v.review == null ->
                 PullRequestQuickFilter.OPEN
             else -> null
         }

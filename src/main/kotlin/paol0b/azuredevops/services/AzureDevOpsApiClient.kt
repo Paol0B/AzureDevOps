@@ -18,6 +18,49 @@ import java.nio.charset.StandardCharsets
 import java.util.Base64
 import paol0b.azuredevops.util.PluginUtil
 
+/** Optional Azure DevOps pull-request search criteria that can be evaluated by the server. */
+data class PullRequestQueryCriteria(
+    val creatorId: String? = null,
+    val reviewerId: String? = null
+) {
+    init {
+        require(creatorId.isNullOrBlank() || reviewerId.isNullOrBlank()) {
+            "creatorId and reviewerId are ANDed by Azure DevOps; use two requests for an OR query"
+        }
+    }
+
+    companion object {
+        val NONE = PullRequestQueryCriteria()
+    }
+}
+
+/**
+ * Builds a correctly encoded Azure DevOps PR-list URL. Kept outside the service so the exact
+ * query sent for user-centric filters can be covered by a small unit test.
+ */
+internal fun buildPullRequestListUrl(
+    endpointUrl: String,
+    status: String,
+    pageSize: Int,
+    skip: Int,
+    criteria: PullRequestQueryCriteria = PullRequestQueryCriteria.NONE,
+    apiVersion: String = "7.0"
+): String {
+    return endpointUrl.toHttpUrl().newBuilder()
+        .addQueryParameter("searchCriteria.status", if (status == "all") "all" else status)
+        .apply {
+            criteria.creatorId?.takeIf { it.isNotBlank() }
+                ?.let { addQueryParameter("searchCriteria.creatorId", it) }
+            criteria.reviewerId?.takeIf { it.isNotBlank() }
+                ?.let { addQueryParameter("searchCriteria.reviewerId", it) }
+        }
+        .addQueryParameter("\$top", pageSize.toString())
+        .addQueryParameter("\$skip", skip.toString())
+        .addQueryParameter("api-version", apiVersion)
+        .build()
+        .toString()
+}
+
 /**
  * Client for communicating with Azure DevOps REST API
  * API documentation: https://learn.microsoft.com/en-us/rest/api/azure/devops/
@@ -377,14 +420,19 @@ The plugin will automatically use your authenticated account for this repository
     @Throws(AzureDevOpsApiException::class)
     fun getPullRequests(
         status: String = "active",
+        criteria: PullRequestQueryCriteria = PullRequestQueryCriteria.NONE,
         top: Int = effectiveMaxTotal()
     ): List<PullRequest> {
         val config = requireValidConfig()
         val statusParam = if (status == "all") "all" else status
         return paginatePullRequests(top, "(status: $statusParam, repo: ${config.repository})") { pageSize, skip ->
-            buildApiUrl(
-                config.project, config.repository,
-                "/pullrequests?searchCriteria.status=$statusParam&\$top=$pageSize&\$skip=$skip&api-version=$API_VERSION"
+            buildPullRequestListUrl(
+                endpointUrl = buildApiUrl(config.project, config.repository, "/pullrequests"),
+                status = statusParam,
+                pageSize = pageSize,
+                skip = skip,
+                criteria = criteria,
+                apiVersion = API_VERSION
             )
         }
     }
@@ -402,13 +450,19 @@ The plugin will automatically use your authenticated account for this repository
     @Throws(AzureDevOpsApiException::class)
     fun getAllOrganizationPullRequests(
         status: String = "active",
+        criteria: PullRequestQueryCriteria = PullRequestQueryCriteria.NONE,
         top: Int = effectiveMaxTotal()
     ): List<PullRequest> {
         val config = requireValidConfig()
         val statusParam = if (status == "all") "all" else status
         return paginatePullRequests(top, "(status: $statusParam, org-wide)") { pageSize, skip ->
-            buildOrgApiUrl(
-                "/git/pullrequests?searchCriteria.status=$statusParam&\$top=$pageSize&\$skip=$skip&api-version=$API_VERSION"
+            buildPullRequestListUrl(
+                endpointUrl = buildOrgApiUrl("/git/pullrequests"),
+                status = statusParam,
+                pageSize = pageSize,
+                skip = skip,
+                criteria = criteria,
+                apiVersion = API_VERSION
             )
         }
     }
@@ -424,6 +478,7 @@ The plugin will automatically use your authenticated account for this repository
     @Throws(AzureDevOpsApiException::class)
     fun getPullRequestsStreaming(
         status: String = "active",
+        criteria: PullRequestQueryCriteria = PullRequestQueryCriteria.NONE,
         top: Int = effectiveMaxTotal(),
         onPage: (page: List<PullRequest>, accumulated: List<PullRequest>) -> Unit,
         onComplete: (total: List<PullRequest>) -> Unit
@@ -436,9 +491,13 @@ The plugin will automatically use your authenticated account for this repository
             onPage = onPage,
             onComplete = onComplete
         ) { pageSize, skip ->
-            buildApiUrl(
-                config.project, config.repository,
-                "/pullrequests?searchCriteria.status=$statusParam&\$top=$pageSize&\$skip=$skip&api-version=$API_VERSION"
+            buildPullRequestListUrl(
+                endpointUrl = buildApiUrl(config.project, config.repository, "/pullrequests"),
+                status = statusParam,
+                pageSize = pageSize,
+                skip = skip,
+                criteria = criteria,
+                apiVersion = API_VERSION
             )
         }
     }
@@ -447,6 +506,7 @@ The plugin will automatically use your authenticated account for this repository
     @Throws(AzureDevOpsApiException::class)
     fun getAllOrganizationPullRequestsStreaming(
         status: String = "active",
+        criteria: PullRequestQueryCriteria = PullRequestQueryCriteria.NONE,
         top: Int = effectiveMaxTotal(),
         onPage: (page: List<PullRequest>, accumulated: List<PullRequest>) -> Unit,
         onComplete: (total: List<PullRequest>) -> Unit
@@ -458,8 +518,13 @@ The plugin will automatically use your authenticated account for this repository
             onPage = onPage,
             onComplete = onComplete
         ) { pageSize, skip ->
-            buildOrgApiUrl(
-                "/git/pullrequests?searchCriteria.status=$statusParam&\$top=$pageSize&\$skip=$skip&api-version=$API_VERSION"
+            buildPullRequestListUrl(
+                endpointUrl = buildOrgApiUrl("/git/pullrequests"),
+                status = statusParam,
+                pageSize = pageSize,
+                skip = skip,
+                criteria = criteria,
+                apiVersion = API_VERSION
             )
         }
     }
@@ -474,6 +539,7 @@ The plugin will automatically use your authenticated account for this repository
     fun getProjectPullRequestsStreaming(
         projectIdOrName: String,
         status: String = "active",
+        criteria: PullRequestQueryCriteria = PullRequestQueryCriteria.NONE,
         top: Int = effectiveMaxTotal(),
         onPage: (page: List<PullRequest>, accumulated: List<PullRequest>) -> Unit,
         onComplete: (total: List<PullRequest>) -> Unit
@@ -489,7 +555,14 @@ The plugin will automatically use your authenticated account for this repository
             onPage = onPage,
             onComplete = onComplete
         ) { pageSize, skip ->
-            "$baseUrl/$encodedProject/_apis/git/pullrequests?searchCriteria.status=$statusParam&\$top=$pageSize&\$skip=$skip&api-version=$API_VERSION"
+            buildPullRequestListUrl(
+                endpointUrl = "$baseUrl/$encodedProject/_apis/git/pullrequests",
+                status = statusParam,
+                pageSize = pageSize,
+                skip = skip,
+                criteria = criteria,
+                apiVersion = API_VERSION
+            )
         }
     }
 
@@ -587,7 +660,7 @@ The plugin will automatically use your authenticated account for this repository
         val config = requireValidConfig()
         val configuredPageSize = effectivePageSize()
         val collected = mutableListOf<PullRequest>()
-        val seenIds = HashSet<Int>()
+        val seenKeys = HashSet<String>()
         val maxHops = (maxTotal / configuredPageSize) * 2 + 5
         var hops = 0
 
@@ -603,7 +676,7 @@ The plugin will automatically use your authenticated account for this repository
                 val page = gson.fromJson(response, PullRequestListResponse::class.java).value
                 if (page.isEmpty()) break
 
-                val freshOnly = page.filter { seenIds.add(it.pullRequestId) }
+                val freshOnly = page.filter { seenKeys.add(it.stableOrganizationKey()) }
                 if (freshOnly.isEmpty()) break
                 collected.addAll(freshOnly)
 
