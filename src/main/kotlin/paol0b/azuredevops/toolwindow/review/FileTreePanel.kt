@@ -159,6 +159,7 @@ class FileTreePanel(
 
     init {
         tree.apply {
+            emptyText.text = "Loading changed files..."
             isRootVisible = false
             showsRootHandles = true
             addCheckboxTreeListener(object : CheckboxTreeListener {
@@ -184,6 +185,7 @@ class FileTreePanel(
 
     fun loadFileChanges(changes: List<PullRequestChange>) {
         if (currentFilterMode == FilterMode.ALL) allChanges = changes
+        tree.emptyText.text = "No changed files"
         if (!hasDataChanged(changes)) return
 
         val previouslySelected = getSelectedFileChange()?.item?.path
@@ -212,6 +214,17 @@ class FileTreePanel(
             expandAll()
             previouslySelected?.let { selectFile(it) }
         }
+    }
+
+    fun showLoadError(message: String?) {
+        allChanges = emptyList()
+        cachedChanges = emptyList()
+        rootNode.removeAllChildren()
+        fileNodeMap.clear()
+        treeModel.reload()
+
+        val detail = message?.takeIf { it.isNotBlank() } ?: "Unknown error"
+        tree.emptyText.text = "Failed to load changed files: $detail"
     }
 
     fun addFileSelectionListener(listener: (PullRequestChange) -> Unit) {

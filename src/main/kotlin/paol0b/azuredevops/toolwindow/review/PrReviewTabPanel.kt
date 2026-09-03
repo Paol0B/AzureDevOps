@@ -325,47 +325,66 @@ class PrReviewTabPanel(
         avatarService.preloadAvatars(pullRequest.reviewers?.map { it.imageUrl } ?: emptyList())
 
         ApplicationManager.getApplication().executeOnPooledThread {
-            try {
-                // Load file changes
-                val projectName = pullRequest.repository?.project?.name
-                val repositoryId = pullRequest.repository?.id
-                val changes = apiClient.getPullRequestChanges(pullRequest.pullRequestId, projectName, repositoryId)
+            val repositoryProject = pullRequest.repository?.project
+            val projectIdOrName = repositoryProject?.name ?: repositoryProject?.id
+            val repositoryId = pullRequest.repository?.id
 
-                // Load commit count
-                val commits = apiClient.getPullRequestCommits(pullRequest.pullRequestId, projectName, repositoryId)
-                commitCount = commits.size
-
-                // Load comment threads (for file badges)
-                val threads = apiClient.getCommentThreads(pullRequest.pullRequestId, projectName, repositoryId)
-                // Filter active (non-resolved) comment threads
-                activeCommentThreads = threads.filter { 
-                    it.isDeleted != true && it.isActive()
-                }
-
-                // Load policy evaluations
-                val policies = apiClient.getPolicyEvaluations(
-                    pullRequest.pullRequestId, projectName,
-                    pullRequest.repository?.project?.id
-                )
-
-                ApplicationManager.getApplication().invokeLater {
-                    // Update file tree
-                    fileTreePanel?.loadFileChanges(changes)
-                    fileTreePanel?.updateCommentCounts(threads)
-
-                    // Update commit count label
-                    findComponentByName(this, "commitCountLabel")?.let {
-                        (it as? JBLabel)?.text = "$commitCount commits"
-                    }
-
-                    // Update policy checks
-                    updatePolicyChecksUI(policies, pullRequest, activeCommentThreads)
-
-                    // Refresh reviewers with avatars potentially loaded
-                    updateReviewersUI(pullRequest.reviewers ?: emptyList())
-                }
+            // File changes are the primary content of this tab. Show them as soon as they
+            // arrive so optional requests cannot leave the file tree looking empty.
+            val changes = try {
+                apiClient.getPullRequestChanges(pullRequest.pullRequestId, projectIdOrName, repositoryId)
             } catch (e: Exception) {
-                logger.error("Failed to load PR data", e)
+                logger.error("Failed to load PR file changes", e)
+                ApplicationManager.getApplication().invokeLater {
+                    fileTreePanel?.showLoadError(e.message)
+                }
+                return@executeOnPooledThread
+            }
+            ApplicationManager.getApplication().invokeLater {
+                fileTreePanel?.loadFileChanges(changes)
+            }
+
+            // These calls enrich the review tab, but none is required to browse files.
+            val commits = try {
+                apiClient.getPullRequestCommits(pullRequest.pullRequestId, projectIdOrName, repositoryId)
+            } catch (e: Exception) {
+                logger.warn("Failed to load PR commits: ${e.message}")
+                emptyList()
+            }
+            commitCount = commits.size
+            ApplicationManager.getApplication().invokeLater {
+                findComponentByName(this, "commitCountLabel")?.let {
+                    (it as? JBLabel)?.text = "$commitCount commits"
+                }
+            }
+
+            val threads = try {
+                apiClient.getCommentThreads(pullRequest.pullRequestId, projectIdOrName, repositoryId)
+            } catch (e: Exception) {
+                logger.warn("Failed to load PR comment threads: ${e.message}")
+                emptyList()
+            }
+            val activeThreads = threads.filter {
+                it.isDeleted != true && it.isActive()
+            }
+            ApplicationManager.getApplication().invokeLater {
+                activeCommentThreads = activeThreads
+                fileTreePanel?.updateCommentCounts(threads)
+            }
+
+            val policies = try {
+                apiClient.getPolicyEvaluations(
+                    pullRequest.pullRequestId,
+                    projectIdOrName,
+                    repositoryProject?.id
+                )
+            } catch (e: Exception) {
+                logger.warn("Failed to load PR policy evaluations: ${e.message}")
+                emptyList()
+            }
+            ApplicationManager.getApplication().invokeLater {
+                updatePolicyChecksUI(policies, pullRequest, activeThreads)
+                updateReviewersUI(pullRequest.reviewers ?: emptyList())
             }
         }
     }
