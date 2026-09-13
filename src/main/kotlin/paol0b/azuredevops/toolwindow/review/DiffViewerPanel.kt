@@ -241,9 +241,8 @@ class DiffViewerPanel(
         val filePath = currentChange?.effectivePath()?.takeIf { it.isNotBlank() } ?: return
 
         val relevantThreads = cachedThreads.filter { thread ->
-            val ctx = thread.pullRequestThreadContext ?: thread.threadContext
-            val isLeftSide = ctx?.leftFileStart != null && ctx.rightFileStart == null
-            isLeftSide == isBase
+            val ctx = thread.getPositionContext() ?: return@filter false
+            if (isBase) ctx.leftFileStart != null else ctx.rightFileStart != null
         }
 
         logger.info("Adding ${relevantThreads.size} inline comments to ${if (isBase) "base" else "changes"} editor for $filePath")
@@ -257,20 +256,27 @@ class DiffViewerPanel(
      * Add a persistent comment bubble gutter icon + line highlight for an existing thread.
      */
     private fun addGutterIconForThread(editor: Editor, thread: CommentThread) {
-        val ctx = thread.pullRequestThreadContext ?: thread.threadContext ?: return
-        val startLine = ctx.rightFileStart?.line ?: ctx.leftFileStart?.line ?: return
-        val endLine = ctx.rightFileEnd?.line ?: ctx.leftFileEnd?.line ?: startLine
+        val ctx = thread.getPositionContext() ?: return
+        val isBase = editor.document == baseDocument
+        val startLine = if (isBase) ctx.leftFileStart?.line else ctx.rightFileStart?.line
+        val endLine = if (isBase) ctx.leftFileEnd?.line else ctx.rightFileEnd?.line
+        if (startLine == null) return
+        val effectiveEndLine = endLine ?: startLine
 
-        val startLine0 = (startLine - 1).coerceIn(0, editor.document.lineCount - 1)
-        val endLine0 = (endLine - 1).coerceIn(0, editor.document.lineCount - 1)
-
-        if (startLine0 >= editor.document.lineCount) {
+        if (startLine !in 1..editor.document.lineCount) {
             logger.warn("Line $startLine out of bounds for thread ${thread.id}")
             return
         }
 
+        val startLine0 = startLine - 1
+        val endLine0 = (effectiveEndLine - 1).coerceIn(startLine0, editor.document.lineCount - 1)
+
         val startOffset = editor.document.getLineStartOffset(startLine0)
-        val endOffset = editor.document.getLineEndOffset(endLine0)
+        val endOffset = if (endLine0 + 1 < editor.document.lineCount) {
+            editor.document.getLineStartOffset(endLine0 + 1)
+        } else {
+            editor.document.textLength
+        }
 
         // Subtle line highlight
         val highlightColor = if (thread.isActive()) {
@@ -314,7 +320,7 @@ class DiffViewerPanel(
         }
 
         activeHighlighters.add(highlighter)
-        logger.info("Added comment gutter icon for thread ${thread.id} at lines $startLine-$endLine")
+        logger.info("Added comment gutter icon for thread ${thread.id} at lines $startLine-$effectiveEndLine")
     }
 
     /**

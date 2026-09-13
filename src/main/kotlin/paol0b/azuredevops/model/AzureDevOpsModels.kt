@@ -350,6 +350,15 @@ data class CommentThread(
      * Gets the file path, searching in pullRequestThreadContext first, then threadContext
      */
     fun getFilePath(): String? = pullRequestThreadContext?.filePath ?: threadContext?.filePath
+
+    /**
+     * Returns the context that contains an actual diff-side position. Azure DevOps may
+     * include pullRequestThreadContext only for iteration metadata while keeping the
+     * file position in threadContext.
+     */
+    fun getPositionContext(): ThreadContext? =
+        pullRequestThreadContext?.takeIf { it.hasPosition() }
+            ?: threadContext?.takeIf { it.hasPosition() }
     
     /**
      * Gets the start line, searching in pullRequestThreadContext first, then threadContext
@@ -388,7 +397,11 @@ data class ThreadContext(
     val leftFileStart: LineInfo?,
     @SerializedName("leftFileEnd")
     val leftFileEnd: LineInfo?
-)
+) {
+    fun hasPosition(): Boolean =
+        leftFileStart != null || rightFileStart != null ||
+            leftFileEnd != null || rightFileEnd != null
+}
 
 data class LineInfo(
     val line: Int?,
