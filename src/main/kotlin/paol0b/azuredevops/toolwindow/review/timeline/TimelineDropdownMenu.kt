@@ -27,7 +27,8 @@ object TimelineDropdownMenu {
     fun createThreadPopup(
         threadId: Int,
         currentStatus: ThreadStatus,
-        onStatusChange: (ThreadStatus) -> Unit
+        onStatusChange: (ThreadStatus) -> Unit,
+        onDeleteComment: (() -> Unit)? = null
     ): JPopupMenu {
         val popup = JPopupMenu()
 
@@ -52,6 +53,11 @@ object TimelineDropdownMenu {
         }
         if (currentStatus != ThreadStatus.Pending) {
             popup.add(menuItem("Pending") { onStatusChange(ThreadStatus.Pending) })
+        }
+
+        if (onDeleteComment != null) {
+            popup.add(JSeparator())
+            popup.add(menuItem("Delete comment", onDeleteComment))
         }
 
         return popup

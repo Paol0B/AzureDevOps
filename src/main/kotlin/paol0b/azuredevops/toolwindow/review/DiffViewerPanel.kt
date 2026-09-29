@@ -82,6 +82,7 @@ class DiffViewerPanel(
 
     // Comment threads cache
     private var cachedThreads: List<CommentThread> = emptyList()
+    @Volatile private var currentUserId: String? = null
 
     // Highlighters & inlays for cleanup
     private val activeHighlighters = mutableListOf<RangeHighlighter>()
@@ -323,13 +324,16 @@ class DiffViewerPanel(
      */
     private fun showCommentThreadPopup(editor: Editor, thread: CommentThread, lineIndex: Int) {
         val commentComponent = InlineCommentComponent(
+            project = project,
             thread = thread,
             apiClient = apiClient,
             pullRequestId = pullRequestId,
             projectName = externalProjectName,
             repositoryId = externalRepositoryId,
+            currentUserId = currentUserId,
             onStatusChanged = { refreshInlineComments() },
-            onReplyAdded = { refreshInlineComments() }
+            onReplyAdded = { refreshInlineComments() },
+            onCommentDeleted = { refreshInlineComments() }
         )
 
         commentComponent.preferredSize = Dimension(
@@ -385,6 +389,9 @@ class DiffViewerPanel(
 
     private fun fetchCommentThreads(filePath: String): List<CommentThread> {
         return try {
+            if (currentUserId == null) {
+                currentUserId = apiClient.getCurrentUserIdCached()
+            }
             val allThreads = apiClient.getCommentThreads(pullRequestId, externalProjectName, externalRepositoryId)
             allThreads.filter { it.getFilePath() == filePath && it.isDeleted != true }
         } catch (e: Exception) {

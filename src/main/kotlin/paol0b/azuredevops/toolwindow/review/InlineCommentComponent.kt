@@ -3,6 +3,8 @@ package paol0b.azuredevops.toolwindow.review
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.Messages
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
@@ -34,13 +36,16 @@ import javax.swing.*
  * └─────────────────────────────────────────────────────┘
  */
 class InlineCommentComponent(
+    private val project: Project,
     private val thread: CommentThread,
     private val apiClient: AzureDevOpsApiClient,
     private val pullRequestId: Int,
     private val projectName: String?,
     private val repositoryId: String?,
+    private val currentUserId: String?,
     private val onStatusChanged: () -> Unit = {},
-    private val onReplyAdded: () -> Unit = {}
+    private val onReplyAdded: () -> Unit = {},
+    private val onCommentDeleted: () -> Unit = {}
 ) : JPanel() {
 
     private val logger = Logger.getInstance(InlineCommentComponent::class.java)
@@ -55,6 +60,7 @@ class InlineCommentComponent(
     private val resolvedBadgeBg = JBColor(Color(220, 255, 220), Color(35, 70, 45))
     private val resolvedBadgeFg = JBColor(Color(34, 139, 34), Color(50, 200, 50))
     private val replyBarColor = JBColor(Color(180, 195, 215), Color(80, 90, 105))
+    private val locallyDeletedCommentIds = mutableSetOf<Int>()
 
     init {
         layout = BorderLayout()
@@ -74,7 +80,8 @@ class InlineCommentComponent(
         card.add(createHeaderRow())
 
         // ── Root comment body ──
-        val rootComment = thread.comments?.firstOrNull { it.commentType != "system" }
+        val visibleComments = visibleHumanComments()
+        val rootComment = visibleComments.firstOrNull()
         if (rootComment != null && !isCollapsed) {
             card.add(Box.createVerticalStrut(4))
             card.add(createContentLabel(rootComment.content ?: ""))
@@ -82,10 +89,7 @@ class InlineCommentComponent(
 
         // ── Replies ──
         if (!isCollapsed) {
-            val replies = thread.comments
-                ?.filter { it.commentType != "system" }
-                ?.drop(1)
-                ?: emptyList()
+            val replies = visibleComments.drop(1)
 
             if (replies.isNotEmpty()) {
                 card.add(Box.createVerticalStrut(6))
@@ -107,8 +111,10 @@ class InlineCommentComponent(
             }
 
             // ── Inline reply area ──
-            card.add(Box.createVerticalStrut(6))
-            card.add(createInlineReplyArea())
+            if (visibleComments.isNotEmpty()) {
+                card.add(Box.createVerticalStrut(6))
+                card.add(createInlineReplyArea())
+            }
         }
 
         add(card, BorderLayout.CENTER)
@@ -145,7 +151,7 @@ class InlineCommentComponent(
         }
         left.add(chevronBtn)
 
-        val firstComment = thread.comments?.firstOrNull { it.commentType != "system" }
+        val firstComment = visibleHumanComments().firstOrNull()
         val authorName = firstComment?.author?.displayName ?: "Unknown"
         left.add(JBLabel(authorName).apply {
             font = font.deriveFont(Font.BOLD, 12f)
@@ -160,7 +166,7 @@ class InlineCommentComponent(
         }
 
         // Reply count
-        val replyCount = (thread.comments?.filter { it.commentType != "system" }?.size ?: 1) - 1
+        val replyCount = (visibleHumanComments().size - 1).coerceAtLeast(0)
         if (replyCount > 0) {
             left.add(JBLabel("· $replyCount ${if (replyCount == 1) "reply" else "replies"}").apply {
                 foreground = JBColor(Color(70, 130, 180), Color(100, 149, 237))
@@ -191,7 +197,10 @@ class InlineCommentComponent(
                 val popup = TimelineDropdownMenu.createThreadPopup(
                     threadId = threadId,
                     currentStatus = thread.status ?: ThreadStatus.Active,
-                    onStatusChange = { newStatus -> updateThreadStatus(newStatus) }
+                    onStatusChange = { newStatus -> updateThreadStatus(newStatus) },
+                    onDeleteComment = firstComment
+                        ?.takeIf(::isOwnComment)
+                        ?.let { comment -> { confirmAndDeleteComment(comment) } }
                 )
                 popup.show(this, 0, height)
             }
@@ -241,6 +250,18 @@ class InlineCommentComponent(
             header.add(JBLabel("· $ts").apply {
                 foreground = JBColor.GRAY
                 font = font.deriveFont(10f)
+            })
+        }
+        if (isOwnComment(comment)) {
+            header.add(JButton("Delete").apply {
+                isBorderPainted = false
+                isContentAreaFilled = false
+                isFocusPainted = false
+                foreground = JBColor(Color(180, 45, 45), Color(255, 110, 110))
+                font = font.deriveFont(10f)
+                cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+                toolTipText = "Delete this comment"
+                addActionListener { confirmAndDeleteComment(comment) }
             })
         }
         panel.add(header)
@@ -346,6 +367,55 @@ class InlineCommentComponent(
                 ApplicationManager.getApplication().invokeLater { onStatusChanged() }
             } catch (e: Exception) {
                 logger.error("Failed to update thread status", e)
+            }
+        }
+    }
+
+    private fun visibleHumanComments(): List<Comment> = thread.comments.orEmpty().filter {
+        it.commentType != "system" && it.isDeleted != true && it.id !in locallyDeletedCommentIds
+    }
+
+    private fun isOwnComment(comment: Comment): Boolean {
+        val userId = currentUserId?.takeIf { it.isNotBlank() } ?: return false
+        return comment.author?.id?.equals(userId, ignoreCase = true) == true
+    }
+
+    private fun confirmAndDeleteComment(comment: Comment) {
+        val threadId = thread.id ?: return
+        val commentId = comment.id ?: return
+        val answer = Messages.showYesNoDialog(
+            project,
+            "Delete this comment? This cannot be undone from the plugin.",
+            "Delete Pull Request Comment",
+            "Delete",
+            "Cancel",
+            Messages.getWarningIcon()
+        )
+        if (answer != Messages.YES) return
+
+        ApplicationManager.getApplication().executeOnPooledThread {
+            try {
+                apiClient.deleteComment(
+                    pullRequestId,
+                    threadId,
+                    commentId,
+                    projectName,
+                    repositoryId
+                )
+                ApplicationManager.getApplication().invokeLater {
+                    locallyDeletedCommentIds.add(commentId)
+                    buildUI()
+                    onCommentDeleted()
+                }
+            } catch (e: Exception) {
+                logger.error("Failed to delete comment #$commentId", e)
+                ApplicationManager.getApplication().invokeLater {
+                    Messages.showErrorDialog(
+                        project,
+                        e.message ?: "Azure DevOps rejected the delete request.",
+                        "Failed to Delete Comment"
+                    )
+                }
             }
         }
     }

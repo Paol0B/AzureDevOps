@@ -174,6 +174,23 @@ The plugin will automatically use your authenticated account for this repository
         }
     }
 
+    /** Executes a DELETE request using OkHttp. */
+    @Throws(IOException::class, AzureDevOpsApiException::class)
+    private fun executeDelete(urlString: String, token: String) {
+        val request = Request.Builder()
+            .url(urlString)
+            .delete()
+            .addHeader("Authorization", createAuthHeader(token))
+            .addHeader("Accept", "application/json")
+            .build()
+
+        httpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw handleErrorResponse(response.code, response.body.string())
+            }
+        }
+    }
+
     /**
      * Creates the appropriate Authorization header.
      * Uses Bearer for OAuth JWT tokens and Basic for PATs.
@@ -754,6 +771,33 @@ The plugin will automatically use your authenticated account for this repository
         } catch (e: Exception) {
             logger.error("Failed to add comment", e)
             throw AzureDevOpsApiException("Error while adding comment: ${e.message}", e)
+        }
+    }
+
+    /** Deletes one comment from a pull-request thread. Azure DevOps soft-deletes it. */
+    @Throws(AzureDevOpsApiException::class)
+    fun deleteComment(
+        pullRequestId: Int,
+        threadId: Int,
+        commentId: Int,
+        projectName: String? = null,
+        repositoryId: String? = null
+    ) {
+        val config = requireValidConfig()
+        val effectiveProject = projectName ?: config.project
+        val effectiveRepo = repositoryId ?: config.repository
+        val url = buildApiUrl(
+            effectiveProject,
+            effectiveRepo,
+            "/pullRequests/$pullRequestId/threads/$threadId/comments/$commentId?api-version=$API_VERSION"
+        )
+
+        logger.info("Deleting comment #$commentId from thread #$threadId in PR #$pullRequestId")
+        try {
+            executeDelete(url, config.personalAccessToken)
+        } catch (e: Exception) {
+            logger.error("Failed to delete comment #$commentId", e)
+            throw AzureDevOpsApiException("Error while deleting comment: ${e.message}", e)
         }
     }
 
