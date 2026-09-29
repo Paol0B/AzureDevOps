@@ -193,7 +193,7 @@ class DiffViewerPanel(
         if (filePath.isNullOrBlank()) return
 
         val isBase = editor.document == baseDocument
-        val lineNumber = line0based + 1 // API uses 1-based
+        val lineRange = resolveCommentLineRange(editor, line0based)
 
         // We need a reference to the popup so callbacks can dismiss it.
         // Use a holder so the lambda can capture it before the popup is built.
@@ -204,7 +204,7 @@ class DiffViewerPanel(
             apiClient = apiClient,
             pullRequestId = pullRequestId,
             filePath = filePath,
-            lineNumber = lineNumber,
+            lineRange = lineRange,
             isLeftSide = isBase,
             projectName = externalProjectName,
             repositoryId = externalRepositoryId,
@@ -231,6 +231,21 @@ class DiffViewerPanel(
         // Position below the target line
         val lineY = editor.logicalPositionToXY(LogicalPosition(line0based + 1, 0))
         popup.show(RelativePoint(editor.contentComponent, Point(40, lineY.y)))
+    }
+
+    /**
+     * Uses the editor selection only when the clicked gutter line belongs to it.
+     * Diff line selections can end at the first offset of the visually selected final line,
+     * so preserve the end offset's line instead of subtracting one and dropping that line.
+     */
+    private fun resolveCommentLineRange(editor: Editor, clickedLine0based: Int): CommentLineRange {
+        val clickedLine = clickedLine0based + 1
+        val selection = editor.selectionModel
+        if (!selection.hasSelection()) return CommentLineRange(clickedLine, clickedLine)
+
+        val selectionStartLine = editor.document.getLineNumber(selection.selectionStart) + 1
+        val selectionEndLine = editor.document.getLineNumber(selection.selectionEnd) + 1
+        return CommentLineRange.fromSelection(clickedLine, selectionStartLine, selectionEndLine)
     }
 
     // ==================================================================

@@ -26,7 +26,7 @@ class InlineCommentEditorComponent(
     private val apiClient: AzureDevOpsApiClient,
     private val pullRequestId: Int,
     private val filePath: String,
-    private val lineNumber: Int,
+    private val lineRange: CommentLineRange,
     private val isLeftSide: Boolean,
     private val projectName: String?,
     private val repositoryId: String?,
@@ -53,7 +53,7 @@ class InlineCommentEditorComponent(
         card.border = JBUI.Borders.empty(10, 12, 10, 12)
 
         // Label
-        card.add(JBLabel("Add review comment — line $lineNumber").apply {
+        card.add(JBLabel("Add review comment — ${lineRange.displayText}").apply {
             font = font.deriveFont(Font.BOLD, 11f)
             foreground = JBColor.GRAY
             alignmentX = Component.LEFT_ALIGNMENT
@@ -109,14 +109,14 @@ class InlineCommentEditorComponent(
                         pullRequestId = pullRequestId,
                         filePath = filePath,
                         content = text,
-                        startLine = lineNumber,
-                        endLine = lineNumber,
+                        startLine = lineRange.startLine,
+                        endLine = lineRange.endLine,
                         isLeft = isLeftSide,
                         projectName = projectName,
                         repositoryId = repositoryId,
                         changeTrackingId = changeTrackingId
                     )
-                    logger.info("Comment added to $filePath:$lineNumber")
+                    logger.info("Comment added to $filePath:${lineRange.startLine}-${lineRange.endLine}")
                     ApplicationManager.getApplication().invokeLater { onCommentAdded() }
                 } catch (e: Exception) {
                     logger.error("Failed to add comment", e)

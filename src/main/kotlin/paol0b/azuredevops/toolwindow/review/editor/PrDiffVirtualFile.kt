@@ -11,11 +11,19 @@ import java.io.OutputStream
  * Virtual file representing a single file diff inside a Pull Request.
  * Opened in an editor tab when the user clicks a file in the review tab's file tree.
  */
-class PrDiffVirtualFile(
+data class PrDiffKey(
     val pullRequestId: Int,
-    var filePath: String,
+    val filePath: String,
     val repositoryId: String?
+)
+
+class PrDiffVirtualFile(
+    val key: PrDiffKey
 ) : VirtualFile() {
+
+    val pullRequestId: Int get() = key.pullRequestId
+    val filePath: String get() = key.filePath
+    val repositoryId: String? get() = key.repositoryId
 
     private val fileSystem = PrDiffVirtualFileSystem
 
@@ -38,14 +46,9 @@ class PrDiffVirtualFile(
     override fun getFileType() = PlainTextFileType.INSTANCE
     override fun contentsToByteArray(): ByteArray = ByteArray(0)
 
-    override fun equals(other: Any?): Boolean {
-        if (this === other) return true
-        if (other !is PrDiffVirtualFile) return false
-        // Only consider PR ID for equality, not file path (allows reusing same tab for different files)
-        return pullRequestId == other.pullRequestId
-    }
+    override fun equals(other: Any?): Boolean = other is PrDiffVirtualFile && key == other.key
 
-    override fun hashCode(): Int = pullRequestId
+    override fun hashCode(): Int = key.hashCode()
 }
 
 object PrDiffVirtualFileSystem : VirtualFileSystem() {

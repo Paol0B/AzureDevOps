@@ -19,7 +19,7 @@ class AddCommentGutterIconRenderer(
 
     override fun getIcon(): Icon = AllIcons.General.Add
 
-    override fun getTooltipText(): String = "Add comment"
+    override fun getTooltipText(): String = "Add comment (select multiple lines to comment on a range)"
 
     override fun isNavigateAction(): Boolean = true
 
