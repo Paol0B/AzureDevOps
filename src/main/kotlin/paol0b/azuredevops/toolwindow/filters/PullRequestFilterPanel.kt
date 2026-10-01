@@ -42,7 +42,7 @@ class PullRequestFilterPanel(
 
     // Search field
     private val searchField = SearchTextField(false).apply {
-        textEditor.emptyText.text = "Search pull requests"
+        textEditor.emptyText.text = "Search title, PR ID, or URL"
     }
 
     // Filter chips
@@ -344,14 +344,14 @@ class PullRequestFilterPanel(
                         PullRequestQuickFilter.ASSIGNED_TO_YOU -> applyQuickFilter(
                             PullRequestSearchValue(
                                 state = PullRequestSearchValue.State.OPEN,
-                                review = PullRequestSearchValue.ReviewState.REVIEWED_BY_YOU,
+                                review = PullRequestSearchValue.ReviewState.ASSIGNED_TO_YOU,
                                 showAllOrg = true
                             )
                         )
                         PullRequestQuickFilter.REVIEW_REQUESTS -> applyQuickFilter(
                             PullRequestSearchValue(
                                 state = PullRequestSearchValue.State.OPEN,
-                                review = PullRequestSearchValue.ReviewState.NO_REVIEW,
+                                review = PullRequestSearchValue.ReviewState.AWAITING_YOUR_REVIEW,
                                 showAllOrg = true
                             )
                         )
@@ -618,10 +618,10 @@ class PullRequestFilterPanel(
                 v.author?.id == "@me" && v.review == null ->
                 PullRequestQuickFilter.YOUR_PULL_REQUESTS
             v.state == PullRequestSearchValue.State.OPEN &&
-                v.review == PullRequestSearchValue.ReviewState.REVIEWED_BY_YOU && v.author == null ->
+                v.review == PullRequestSearchValue.ReviewState.ASSIGNED_TO_YOU && v.author == null ->
                 PullRequestQuickFilter.ASSIGNED_TO_YOU
             v.state == PullRequestSearchValue.State.OPEN &&
-                v.review == PullRequestSearchValue.ReviewState.NO_REVIEW && v.author == null ->
+                v.review == PullRequestSearchValue.ReviewState.AWAITING_YOUR_REVIEW && v.author == null ->
                 PullRequestQuickFilter.REVIEW_REQUESTS
             v.state == PullRequestSearchValue.State.OPEN &&
                 v.author == null && v.review == null ->

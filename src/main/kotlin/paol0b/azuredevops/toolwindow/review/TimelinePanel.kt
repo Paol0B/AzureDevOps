@@ -18,6 +18,7 @@ import java.awt.*
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.ScheduledThreadPoolExecutor
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 import javax.swing.*
 
 /**
@@ -58,7 +59,11 @@ class TimelinePanel(
     // ── Polling state ──
     private var scheduler: ScheduledExecutorService? = null
     private var lastDataHash: Int = 0
+    private val loadGeneration = AtomicLong(0)
+    @Volatile private var disposed = false
+    @Volatile private var loading = false
     @Volatile private var latestPullRequest: PullRequest = pullRequest
+    private val commentComposer = PrCommentComposer(::submitGeneralComment) { loadTimeline(force = true) }
 
     companion object;
 
@@ -98,7 +103,7 @@ class TimelinePanel(
             isBorderPainted = false
             isContentAreaFilled = false
             preferredSize = Dimension(28, 28)
-            addActionListener { loadTimeline() }
+            addActionListener { loadTimeline(force = true) }
         }
         header.add(refreshBtn, BorderLayout.EAST)
 
@@ -143,23 +148,17 @@ class TimelinePanel(
         }
         add(scrollPane, BorderLayout.CENTER)
 
-        // ── Bottom direction indicator ──
-        val bottomDir = JPanel(FlowLayout(FlowLayout.LEFT, 6, 2)).apply {
-            background = UIUtil.getPanelBackground()
-            border = JBUI.Borders.empty(2, 14, 6, 14)
-        }
-        bottomDir.add(JBLabel("▼ Newer").apply {
-            foreground = JBColor.GRAY
-            font = font.deriveFont(Font.ITALIC, 10f)
-        })
-        add(bottomDir, BorderLayout.SOUTH)
+        add(commentComposer, BorderLayout.SOUTH)
     }
 
     // ==================================================================
     //  Data loading
     // ==================================================================
 
-    private fun loadTimeline() {
+    private fun loadTimeline(force: Boolean = false) {
+        if (disposed || project.isDisposed || (!force && loading)) return
+        loading = true
+        val generation = loadGeneration.incrementAndGet()
         val projectName = pullRequest.repository?.project?.name
         val repositoryId = pullRequest.repository?.id
 
@@ -170,11 +169,7 @@ class TimelinePanel(
                 val freshPr = try {
                     apiClient.getPullRequest(pullRequest.pullRequestId, projectName, repositoryId)
                 } catch (_: Exception) { pullRequest }
-                latestPullRequest = freshPr
-
                 val hash = TimelineConverter.calculateHash(threads, freshPr.reviewers)
-                if (hash == lastDataHash) return@executeOnPooledThread    // nothing changed
-                lastDataHash = hash
 
                 val entries = TimelineConverter.buildEntries(freshPr, threads)
                 val voteSummaries = TimelineConverter.buildVoteSummaries(freshPr.reviewers)
@@ -187,11 +182,18 @@ class TimelinePanel(
                 avatarService.preloadAvatars(urls)
 
                 ApplicationManager.getApplication().invokeLater {
+                    if (disposed || project.isDisposed || loadGeneration.get() != generation) return@invokeLater
+                    loading = false
+                    if (!force && hash == lastDataHash) return@invokeLater
+                    latestPullRequest = freshPr
+                    lastDataHash = hash
                     renderTimeline(entries, voteSummaries)
                 }
             } catch (e: Exception) {
                 logger.error("Failed to load timeline", e)
                 ApplicationManager.getApplication().invokeLater {
+                    if (disposed || project.isDisposed || loadGeneration.get() != generation) return@invokeLater
+                    loading = false
                     timelineContainer.removeAll()
                     timelineContainer.add(JBLabel("Failed to load timeline: ${e.message}").apply {
                         foreground = JBColor.RED
@@ -377,6 +379,25 @@ class TimelinePanel(
     //  Actions (reply, status change)
     // ==================================================================
 
+    fun focusComment() { commentComposer.focusComment() }
+
+    private fun submitGeneralComment(content: String, completed: (Result<Unit>) -> Unit) {
+        ApplicationManager.getApplication().executeOnPooledThread {
+            val result = runCatching {
+                apiClient.addPullRequestComment(
+                    pullRequest.pullRequestId,
+                    content,
+                    pullRequest.repository?.project?.name,
+                    pullRequest.repository?.id
+                )
+            }
+            result.exceptionOrNull()?.let { logger.warn("Failed to add PR comment", it) }
+            ApplicationManager.getApplication().invokeLater {
+                if (!disposed && !project.isDisposed) completed(result)
+            }
+        }
+    }
+
     private fun handleReply(threadId: Int, content: String) {
         val projectName = pullRequest.repository?.project?.name
         val repositoryId = pullRequest.repository?.id
@@ -391,9 +412,8 @@ class TimelinePanel(
                     repositoryId
                 )
                 logger.info("Reply added to thread #$threadId")
-                // Force hash reset so next poll picks up change immediately
-                lastDataHash = 0
-                loadTimeline()
+                // Fetch immediately and render even if the previous timeline hash matches.
+                loadTimeline(force = true)
             } catch (e: Exception) {
                 logger.error("Failed to reply to thread #$threadId", e)
             }
@@ -414,8 +434,7 @@ class TimelinePanel(
                     repositoryId
                 )
                 logger.info("Thread #$threadId status → $newStatus")
-                lastDataHash = 0
-                loadTimeline()
+                loadTimeline(force = true)
             } catch (e: Exception) {
                 logger.error("Failed to update thread #$threadId status", e)
             }
@@ -450,6 +469,8 @@ class TimelinePanel(
     }
 
     fun dispose() {
+        disposed = true
+        loadGeneration.incrementAndGet()
         stopPolling()
     }
 

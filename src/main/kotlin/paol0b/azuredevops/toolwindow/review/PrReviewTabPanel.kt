@@ -196,6 +196,11 @@ class PrReviewTabPanel(
             addActionListener { openTimeline() }
         }
         actionsPanel.add(timelineButton)
+        actionsPanel.add(JButton("Add comment").apply {
+            icon = AllIcons.General.Add
+            toolTipText = "Write a general comment on this pull request"
+            addActionListener { PrReviewTabService.getInstance(project).openTimelineTab(pullRequest, focusComment = true) }
+        })
 
         header.add(actionsPanel)
 

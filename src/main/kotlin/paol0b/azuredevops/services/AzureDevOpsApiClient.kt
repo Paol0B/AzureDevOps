@@ -510,6 +510,73 @@ The plugin will automatically use your authenticated account for this repository
         }
     }
 
+    /** Searches fresh server pages, applying supported criteria before the result cap. */
+    fun searchPullRequestsStreaming(
+        query: String,
+        criteria: PullRequestSearchCriteria,
+        selectedProjectIds: Set<String>,
+        showAllOrg: Boolean,
+        isCancelled: () -> Boolean,
+        accept: (PullRequest) -> Boolean,
+        onPage: (List<PullRequest>, PullRequestSearchProgress) -> Unit,
+        onComplete: (List<PullRequest>, PullRequestSearchProgress) -> Unit
+    ) {
+        val config = requireValidConfig()
+        val configService = AzureDevOpsConfigService.getInstance(project)
+        val baseUrl = configService.getApiBaseUrl()
+        val lookup = PullRequestLookup.parse(query)
+        if (isCancelled()) throw java.util.concurrent.CancellationException()
+        if (lookup != null) {
+            lookup.requireSameServer(baseUrl)
+            val pr = if (lookup.project != null && lookup.repository != null) {
+                getPullRequest(lookup.id, lookup.project, lookup.repository)
+            } else {
+                val url = buildOrgApiUrl("/git/pullrequests/${lookup.id}?api-version=$API_VERSION")
+                gson.fromJson(executeGet(url, config.personalAccessToken), PullRequest::class.java)
+            }
+            if (isCancelled()) throw java.util.concurrent.CancellationException()
+            onComplete(listOf(pr), PullRequestSearchProgress(1, true))
+            return
+        }
+
+        val endpoints = when {
+            selectedProjectIds.isNotEmpty() -> selectedProjectIds.map {
+                "$baseUrl/${encodePathSegment(it)}/_apis/git/pullrequests"
+            }
+            showAllOrg -> listOf(buildOrgApiUrl("/git/pullrequests"))
+            else -> listOf(buildApiUrl(config.project, config.repository, "/pullrequests"))
+        }
+        val results = mutableListOf<PullRequest>()
+        val seen = mutableSetOf<Int>()
+        val limit = effectiveMaxTotal()
+        var scanned = 0
+        var complete = true
+        for ((index, endpoint) in endpoints.withIndex()) {
+            val previouslyScanned = scanned
+            val scopeResult = PullRequestSearchPager.search(
+                query, effectivePageSize(), limit - results.size,
+                fetchPage = { pageSize, skip ->
+                    val url = criteria.listUrl(endpoint, pageSize, skip)
+                    gson.fromJson(executeGet(url, config.personalAccessToken), PullRequestListResponse::class.java).value
+                },
+                isCancelled = isCancelled,
+                accept = accept,
+                onPage = { matches, progress ->
+                    val accumulated = (results + matches).distinctBy { it.pullRequestId }
+                    onPage(accumulated, PullRequestSearchProgress(previouslyScanned + progress.scanned, false))
+                }
+            )
+            results.addAll(scopeResult.pullRequests.filter { seen.add(it.pullRequestId) })
+            scanned += scopeResult.progress.scanned
+            complete = complete && scopeResult.progress.complete
+            if (results.size >= limit) {
+                complete = complete && index == endpoints.lastIndex
+                break
+            }
+        }
+        onComplete(results.toList(), PullRequestSearchProgress(scanned, complete))
+    }
+
     /** Summary of a project for the PR project filter. id is required (used for filtering),
      *  name is the human-readable label, description is shown in the picker if non-blank. */
     data class OrgProject(val id: String, val name: String, val description: String?)
@@ -1319,14 +1386,24 @@ The plugin will automatically use your authenticated account for this repository
      * API: POST https://dev.azure.com/{organization}/{project}/_apis/git/repositories/{repositoryId}/pullRequests/{pullRequestId}/threads?api-version=7.0
      */
     @Throws(AzureDevOpsApiException::class)
-    private fun addPullRequestComment(pullRequestId: Int, comment: String) {
+    fun addPullRequestComment(
+        pullRequestId: Int,
+        comment: String,
+        projectName: String? = null,
+        repositoryId: String? = null
+    ) {
         val config = requireValidConfig()
 
-        val url = buildApiUrl(config.project, config.repository, "/pullRequests/$pullRequestId/threads?api-version=$API_VERSION")
+        require(comment.isNotBlank()) { "Comment cannot be empty." }
+        val url = buildApiUrl(
+            projectName ?: config.project,
+            repositoryId ?: config.repository,
+            "/pullRequests/$pullRequestId/threads?api-version=$API_VERSION"
+        )
 
         val commentData = mapOf(
             "comments" to listOf(
-                mapOf("content" to comment, "commentType" to 1)
+                mapOf("content" to comment.trim(), "commentType" to 1, "parentCommentId" to 0)
             ),
             "status" to 1
         )
