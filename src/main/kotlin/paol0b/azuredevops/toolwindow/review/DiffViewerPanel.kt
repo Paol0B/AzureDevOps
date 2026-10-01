@@ -20,6 +20,10 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.LogicalPosition
+import com.intellij.openapi.editor.event.SelectionListener
+import com.intellij.openapi.editor.event.SelectionEvent
+import com.intellij.openapi.actionSystem.ActionUpdateThread
+import paol0b.azuredevops.model.FileCommentRange
 import com.intellij.openapi.editor.event.EditorMouseEvent
 import com.intellij.openapi.editor.event.EditorMouseMotionListener
 import com.intellij.openapi.editor.markup.GutterIconRenderer
@@ -91,10 +95,12 @@ class DiffViewerPanel(
     private data class CommentEditor(
         val viewer: DiffViewerBase,
         val location: (Int) -> DiffCommentLocation?,
-        val displayLine: (Boolean, Int) -> Int?
+        val displayLine: (Boolean, Int) -> Int?,
+        val fileLine: (Int, Boolean) -> Int?
     )
     private val commentEditors = mutableMapOf<Editor, CommentEditor>()
     private var lastCommentEditor: Editor? = null
+    private var selectionPopup: JBPopup? = null
     private var commentViewerReady = false
     private val addCommentButton = JButton("Add inline comment").apply {
         isEnabled = false
@@ -138,14 +144,16 @@ class DiffViewerPanel(
                     viewer.transferLineFromOnesideStrict(Side.RIGHT, line)
                 ) },
                 { left, line -> viewer.transferLineToOnesideStrict(if (left) Side.LEFT else Side.RIGHT, line)
-                    .takeIf { it >= 0 } }
+                    .takeIf { it >= 0 } },
+                { line, left -> viewer.transferLineFromOnesideStrict(if (left) Side.LEFT else Side.RIGHT, line).takeIf { it >= 0 } }
             ))
             is TwosideTextDiffViewer -> {
                 for (side in listOf(Side.LEFT, Side.RIGHT)) {
                     registerCommentEditor(viewer.getEditor(side), CommentEditor(
                         viewer,
                         { line -> DiffCommentLocation(side == Side.LEFT, line + 1) },
-                        { left, line -> line.takeIf { left == (side == Side.LEFT) } }
+                        { left, line -> line.takeIf { left == (side == Side.LEFT) } },
+                        { line, left -> line.takeIf { left == (side == Side.LEFT) } }
                     ))
                 }
             }
@@ -175,8 +183,24 @@ class DiffViewerPanel(
 
     private fun registerCommentEditor(editor: Editor, binding: CommentEditor) {
         commentEditors[editor] = binding
+        editor.putUserData(PrSelectedTextCommentAction.CAN_COMMENT) { selectedCommentRange(editor) != null }
+        editor.putUserData(PrSelectedTextCommentAction.COMMENT) { showSelectedCommentEditor(editor) }
         editor.contentComponent.addFocusListener(object : FocusAdapter() {
             override fun focusGained(e: FocusEvent) { if (isCurrentEditor(editor)) lastCommentEditor = editor }
+        })
+        editor.selectionModel.addSelectionListener(object : SelectionListener {
+            override fun selectionChanged(e: SelectionEvent) {
+                if (!isCurrentEditor(editor)) return
+                selectionPopup?.cancel()
+                selectionPopup = null
+                lastCommentEditor = editor
+                val range = selectedCommentRange(editor) ?: return
+                ApplicationManager.getApplication().invokeLater {
+                    if (isCurrentEditor(editor) && editor.contentComponent.isShowing && selectedCommentRange(editor) == range) {
+                        showSelectionCommentControl(editor, range)
+                    }
+                }
+            }
         })
         editor.addEditorMouseMotionListener(object : EditorMouseMotionListener {
             override fun mouseMoved(e: EditorMouseEvent) {
@@ -195,13 +219,49 @@ class DiffViewerPanel(
         val editor = preferredEditor?.takeIf { isCurrentEditor(it) }
             ?: lastCommentEditor?.takeIf { isCurrentEditor(it) }
             ?: commentEditors.keys.lastOrNull { isCurrentEditor(it) } ?: return
-        showInlineCommentEditor(editor, editor.caretModel.logicalPosition.line)
+        if (editor.selectionModel.hasSelection()) showSelectedCommentEditor(editor)
+        else showInlineCommentEditor(editor, editor.caretModel.logicalPosition.line)
+    }
+
+    private fun selectedCommentRange(editor: Editor): FileCommentRange? {
+        if (!isCurrentEditor(editor) || !editor.selectionModel.hasSelection() || editor.caretModel.caretCount > 1) return null
+        val binding = commentEditors[editor] ?: return null
+        return DiffCommentSelection.resolve(editor.document.immutableCharSequence.toString(),
+            editor.selectionModel.selectionStart, editor.selectionModel.selectionEnd, binding.fileLine)
+    }
+
+    private fun showSelectedCommentEditor(editor: Editor) {
+        val range = selectedCommentRange(editor) ?: return
+        val row = editor.document.getLineNumber(editor.selectionModel.selectionStart)
+        selectionPopup?.cancel()
+        selectionPopup = null
+        showInlineCommentEditor(editor, row, range)
+    }
+
+    private fun showSelectionCommentControl(editor: Editor, range: FileCommentRange) {
+        selectionPopup?.cancel()
+        val button = JButton("Comment on selected text", AllIcons.General.Balloon).apply {
+            isFocusable = false
+            addActionListener {
+                if (selectedCommentRange(editor) == range) showSelectedCommentEditor(editor)
+            }
+        }
+        val popup = JBPopupFactory.getInstance().createComponentPopupBuilder(button, null)
+            .setRequestFocus(false).setCancelOnClickOutside(true).setCancelOnOtherWindowOpen(false).createPopup()
+        selectionPopup = popup
+        trackPopup(popup)
+        val end = editor.offsetToXY(editor.selectionModel.selectionEnd)
+        popup.show(RelativePoint(editor.contentComponent, Point(end.x, end.y + editor.lineHeight)))
     }
 
     private fun clearCommentEditors() {
         clearInlays()
         hoverHighlighters.values.forEach { if (it.isValid) it.dispose() }
         hoverHighlighters.clear()
+        commentEditors.keys.forEach {
+            it.putUserData(PrSelectedTextCommentAction.CAN_COMMENT, null)
+            it.putUserData(PrSelectedTextCommentAction.COMMENT, null)
+        }
         commentEditors.clear()
         lastCommentEditor = null
         commentViewerReady = false
@@ -257,7 +317,7 @@ class DiffViewerPanel(
     /**
      * Show the GitHub-style "Add Review Comment" editor below the specified line.
      */
-    private fun showInlineCommentEditor(editor: Editor, line0based: Int) {
+    private fun showInlineCommentEditor(editor: Editor, line0based: Int, selectedRange: FileCommentRange? = null) {
         if (!isCurrentEditor(editor)) return
         val request = displayedRequest ?: return
         val change = request.value
@@ -274,8 +334,7 @@ class DiffViewerPanel(
             apiClient = apiClient,
             pullRequestId = pullRequestId,
             filePath = filePath,
-            lineNumber = location.lineNumber,
-            isLeftSide = location.isLeftSide,
+            range = selectedRange ?: FileCommentRange(location.isLeftSide, location.lineNumber),
             projectName = externalProjectName,
             repositoryId = externalRepositoryId,
             changeTrackingId = change.changeTrackingId,
@@ -528,6 +587,16 @@ class DiffViewerPanel(
         }
         diffRequest.putUserData(DiffUserDataKeys.CONTEXT_ACTIONS, listOf(object : AnAction("Add inline comment", "Comment on this code line", AllIcons.General.Add) {
             override fun actionPerformed(e: AnActionEvent) { addCommentAtCaret(e.getData(CommonDataKeys.EDITOR)) }
+        }, object : AnAction("Comment on selected text", "Comment on the selected code range", AllIcons.General.Balloon) {
+            override fun getActionUpdateThread() = ActionUpdateThread.EDT
+            override fun update(e: AnActionEvent) {
+                val editor = e.getData(CommonDataKeys.EDITOR) ?: lastCommentEditor
+                e.presentation.isEnabledAndVisible = editor != null && selectedCommentRange(editor) != null
+            }
+            override fun actionPerformed(e: AnActionEvent) {
+                val editor = e.getData(CommonDataKeys.EDITOR) ?: lastCommentEditor ?: return
+                showSelectedCommentEditor(editor)
+            }
         }))
 
         val diffManager = DiffManager.getInstance()
@@ -537,7 +606,7 @@ class DiffViewerPanel(
 
         add(JPanel(FlowLayout(FlowLayout.LEFT)).apply {
             add(addCommentButton)
-            add(JBLabel("Place the cursor on a line, or hover over the gutter and click +"))
+            add(JBLabel("Select text to comment, or hover over the gutter and click +"))
         }, BorderLayout.NORTH)
         add(currentDiffPanel!!.component, BorderLayout.CENTER)
         revalidate()

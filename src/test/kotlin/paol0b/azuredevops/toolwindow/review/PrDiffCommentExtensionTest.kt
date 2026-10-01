@@ -7,6 +7,7 @@ import com.intellij.diff.tools.fragmented.UnifiedDiffTool
 import com.intellij.diff.tools.fragmented.UnifiedDiffViewer
 import com.intellij.diff.util.DiffUserDataKeysEx
 import com.intellij.diff.util.Side
+import paol0b.azuredevops.model.FileCommentRange
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.UserDataHolderBase
 import com.intellij.testFramework.LightPlatformTestCase
@@ -38,6 +39,14 @@ class PrDiffCommentExtensionTest : LightPlatformTestCase() {
             UIUtil.dispatchAllInvocationEvents()
             val addedRow = viewer.transferLineToOnesideStrict(Side.RIGHT, 1)
             assertTrue(addedRow >= 0)
+            val document = viewer.editor.document
+            val selectedStart = document.getLineStartOffset(addedRow) + 1
+            val selectedEnd = document.getLineStartOffset(addedRow) + 4
+            assertEquals(FileCommentRange(false, 2, 2, 2, 5), DiffCommentSelection.resolve(
+                document.text, selectedStart, selectedEnd
+            ) { row, left ->
+                viewer.transferLineFromOnesideStrict(if (left) Side.LEFT else Side.RIGHT, row).takeIf { it >= 0 }
+            })
             assertEquals(DiffCommentLocation(false, 2), DiffCommentLocation.fromUnifiedLines(
                 viewer.transferLineFromOnesideStrict(Side.LEFT, addedRow),
                 viewer.transferLineFromOnesideStrict(Side.RIGHT, addedRow)

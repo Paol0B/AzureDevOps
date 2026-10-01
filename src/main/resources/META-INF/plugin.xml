@@ -264,6 +264,13 @@
     </projectListeners>
 
     <actions>
+        <action id="AzureDevOps.CommentSelectedText"
+                class="paol0b.azuredevops.toolwindow.review.PrSelectedTextCommentAction"
+                text="Comment on selected text"
+                description="Comment on the selected PR code range"
+                icon="AllIcons.General.Balloon">
+            <add-to-group group-id="Diff.EditorPopupMenu" anchor="last"/>
+        </action>
         <!-- Azure DevOps Group in Git Menu -->
         <group id="AzureDevOps.Group"
                text="Azure DevOps"

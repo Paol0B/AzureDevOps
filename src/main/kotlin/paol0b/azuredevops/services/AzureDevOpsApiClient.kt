@@ -1468,7 +1468,9 @@ The plugin will automatically use your authenticated account for this repository
         isLeft: Boolean,
         projectName: String? = null,
         repositoryId: String? = null,
-        changeTrackingId: Int? = null
+        changeTrackingId: Int? = null,
+        startOffset: Int = 1,
+        endOffset: Int = 1
     ) {
         val config = requireValidConfig()
 
@@ -1486,20 +1488,8 @@ The plugin will automatically use your authenticated account for this repository
         val validStartLine = startLine.coerceAtLeast(1)
         val validEndLine = endLine.coerceAtLeast(validStartLine)
 
-        // CommentPosition: line (1-based), offset (1-based character position)
-        // Azure DevOps rejects offset=0
-        val startPosition = mapOf("line" to validStartLine, "offset" to 1)
-        val endPosition = mapOf("line" to validEndLine, "offset" to 1)
-
-        // threadContext: file path + line location (required for file-scoped comments)
-        val threadContextMap = mutableMapOf<String, Any>("filePath" to normalizedPath)
-        if (isLeft) {
-            threadContextMap["leftFileStart"] = startPosition
-            threadContextMap["leftFileEnd"] = endPosition
-        } else {
-            threadContextMap["rightFileStart"] = startPosition
-            threadContextMap["rightFileEnd"] = endPosition
-        }
+        val threadContextMap = FileCommentRange(isLeft, validStartLine, validEndLine,
+            startOffset.coerceAtLeast(1), endOffset.coerceAtLeast(1)).threadContext(normalizedPath)
 
         val latestIterationId = try {
             getLatestIterationId(pullRequestId, effectiveProject, effectiveRepo)
