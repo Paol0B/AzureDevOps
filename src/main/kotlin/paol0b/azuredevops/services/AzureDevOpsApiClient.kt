@@ -1059,14 +1059,12 @@ The plugin will automatically use your authenticated account for this repository
         val response = executeGet(url, config.personalAccessToken)
 
         return try {
-            val jsonObject = gson.fromJson(response, com.google.gson.JsonObject::class.java)
-            val content = jsonObject.get("content")?.asString ?: ""
+            val content = PullRequestDiffContents.decodeFileContent(response)
             logger.info("Extracted content: ${content.length} characters")
             content
         } catch (e: Exception) {
             logger.error("Failed to parse file content response", e)
-            logger.error("Response was: $response")
-            ""
+            throw AzureDevOpsApiException("Unable to read text content for $filePath: ${e.message}", e)
         }
     }
 
@@ -1625,25 +1623,13 @@ The plugin will automatically use your authenticated account for this repository
         val effectiveProject = pullRequest.repository?.project?.name ?: config.project
         val effectiveRepo = pullRequest.repository?.id ?: config.repository
 
-        // Get current user's unique name from profile
-        val currentUser = getCurrentUser()
-        val currentUserUniqueName = currentUser.uniqueName?.lowercase()
-        val currentUserId = currentUser.id
-
-        // Find the current user in the PR's reviewers list
-        var reviewer = pullRequest.reviewers?.find { reviewer ->
-            reviewer.uniqueName?.lowercase() == currentUserUniqueName ||
-            reviewer.displayName?.lowercase() == currentUser.displayName?.lowercase() ||
-            reviewer.id == currentUserId
-        }
+        val currentUserId = getCurrentUser().id?.takeIf { it.isNotBlank() }
+            ?: throw AzureDevOpsApiException("Unable to get authenticated user ID")
+        val reviewer = pullRequest.findReviewerById(currentUserId)
 
         // If user is not a reviewer, add them automatically
         if (reviewer == null) {
             logger.info("Current user is not a reviewer, adding automatically...")
-
-            if (currentUserId == null) {
-                throw AzureDevOpsApiException("Unable to get current user ID")
-            }
 
             // Step 1: Add user as reviewer without vote (Azure DevOps doesn't allow voting when adding self)
             val addReviewerUrl = buildApiUrl(effectiveProject, effectiveRepo,
@@ -1661,7 +1647,11 @@ The plugin will automatically use your authenticated account for this repository
 
                 // Parse the response to get the actual reviewer ID that was created
                 val reviewerData = gson.fromJson(response, com.google.gson.JsonObject::class.java)
-                val addedReviewerId = reviewerData.get("id")?.asString ?: currentUserId
+                val returnedId = reviewerData.get("id")?.takeIf { !it.isJsonNull }?.asString
+                if (returnedId != null && !returnedId.equals(currentUserId, ignoreCase = true)) {
+                    throw AzureDevOpsApiException("Azure DevOps returned a different reviewer identity; vote was not submitted.")
+                }
+                val addedReviewerId = currentUserId
 
                 // Step 2: Now set the vote in a second call
                 val voteUrl = buildApiUrl(effectiveProject, effectiveRepo,
@@ -1679,9 +1669,7 @@ The plugin will automatically use your authenticated account for this repository
         }
 
         // User is already a reviewer, proceed with voting
-        val reviewerId = reviewer.id ?: throw AzureDevOpsApiException(
-            "Unable to get reviewer ID for current user"
-        )
+        val reviewerId = currentUserId
 
         val url = buildApiUrl(effectiveProject, effectiveRepo,
             "/pullRequests/${pullRequest.pullRequestId}/reviewers/$reviewerId?api-version=$API_VERSION")

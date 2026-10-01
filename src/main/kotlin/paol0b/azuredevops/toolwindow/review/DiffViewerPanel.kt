@@ -27,6 +27,9 @@ import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.fileTypes.FileTypeManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.popup.JBPopupFactory
+import com.intellij.openapi.ui.popup.JBPopup
+import com.intellij.openapi.ui.popup.JBPopupListener
+import com.intellij.openapi.ui.popup.LightweightWindowEvent
 import com.intellij.openapi.util.Disposer
 import com.intellij.ui.JBColor
 import com.intellij.ui.awt.RelativePoint
@@ -41,6 +44,7 @@ import paol0b.azuredevops.model.hasChangeType
 import paol0b.azuredevops.model.previousPath
 import paol0b.azuredevops.model.primaryChangeType
 import paol0b.azuredevops.services.AzureDevOpsApiClient
+import paol0b.azuredevops.services.PullRequestDiffContents
 import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Dimension
@@ -68,6 +72,11 @@ class DiffViewerPanel(
     private val apiClient = AzureDevOpsApiClient.getInstance(project)
     private val diffContentFactory = DiffContentFactory.getInstance()
 
+    private var disposed = false
+    private val diffRequests = LatestRequest<PullRequestChange>()
+    private val commentRequests = LatestRequest<LatestRequest.Ticket<PullRequestChange>>()
+    private var displayedRequest: LatestRequest.Ticket<PullRequestChange>? = null
+    private val activePopups = mutableSetOf<JBPopup>()
     private var currentDiffPanel: DiffRequestPanel? = null
     private var currentChange: PullRequestChange? = null
     private var cachedPullRequest: paol0b.azuredevops.model.PullRequest? = null
@@ -108,19 +117,21 @@ class DiffViewerPanel(
         EditorFactory.getInstance().addEditorFactoryListener(object : EditorFactoryListener {
             override fun editorCreated(event: EditorFactoryEvent) {
                 val editor = event.editor
-                if (editor.document != baseDocument && editor.document != changesDocument) return
+                if (!isCurrentEditor(editor)) return
+                val request = displayedRequest ?: return
 
                 if (editor.document == baseDocument) baseEditor = editor
                 else changesEditor = editor
 
                 // Show existing comments
                 ApplicationManager.getApplication().invokeLater {
-                    addInlineCommentsToEditor(editor)
+                    if (diffRequests.isCurrent(request) && isCurrentEditor(editor)) addInlineCommentsToEditor(editor)
                 }
 
                 // ── Hover "+" gutter icon (GitHub-style) ──
                 editor.addEditorMouseMotionListener(object : EditorMouseMotionListener {
                     override fun mouseMoved(e: EditorMouseEvent) {
+                        if (!isCurrentEditor(editor)) return
                         val logicalPos = editor.xyToLogicalPosition(e.mouseEvent.point)
                         val line = logicalPos.line
                         if (line < 0 || line >= editor.document.lineCount) {
@@ -189,8 +200,10 @@ class DiffViewerPanel(
      * Show the GitHub-style "Add Review Comment" editor below the specified line.
      */
     private fun showInlineCommentEditor(editor: Editor, line0based: Int) {
-        val filePath = currentChange?.effectivePath()?.takeIf { it.isNotBlank() }
-        if (filePath.isNullOrBlank()) return
+        if (!isCurrentEditor(editor)) return
+        val request = displayedRequest ?: return
+        val change = request.value
+        val filePath = change.effectivePath().takeIf { it.isNotBlank() } ?: return
 
         val isBase = editor.document == baseDocument
         val lineNumber = line0based + 1 // API uses 1-based
@@ -208,10 +221,10 @@ class DiffViewerPanel(
             isLeftSide = isBase,
             projectName = externalProjectName,
             repositoryId = externalRepositoryId,
-            changeTrackingId = currentChange?.changeTrackingId,
+            changeTrackingId = change.changeTrackingId,
             onCommentAdded = {
                 popupRef?.cancel()
-                refreshInlineComments()
+                if (diffRequests.isCurrent(request)) refreshInlineComments()
             },
             onCancel = { popupRef?.cancel() }
         )
@@ -227,6 +240,7 @@ class DiffViewerPanel(
             .setCancelKeyEnabled(true)
             .createPopup()
         popupRef = popup
+        trackPopup(popup)
 
         // Position below the target line
         val lineY = editor.logicalPositionToXY(LogicalPosition(line0based + 1, 0))
@@ -238,11 +252,13 @@ class DiffViewerPanel(
     // ==================================================================
 
     private fun addInlineCommentsToEditor(editor: Editor) {
+        if (!isCurrentEditor(editor)) return
         val isBase = editor.document == baseDocument
         val filePath = currentChange?.effectivePath()?.takeIf { it.isNotBlank() } ?: return
 
         val relevantThreads = cachedThreads.filter { thread ->
-            val ctx = thread.pullRequestThreadContext ?: thread.threadContext
+            if (thread.comments.orEmpty().none { it.isDeleted != true && it.commentType != "system" }) return@filter false
+            val ctx = thread.threadContext
             val isLeftSide = ctx?.leftFileStart != null && ctx.rightFileStart == null
             isLeftSide == isBase
         }
@@ -258,18 +274,17 @@ class DiffViewerPanel(
      * Add a persistent comment bubble gutter icon + line highlight for an existing thread.
      */
     private fun addGutterIconForThread(editor: Editor, thread: CommentThread) {
-        val ctx = thread.pullRequestThreadContext ?: thread.threadContext ?: return
+        val ctx = thread.threadContext ?: return
         val startLine = ctx.rightFileStart?.line ?: ctx.leftFileStart?.line ?: return
         val endLine = ctx.rightFileEnd?.line ?: ctx.leftFileEnd?.line ?: startLine
 
-        val startLine0 = (startLine - 1).coerceIn(0, editor.document.lineCount - 1)
-        val endLine0 = (endLine - 1).coerceIn(0, editor.document.lineCount - 1)
-
-        if (startLine0 >= editor.document.lineCount) {
+        val startLine0 = startLine - 1
+        if (startLine0 < 0 || startLine0 >= editor.document.lineCount) {
             logger.warn("Line $startLine out of bounds for thread ${thread.id}")
             return
         }
 
+        val endLine0 = (endLine - 1).coerceIn(startLine0, editor.document.lineCount - 1)
         val startOffset = editor.document.getLineStartOffset(startLine0)
         val endOffset = editor.document.getLineEndOffset(endLine0)
 
@@ -289,8 +304,9 @@ class DiffViewerPanel(
 
         // Comment bubble gutter icon
         val icon = if (thread.isActive()) AllIcons.General.Balloon else AllIcons.General.InspectionsOK
-        val commentCount = thread.comments?.size ?: 0
-        val authorName = thread.comments?.firstOrNull()?.author?.displayName ?: "Unknown"
+        val visibleComments = thread.comments.orEmpty().filter { it.isDeleted != true && it.commentType != "system" }
+        val commentCount = visibleComments.size
+        val authorName = visibleComments.firstOrNull()?.author?.displayName ?: "Unknown"
 
         highlighter.gutterIconRenderer = object : GutterIconRenderer() {
             override fun getIcon() = icon
@@ -323,6 +339,13 @@ class DiffViewerPanel(
      * Styled borderless to feel embedded, matching GitHub plugin behavior.
      */
     private fun showCommentThreadPopup(editor: Editor, thread: CommentThread, lineIndex: Int) {
+        if (!isCurrentEditor(editor)) return
+        val request = displayedRequest ?: return
+        var popupRef: JBPopup? = null
+        val refreshThread: () -> Unit = {
+            popupRef?.cancel()
+            if (diffRequests.isCurrent(request)) refreshInlineComments()
+        }
         val commentComponent = InlineCommentComponent(
             project = project,
             thread = thread,
@@ -331,9 +354,9 @@ class DiffViewerPanel(
             projectName = externalProjectName,
             repositoryId = externalRepositoryId,
             currentUserId = currentUserId,
-            onStatusChanged = { refreshInlineComments() },
-            onReplyAdded = { refreshInlineComments() },
-            onCommentDeleted = { refreshInlineComments() }
+            onStatusChanged = refreshThread,
+            onReplyAdded = refreshThread,
+            onCommentDeleted = refreshThread
         )
 
         commentComponent.preferredSize = Dimension(
@@ -350,6 +373,8 @@ class DiffViewerPanel(
             .setCancelOnOtherWindowOpen(false)
             .createPopup()
 
+        popupRef = popup
+        trackPopup(popup)
         val lineY = editor.logicalPositionToXY(LogicalPosition(lineIndex + 1, 0))
         popup.show(RelativePoint(editor.contentComponent, Point(40, lineY.y)))
     }
@@ -359,29 +384,38 @@ class DiffViewerPanel(
     // ==================================================================
 
     fun loadDiff(change: PullRequestChange) {
+        if (disposed || project.isDisposed) return
+        clearDiff()
         val filePath = change.effectivePath().takeIf { it.isNotBlank() } ?: run {
             showError("Invalid file path")
             return
         }
-
-        clearDiff()
+        val request = diffRequests.start(change) ?: return
+        val knownPullRequest = cachedPullRequest
         currentChange = change
         showLoading(filePath)
 
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
-                val (oldContent, newContent) = fetchFileContents(change)
-                val primaryChangeType = change.primaryChangeType()
+                val pr = knownPullRequest ?: apiClient.getPullRequest(pullRequestId, externalProjectName, externalRepositoryId)
+                val (oldContent, newContent) = fetchFileContents(change, pr)
+                if (!diffRequests.isCurrent(request)) return@executeOnPooledThread
                 val threads = fetchCommentThreads(filePath)
-                cachedThreads = threads
-
                 ApplicationManager.getApplication().invokeLater {
-                    displayDiff(filePath, oldContent, newContent, primaryChangeType)
+                    if (project.isDisposed) return@invokeLater
+                    diffRequests.applyIfCurrent(request) { current ->
+                        cachedPullRequest = pr
+                        cachedThreads = threads
+                        currentChange = current
+                        displayedRequest = request
+                        displayDiff(filePath, oldContent, newContent, current.primaryChangeType())
+                    }
                 }
             } catch (e: Exception) {
                 logger.error("Failed to load diff for file: $filePath", e)
                 ApplicationManager.getApplication().invokeLater {
-                    showError("Failed to load diff: ${e.message}")
+                    if (project.isDisposed) return@invokeLater
+                    diffRequests.applyIfCurrent(request) { showError("Failed to load diff: ${e.message}") }
                 }
             }
         }
@@ -400,51 +434,12 @@ class DiffViewerPanel(
         }
     }
 
-    private fun fetchFileContents(change: PullRequestChange): Pair<String, String> {
-        // effectivePath() handles deleted files where item may be null (falls back to originalPath)
-        val filePath = change.effectivePath()
-
-        if (cachedPullRequest == null) {
-            cachedPullRequest = apiClient.getPullRequest(pullRequestId, externalProjectName, externalRepositoryId)
-        }
-        val pr = cachedPullRequest!!
-        val sourceCommit = pr.lastMergeSourceCommit?.commitId
-        val targetCommit = pr.lastMergeTargetCommit?.commitId
-
-        return when {
-            change.hasChangeType("add") && !change.hasChangeType("delete") -> {
-                val newContent = if (sourceCommit != null) {
-                    try { apiClient.getFileContent(sourceCommit, filePath, externalProjectName, externalRepositoryId) }
-                    catch (_: Exception) { "" }
-                } else ""
-                "" to newContent
-            }
-            change.hasChangeType("delete") && !change.hasChangeType("add") -> {
-                val oldPath = change.previousPath()
-                val oldContent = if (targetCommit != null) {
-                    try { apiClient.getFileContent(targetCommit, oldPath, externalProjectName, externalRepositoryId) }
-                    catch (_: Exception) { "" }
-                } else ""
-                oldContent to ""
-            }
-            change.hasChangeType("edit") || change.hasChangeType("rename") -> {
-                val oldPath = change.previousPath()
-                val oldContent = if (targetCommit != null) {
-                    try { apiClient.getFileContent(targetCommit, oldPath, externalProjectName, externalRepositoryId) }
-                    catch (_: Exception) { "" }
-                } else ""
-                val newContent = if (sourceCommit != null) {
-                    try { apiClient.getFileContent(sourceCommit, filePath, externalProjectName, externalRepositoryId) }
-                    catch (_: Exception) { "" }
-                } else ""
-                oldContent to newContent
-            }
-            else -> {
-                logger.warn("Unknown change type: ${change.changeType}")
-                "" to ""
-            }
-        }
-    }
+    private fun fetchFileContents(
+        change: PullRequestChange,
+        pr: paol0b.azuredevops.model.PullRequest
+    ): Pair<String, String> = PullRequestDiffContents.load(
+        change, change.effectivePath(), pr.lastMergeSourceCommit?.commitId, pr.lastMergeTargetCommit?.commitId
+    ) { commit, path -> apiClient.getFileContent(commit, path, externalProjectName, externalRepositoryId) }
 
     private fun displayDiff(filePath: String, oldContent: String, newContent: String, changeType: String) {
         removeAll()
@@ -487,16 +482,20 @@ class DiffViewerPanel(
     // ==================================================================
 
     fun refreshInlineComments() {
-        val filePath = currentChange?.effectivePath()?.takeIf { it.isNotBlank() } ?: return
-
+        val diffRequest = displayedRequest?.takeIf { diffRequests.isCurrent(it) } ?: return
+        val filePath = diffRequest.value.effectivePath().takeIf { it.isNotBlank() } ?: return
+        val request = commentRequests.start(diffRequest) ?: return
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
                 val threads = fetchCommentThreads(filePath)
-                cachedThreads = threads
                 ApplicationManager.getApplication().invokeLater {
-                    clearInlays()
-                    baseEditor?.let { addInlineCommentsToEditor(it) }
-                    changesEditor?.let { addInlineCommentsToEditor(it) }
+                    if (project.isDisposed || !diffRequests.isCurrent(diffRequest)) return@invokeLater
+                    commentRequests.applyIfCurrent(request) {
+                        cachedThreads = threads
+                        clearInlays()
+                        baseEditor?.let { addInlineCommentsToEditor(it) }
+                        changesEditor?.let { addInlineCommentsToEditor(it) }
+                    }
                 }
             } catch (e: Exception) {
                 logger.error("Failed to refresh comments", e)
@@ -504,7 +503,23 @@ class DiffViewerPanel(
         }
     }
 
+    private fun isCurrentEditor(editor: Editor): Boolean = !disposed && !editor.isDisposed &&
+        displayedRequest?.let { diffRequests.isCurrent(it) } == true &&
+        (editor.document == baseDocument || editor.document == changesDocument)
+
+    private fun trackPopup(popup: JBPopup) {
+        activePopups.add(popup)
+        popup.addListener(object : JBPopupListener {
+            override fun onClosed(event: LightweightWindowEvent) { activePopups.remove(popup) }
+        })
+    }
+
     fun clearDiff() {
+        diffRequests.invalidate()
+        commentRequests.invalidate()
+        displayedRequest = null
+        activePopups.toList().forEach { it.cancel() }
+        activePopups.clear()
         clearInlays()
         hoverHighlighterBase?.let { if (it.isValid) it.dispose() }
         hoverHighlighterChanges?.let { if (it.isValid) it.dispose() }
@@ -512,6 +527,8 @@ class DiffViewerPanel(
         hoverHighlighterChanges = null
         baseEditor = null
         changesEditor = null
+        baseDocument = null
+        changesDocument = null
         cachedThreads = emptyList()
 
         currentDiffPanel?.let { Disposer.dispose(it) }
@@ -527,7 +544,9 @@ class DiffViewerPanel(
     fun getCurrentChange(): PullRequestChange? = currentChange
 
     override fun dispose() {
-        clearInlays()
+        disposed = true
+        diffRequests.dispose()
+        commentRequests.dispose()
         clearDiff()
     }
 
