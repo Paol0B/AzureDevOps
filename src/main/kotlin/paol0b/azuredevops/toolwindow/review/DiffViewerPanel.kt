@@ -3,20 +3,23 @@ package paol0b.azuredevops.toolwindow.review
 import com.intellij.diff.DiffContentFactory
 import com.intellij.diff.DiffManager
 import com.intellij.diff.DiffRequestPanel
-import com.intellij.diff.contents.DocumentContent
+import com.intellij.diff.FrameDiffTool
+import com.intellij.diff.tools.fragmented.UnifiedDiffViewer
+import com.intellij.diff.tools.util.base.DiffViewerBase
+import com.intellij.diff.tools.util.base.DiffViewerListener
+import com.intellij.diff.tools.util.side.TwosideTextDiffViewer
+import com.intellij.diff.util.Side
+import com.intellij.diff.util.DiffUserDataKeys
 import com.intellij.diff.requests.SimpleDiffRequest
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.AnAction
+import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
-import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
-import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.LogicalPosition
-import com.intellij.openapi.editor.event.EditorFactoryEvent
-import com.intellij.openapi.editor.event.EditorFactoryListener
 import com.intellij.openapi.editor.event.EditorMouseEvent
 import com.intellij.openapi.editor.event.EditorMouseMotionListener
 import com.intellij.openapi.editor.markup.GutterIconRenderer
@@ -49,6 +52,10 @@ import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Dimension
 import java.awt.Point
+import java.awt.FlowLayout
+import java.awt.event.FocusAdapter
+import java.awt.event.FocusEvent
+import javax.swing.JButton
 import javax.swing.JPanel
 
 /**
@@ -81,13 +88,19 @@ class DiffViewerPanel(
     private var currentChange: PullRequestChange? = null
     private var cachedPullRequest: paol0b.azuredevops.model.PullRequest? = null
 
-    // Track documents to identify editors
-    private var baseDocument: Document? = null
-    private var changesDocument: Document? = null
-
-    // Track editors
-    private var baseEditor: Editor? = null
-    private var changesEditor: Editor? = null
+    private data class CommentEditor(
+        val viewer: DiffViewerBase,
+        val location: (Int) -> DiffCommentLocation?,
+        val displayLine: (Boolean, Int) -> Int?
+    )
+    private val commentEditors = mutableMapOf<Editor, CommentEditor>()
+    private var lastCommentEditor: Editor? = null
+    private var commentViewerReady = false
+    private val addCommentButton = JButton("Add inline comment").apply {
+        isEnabled = false
+        toolTipText = "Comment on the line at the cursor; or hover over a line and click +"
+        addActionListener { addCommentAtCaret() }
+    }
 
     // Comment threads cache
     private var cachedThreads: List<CommentThread> = emptyList()
@@ -97,9 +110,7 @@ class DiffViewerPanel(
     private val activeHighlighters = mutableListOf<RangeHighlighter>()
     private val activeInlays = mutableListOf<com.intellij.openapi.editor.Inlay<*>>()
 
-    // Hover "+" gutter state — one per editor
-    private var hoverHighlighterBase: RangeHighlighter? = null
-    private var hoverHighlighterChanges: RangeHighlighter? = null
+    private val hoverHighlighters = mutableMapOf<Editor, RangeHighlighter>()
 
     private val placeholderLabel = JBLabel("Select a file to view diff").apply {
         horizontalAlignment = JBLabel.CENTER
@@ -113,36 +124,89 @@ class DiffViewerPanel(
 
         logger.info("DiffViewerPanel created: pullRequestId=$pullRequestId, externalProject=$externalProjectName, externalRepo=$externalRepositoryId")
 
-        // Listen for editor creation to attach interaction listeners
-        EditorFactory.getInstance().addEditorFactoryListener(object : EditorFactoryListener {
-            override fun editorCreated(event: EditorFactoryEvent) {
-                val editor = event.editor
-                if (!isCurrentEditor(editor)) return
-                val request = displayedRequest ?: return
+    }
 
-                if (editor.document == baseDocument) baseEditor = editor
-                else changesEditor = editor
-
-                // Show existing comments
-                ApplicationManager.getApplication().invokeLater {
-                    if (diffRequests.isCurrent(request) && isCurrentEditor(editor)) addInlineCommentsToEditor(editor)
+    private fun bindCommentEditors(viewer: FrameDiffTool.DiffViewer) {
+        val request = displayedRequest ?: return
+        if (!diffRequests.isCurrent(request) || viewer !is DiffViewerBase) return
+        clearCommentEditors()
+        when (viewer) {
+            is UnifiedDiffViewer -> registerCommentEditor(viewer.editor, CommentEditor(
+                viewer,
+                { line -> DiffCommentLocation.fromUnifiedLines(
+                    viewer.transferLineFromOnesideStrict(Side.LEFT, line),
+                    viewer.transferLineFromOnesideStrict(Side.RIGHT, line)
+                ) },
+                { left, line -> viewer.transferLineToOnesideStrict(if (left) Side.LEFT else Side.RIGHT, line)
+                    .takeIf { it >= 0 } }
+            ))
+            is TwosideTextDiffViewer -> {
+                for (side in listOf(Side.LEFT, Side.RIGHT)) {
+                    registerCommentEditor(viewer.getEditor(side), CommentEditor(
+                        viewer,
+                        { line -> DiffCommentLocation(side == Side.LEFT, line + 1) },
+                        { left, line -> line.takeIf { left == (side == Side.LEFT) } }
+                    ))
                 }
-
-                // ── Hover "+" gutter icon (GitHub-style) ──
-                editor.addEditorMouseMotionListener(object : EditorMouseMotionListener {
-                    override fun mouseMoved(e: EditorMouseEvent) {
-                        if (!isCurrentEditor(editor)) return
-                        val logicalPos = editor.xyToLogicalPosition(e.mouseEvent.point)
-                        val line = logicalPos.line
-                        if (line < 0 || line >= editor.document.lineCount) {
-                            removeHoverHighlighter(editor)
-                            return
-                        }
-                        showHoverAddIcon(editor, line)
-                    }
-                })
             }
-        }, this)
+        }
+        viewer.addListener(object : DiffViewerListener() {
+            override fun onBeforeRediff() {
+                if (commentEditors.values.none { it.viewer === viewer }) return
+                commentViewerReady = false
+                hoverHighlighters.values.forEach { if (it.isValid) it.dispose() }
+                hoverHighlighters.clear()
+                clearInlays()
+                activePopups.toList().forEach { it.cancel() }
+                addCommentButton.isEnabled = false
+            }
+            override fun onAfterRediff() {
+                if (!diffRequests.isCurrent(request) || commentEditors.values.none { it.viewer === viewer }) return
+                commentViewerReady = true
+                clearInlays()
+                commentEditors.keys.toList().forEach { addInlineCommentsToEditor(it) }
+                addCommentButton.isEnabled = commentEditors.isNotEmpty()
+            }
+            override fun onDispose() {
+                if (commentEditors.values.any { it.viewer === viewer }) clearCommentEditors()
+            }
+        })
+    }
+
+    private fun registerCommentEditor(editor: Editor, binding: CommentEditor) {
+        commentEditors[editor] = binding
+        editor.contentComponent.addFocusListener(object : FocusAdapter() {
+            override fun focusGained(e: FocusEvent) { if (isCurrentEditor(editor)) lastCommentEditor = editor }
+        })
+        editor.addEditorMouseMotionListener(object : EditorMouseMotionListener {
+            override fun mouseMoved(e: EditorMouseEvent) {
+                if (!isCurrentEditor(editor)) return
+                val line = editor.xyToLogicalPosition(e.mouseEvent.point).line
+                if (line !in 0 until editor.document.lineCount || binding.location(line) == null) {
+                    removeHoverHighlighter(editor)
+                    return
+                }
+                showHoverAddIcon(editor, line)
+            }
+        })
+    }
+
+    private fun addCommentAtCaret(preferredEditor: Editor? = null) {
+        val editor = preferredEditor?.takeIf { isCurrentEditor(it) }
+            ?: lastCommentEditor?.takeIf { isCurrentEditor(it) }
+            ?: commentEditors.keys.lastOrNull { isCurrentEditor(it) } ?: return
+        showInlineCommentEditor(editor, editor.caretModel.logicalPosition.line)
+    }
+
+    private fun clearCommentEditors() {
+        clearInlays()
+        hoverHighlighters.values.forEach { if (it.isValid) it.dispose() }
+        hoverHighlighters.clear()
+        commentEditors.clear()
+        lastCommentEditor = null
+        commentViewerReady = false
+        addCommentButton.isEnabled = false
+        activePopups.toList().forEach { it.cancel() }
     }
 
     // ==================================================================
@@ -153,8 +217,7 @@ class DiffViewerPanel(
      * Show or move the "+" add-comment gutter icon on the hovered line.
      */
     private fun showHoverAddIcon(editor: Editor, line: Int) {
-        val isBase = editor.document == baseDocument
-        val existing = if (isBase) hoverHighlighterBase else hoverHighlighterChanges
+        val existing = hoverHighlighters[editor]
 
         // Already showing on this line
         if (existing != null && existing.isValid) {
@@ -180,16 +243,11 @@ class DiffViewerPanel(
             showInlineCommentEditor(editor, clickedLine)
         }
 
-        if (isBase) hoverHighlighterBase = highlighter
-        else hoverHighlighterChanges = highlighter
+        hoverHighlighters[editor] = highlighter
     }
 
     private fun removeHoverHighlighter(editor: Editor) {
-        val isBase = editor.document == baseDocument
-        val hl = if (isBase) hoverHighlighterBase else hoverHighlighterChanges
-        if (hl != null && hl.isValid) hl.dispose()
-        if (isBase) hoverHighlighterBase = null
-        else hoverHighlighterChanges = null
+        hoverHighlighters.remove(editor)?.let { if (it.isValid) it.dispose() }
     }
 
     // ==================================================================
@@ -205,8 +263,7 @@ class DiffViewerPanel(
         val change = request.value
         val filePath = change.effectivePath().takeIf { it.isNotBlank() } ?: return
 
-        val isBase = editor.document == baseDocument
-        val lineNumber = line0based + 1 // API uses 1-based
+        val location = commentEditors[editor]?.location?.invoke(line0based) ?: return
 
         // We need a reference to the popup so callbacks can dismiss it.
         // Use a holder so the lambda can capture it before the popup is built.
@@ -217,8 +274,8 @@ class DiffViewerPanel(
             apiClient = apiClient,
             pullRequestId = pullRequestId,
             filePath = filePath,
-            lineNumber = lineNumber,
-            isLeftSide = isBase,
+            lineNumber = location.lineNumber,
+            isLeftSide = location.isLeftSide,
             projectName = externalProjectName,
             repositoryId = externalRepositoryId,
             changeTrackingId = change.changeTrackingId,
@@ -253,17 +310,18 @@ class DiffViewerPanel(
 
     private fun addInlineCommentsToEditor(editor: Editor) {
         if (!isCurrentEditor(editor)) return
-        val isBase = editor.document == baseDocument
+        val binding = commentEditors[editor] ?: return
         val filePath = currentChange?.effectivePath()?.takeIf { it.isNotBlank() } ?: return
 
         val relevantThreads = cachedThreads.filter { thread ->
             if (thread.comments.orEmpty().none { it.isDeleted != true && it.commentType != "system" }) return@filter false
             val ctx = thread.threadContext
             val isLeftSide = ctx?.leftFileStart != null && ctx.rightFileStart == null
-            isLeftSide == isBase
+            val line = if (isLeftSide) ctx.leftFileStart.line else ctx?.rightFileStart?.line
+            line != null && binding.displayLine(isLeftSide, line - 1) != null
         }
 
-        logger.info("Adding ${relevantThreads.size} inline comments to ${if (isBase) "base" else "changes"} editor for $filePath")
+        logger.info("Adding ${relevantThreads.size} inline comments for $filePath")
 
         relevantThreads.forEach { thread ->
             addGutterIconForThread(editor, thread)
@@ -278,13 +336,15 @@ class DiffViewerPanel(
         val startLine = ctx.rightFileStart?.line ?: ctx.leftFileStart?.line ?: return
         val endLine = ctx.rightFileEnd?.line ?: ctx.leftFileEnd?.line ?: startLine
 
-        val startLine0 = startLine - 1
+        val isLeftSide = ctx.leftFileStart != null && ctx.rightFileStart == null
+        val binding = commentEditors[editor] ?: return
+        val startLine0 = binding.displayLine(isLeftSide, startLine - 1) ?: return
         if (startLine0 < 0 || startLine0 >= editor.document.lineCount) {
             logger.warn("Line $startLine out of bounds for thread ${thread.id}")
             return
         }
 
-        val endLine0 = (endLine - 1).coerceIn(startLine0, editor.document.lineCount - 1)
+        val endLine0 = (binding.displayLine(isLeftSide, endLine - 1) ?: startLine0).coerceIn(startLine0, editor.document.lineCount - 1)
         val startOffset = editor.document.getLineStartOffset(startLine0)
         val endOffset = editor.document.getLineEndOffset(endLine0)
 
@@ -450,9 +510,6 @@ class DiffViewerPanel(
         val content1 = diffContentFactory.create(project, oldContent, fileType)
         val content2 = diffContentFactory.create(project, newContent, fileType)
 
-        baseDocument = (content1 as? DocumentContent)?.document
-        changesDocument = (content2 as? DocumentContent)?.document
-
         val pr = cachedPullRequest
         val targetBranch = pr?.targetRefName?.substringAfterLast('/') ?: "Base"
         val sourceBranch = pr?.sourceRefName?.substringAfterLast('/') ?: "Changes"
@@ -465,11 +522,23 @@ class DiffViewerPanel(
             content1, content2, leftTitle, rightTitle
         )
 
+        val requestTicket = displayedRequest ?: return
+        diffRequest.putUserData(PrDiffCommentExtension.BIND_COMMENTS) { viewer ->
+            if (diffRequests.isCurrent(requestTicket)) bindCommentEditors(viewer)
+        }
+        diffRequest.putUserData(DiffUserDataKeys.CONTEXT_ACTIONS, listOf(object : AnAction("Add inline comment", "Comment on this code line", AllIcons.General.Add) {
+            override fun actionPerformed(e: AnActionEvent) { addCommentAtCaret(e.getData(CommonDataKeys.EDITOR)) }
+        }))
+
         val diffManager = DiffManager.getInstance()
         currentDiffPanel = diffManager.createRequestPanel(project, this, null).apply {
             setRequest(diffRequest)
         }
 
+        add(JPanel(FlowLayout(FlowLayout.LEFT)).apply {
+            add(addCommentButton)
+            add(JBLabel("Place the cursor on a line, or hover over the gutter and click +"))
+        }, BorderLayout.NORTH)
         add(currentDiffPanel!!.component, BorderLayout.CENTER)
         revalidate()
         repaint()
@@ -493,8 +562,7 @@ class DiffViewerPanel(
                     commentRequests.applyIfCurrent(request) {
                         cachedThreads = threads
                         clearInlays()
-                        baseEditor?.let { addInlineCommentsToEditor(it) }
-                        changesEditor?.let { addInlineCommentsToEditor(it) }
+                        commentEditors.keys.toList().forEach { addInlineCommentsToEditor(it) }
                     }
                 }
             } catch (e: Exception) {
@@ -503,9 +571,9 @@ class DiffViewerPanel(
         }
     }
 
-    private fun isCurrentEditor(editor: Editor): Boolean = !disposed && !editor.isDisposed &&
+    private fun isCurrentEditor(editor: Editor): Boolean = !disposed && commentViewerReady && !editor.isDisposed &&
         displayedRequest?.let { diffRequests.isCurrent(it) } == true &&
-        (editor.document == baseDocument || editor.document == changesDocument)
+        commentEditors[editor]?.viewer?.isDisposed == false
 
     private fun trackPopup(popup: JBPopup) {
         activePopups.add(popup)
@@ -520,15 +588,7 @@ class DiffViewerPanel(
         displayedRequest = null
         activePopups.toList().forEach { it.cancel() }
         activePopups.clear()
-        clearInlays()
-        hoverHighlighterBase?.let { if (it.isValid) it.dispose() }
-        hoverHighlighterChanges?.let { if (it.isValid) it.dispose() }
-        hoverHighlighterBase = null
-        hoverHighlighterChanges = null
-        baseEditor = null
-        changesEditor = null
-        baseDocument = null
-        changesDocument = null
+        clearCommentEditors()
         cachedThreads = emptyList()
 
         currentDiffPanel?.let { Disposer.dispose(it) }

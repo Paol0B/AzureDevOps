@@ -121,6 +121,7 @@
     <!-- Extension points defined by the plugin.
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
     <extensions defaultExtensionNs="com.intellij">
+        <diff.DiffExtension implementation="paol0b.azuredevops.toolwindow.review.PrDiffCommentExtension"/>
         <!-- Azure DevOps Clone Dialog Extension - appears in left panel alongside GitHub/GitLab -->
         <openapi.vcs.ui.cloneDialog.VcsCloneDialogExtension 
             id="paol0b.azuredevops.checkout.AzureDevOpsCloneDialogExtension" 
