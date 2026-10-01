@@ -1,6 +1,5 @@
 package paol0b.azuredevops.toolwindow.review
 
-import com.intellij.diff.DiffContentFactory
 import com.intellij.diff.DiffManager
 import com.intellij.diff.DiffRequestPanel
 import com.intellij.diff.FrameDiffTool
@@ -81,7 +80,6 @@ class DiffViewerPanel(
 
     private val logger = Logger.getInstance(DiffViewerPanel::class.java)
     private val apiClient = AzureDevOpsApiClient.getInstance(project)
-    private val diffContentFactory = DiffContentFactory.getInstance()
 
     private var disposed = false
     private val diffRequests = LatestRequest<PullRequestChange>()
@@ -558,10 +556,10 @@ class DiffViewerPanel(
         val fileName = filePath.substringAfterLast('/')
         val fileType = FileTypeManager.getInstance().getFileTypeByFileName(fileName)
 
-        val content1 = diffContentFactory.create(project, oldContent, fileType)
-        val content2 = diffContentFactory.create(project, newContent, fileType)
-
         val pr = cachedPullRequest
+        val localFile = PrDiffNavigation.localFile(project, pr, filePath)
+        val content1 = PrDiffNavigation.createContent(project, oldContent, fileType, localFile)
+        val content2 = PrDiffNavigation.createContent(project, newContent, fileType, localFile)
         val targetBranch = pr?.targetRefName?.substringAfterLast('/') ?: "Base"
         val sourceBranch = pr?.sourceRefName?.substringAfterLast('/') ?: "Changes"
         val (leftTitle, rightTitle) = currentChange?.diffSideTitles(targetBranch, sourceBranch)
