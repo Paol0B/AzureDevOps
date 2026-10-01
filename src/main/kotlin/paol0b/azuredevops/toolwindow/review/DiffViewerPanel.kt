@@ -159,6 +159,7 @@ class DiffViewerPanel(
         viewer.addListener(object : DiffViewerListener() {
             override fun onBeforeRediff() {
                 if (commentEditors.values.none { it.viewer === viewer }) return
+                commentEditors.keys.forEach { AddedFileDiffAppearance.apply(it, currentChange) }
                 commentViewerReady = false
                 hoverHighlighters.values.forEach { if (it.isValid) it.dispose() }
                 hoverHighlighters.clear()
@@ -180,6 +181,7 @@ class DiffViewerPanel(
     }
 
     private fun registerCommentEditor(editor: Editor, binding: CommentEditor) {
+        AddedFileDiffAppearance.apply(editor, currentChange)
         commentEditors[editor] = binding
         editor.putUserData(PrSelectedTextCommentAction.CAN_COMMENT) { selectedCommentRange(editor) != null }
         editor.putUserData(PrSelectedTextCommentAction.COMMENT) { showSelectedCommentEditor(editor) }
