@@ -234,7 +234,7 @@ class PrReviewTabPanel(
         section.add(filterBar, BorderLayout.NORTH)
 
         // Create file tree panel
-        fileTreePanel = FileTreePanel(project, pullRequest.pullRequestId).apply {
+        fileTreePanel = FileTreePanel(project, pullRequest.pullRequestId, pullRequest.repository?.project?.name, pullRequest.repository?.id).apply {
             addFileSelectionListener { change ->
                 openDiffForFile(change)
             }
@@ -697,6 +697,7 @@ class PrReviewTabPanel(
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
                 val updatedPr = apiClient.getPullRequest(pullRequest.pullRequestId, projectName, repositoryId)
+                val changes = apiClient.getPullRequestChanges(pullRequest.pullRequestId, projectName, repositoryId)
                 val threads = apiClient.getCommentThreads(pullRequest.pullRequestId, projectName, repositoryId)
                 val policies = apiClient.getPolicyEvaluations(
                     pullRequest.pullRequestId, projectName,
@@ -708,6 +709,7 @@ class PrReviewTabPanel(
 
                 ApplicationManager.getApplication().invokeLater {
                     updateReviewersUI(updatedPr.reviewers ?: emptyList())
+                    fileTreePanel?.loadFileChanges(changes)
                     fileTreePanel?.updateCommentCounts(threads)
                     updatePolicyChecksUI(policies, updatedPr, activeCommentThreads)
                 }
@@ -718,6 +720,7 @@ class PrReviewTabPanel(
     }
 
     fun dispose() {
+        fileTreePanel?.dispose()
         refreshTimer?.stop()
         refreshTimer = null
     }

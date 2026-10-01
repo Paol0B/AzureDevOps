@@ -17,7 +17,10 @@ import paol0b.azuredevops.model.PullRequestChange
 import paol0b.azuredevops.model.displayChangeLabel
 import paol0b.azuredevops.model.effectivePath
 import paol0b.azuredevops.model.primaryChangeType
-import paol0b.azuredevops.services.PrReviewStateService
+import paol0b.azuredevops.services.AzureDevOpsApiClient
+import paol0b.azuredevops.services.ReviewedFilesState
+import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.ApplicationManager
 import java.awt.*
 import javax.swing.*
 import javax.swing.tree.DefaultMutableTreeNode
@@ -29,7 +32,7 @@ import javax.swing.tree.TreePath
  *
  * Built on IntelliJ's [CheckboxTree] platform component (the same base used by
  * the JetBrains GitHub plugin).  Features:
- *   - Checkbox (left)        – marks file as "reviewed" via PrReviewStateService
+ *   - Checkbox (left)        – syncs version-specific "reviewed" marks with Azure DevOps
  *   - File-type icon         – from IntelliJ's FileTypeManager
  *   - Filename in colour     – green=added, red=deleted, blue=renamed, default=modified
  *   - Strikethrough          – for deleted files
@@ -38,27 +41,38 @@ import javax.swing.tree.TreePath
  */
 class FileTreePanel(
     private val project: Project,
-    private val pullRequestId: Int
-) : JPanel(BorderLayout()) {
+    private val pullRequestId: Int,
+    private val externalProjectName: String? = null,
+    private val externalRepositoryId: String? = null,
+    private val readReviewStatus: () -> ReviewedFilesState = {
+        AzureDevOpsApiClient.getInstance(project).getReviewedFiles(pullRequestId, externalProjectName, externalRepositoryId)
+    },
+    private val writeReviewStatus: (PullRequestChange, Boolean) -> ReviewedFilesState = { change, reviewed ->
+        AzureDevOpsApiClient.getInstance(project).setFileReviewed(pullRequestId, change, reviewed, externalProjectName, externalRepositoryId)
+    }
+) : JPanel(BorderLayout()), Disposable {
 
-    private val reviewStateService = PrReviewStateService.getInstance(project)
+    private var reviewedState: ReviewedFilesState? = null
+    private var reviewSyncBusy = false
+    private var disposed = false
+    private var restoringSelection = false
+    private val reviewStatusLabel = JBLabel("Review status not loaded")
+    private val reviewSyncButton = JButton("Sync").apply {
+        toolTipText = "Refresh reviewed-file status from Azure DevOps"
+        addActionListener { syncReviewedFiles() }
+    }
 
     // ── Node payload types ──────────────────────────────────────────────
 
     /** Payload held by a [CheckedTreeNode] (leaf = file). */
     data class FileTreeData(
         val change: PullRequestChange,
-        val prId: Int,
-        private val svc: PrReviewStateService
+        private val readReviewed: (PullRequestChange) -> Boolean
     ) {
         val fileName: String   get() = change.effectivePath().substringAfterLast('/').ifEmpty { "Unknown" }
         val filePath: String   get() = change.effectivePath()
         val changeType: String get() = change.primaryChangeType()
-
-        var isReviewed: Boolean
-            get() = svc.isFileReviewed(prId, filePath)
-            set(value) = if (value) svc.markFileAsReviewed(prId, filePath)
-                         else svc.unmarkFileAsReviewed(prId, filePath)
+        val isReviewed: Boolean get() = readReviewed(change)
     }
 
     /** Payload held by a plain [DefaultMutableTreeNode] (non-leaf = directory). */
@@ -164,15 +178,21 @@ class FileTreePanel(
             addCheckboxTreeListener(object : CheckboxTreeListener {
                 override fun nodeStateChanged(node: CheckedTreeNode) {
                     val data = node.userObject as? FileTreeData ?: return
-                    data.isReviewed = node.isChecked
+                    setReviewed(data.change, node.isChecked)
                 }
             })
             addTreeSelectionListener { event ->
+                if (restoringSelection) return@addTreeSelectionListener
                 val node = event.path?.lastPathComponent as? CheckedTreeNode ?: return@addTreeSelectionListener
                 val data = node.userObject as? FileTreeData ?: return@addTreeSelectionListener
                 fileSelectionListeners.forEach { it(data.change) }
             }
         }
+        add(JPanel(BorderLayout()).apply {
+            border = JBUI.Borders.empty(4, 6)
+            add(reviewStatusLabel, BorderLayout.CENTER)
+            add(reviewSyncButton, BorderLayout.EAST)
+        }, BorderLayout.NORTH)
         add(JBScrollPane(tree).apply {
             border = JBUI.Borders.empty()
             minimumSize = Dimension(200, 0)
@@ -183,8 +203,21 @@ class FileTreePanel(
     // ── Public API ──────────────────────────────────────────────────────
 
     fun loadFileChanges(changes: List<PullRequestChange>) {
-        if (currentFilterMode == FilterMode.ALL) allChanges = changes
-        if (!hasDataChanged(changes)) return
+        allChanges = changes
+        renderFilteredChanges()
+        syncReviewedFiles()
+    }
+
+    private fun renderFilteredChanges() {
+        val changes = when (currentFilterMode) {
+            FilterMode.ALL -> allChanges
+            FilterMode.REVIEWED -> allChanges.filter { isReviewed(it) }
+            FilterMode.UNREVIEWED -> allChanges.filter { !isReviewed(it) }
+        }
+        if (!hasDataChanged(changes)) {
+            refreshTree()
+            return
+        }
 
         val previouslySelected = getSelectedFileChange()?.item?.path
         rootNode.removeAllChildren()
@@ -200,18 +233,22 @@ class FileTreePanel(
             if (cleanPath.isEmpty()) return@forEach
             val parts = cleanPath.split('/')
             val parentNode = getOrCreateDirNode(parts.dropLast(1))
-            val data = FileTreeData(change, pullRequestId, reviewStateService)
-            val fileNode = CheckedTreeNode(data).apply { isChecked = data.isReviewed }
+            val data = FileTreeData(change, ::isReviewed)
+            val fileNode = CheckedTreeNode(data).apply {
+                isChecked = data.isReviewed
+                isEnabled = reviewedState != null && !reviewSyncBusy
+            }
             parentNode.add(fileNode)
             fileNodeMap[fullPath] = fileNode
         }
 
         cachedChanges = changes
-        treeModel.reload()
-        SwingUtilities.invokeLater {
+        restoringSelection = true
+        try {
+            treeModel.reload()
             expandAll()
             previouslySelected?.let { selectFile(it) }
-        }
+        } finally { restoringSelection = false }
     }
 
     fun addFileSelectionListener(listener: (PullRequestChange) -> Unit) {
@@ -230,34 +267,63 @@ class FileTreePanel(
         tree.scrollPathToVisible(path)
     }
 
-    /** Sync checked states from [PrReviewStateService] without reloading data. */
+    /** Apply the latest server snapshot without sending checkbox writes. */
     fun refreshTree() {
-        val previouslySelected = getSelectedFileChange()?.item?.path
         fileNodeMap.values.forEach { node ->
-            (node.userObject as? FileTreeData)?.let { node.isChecked = it.isReviewed }
+            (node.userObject as? FileTreeData)?.let {
+                node.isChecked = it.isReviewed
+                node.isEnabled = reviewedState != null && !reviewSyncBusy
+            }
         }
-        treeModel.reload()
-        SwingUtilities.invokeLater {
-            expandAll()
-            previouslySelected?.let { selectFile(it) }
-        }
+        tree.repaint()
     }
 
     fun setFilterMode(mode: FilterMode) {
         if (currentFilterMode == mode) return
         currentFilterMode = mode
-        cachedChanges = emptyList()
-        val filtered = when (mode) {
-            FilterMode.ALL        -> allChanges
-            FilterMode.REVIEWED   -> allChanges.filter {
-                reviewStateService.isFileReviewed(pullRequestId, it.item?.path ?: "")
-            }
-            FilterMode.UNREVIEWED -> allChanges.filter {
-                !reviewStateService.isFileReviewed(pullRequestId, it.item?.path ?: "")
+        renderFilteredChanges()
+    }
+
+    private fun isReviewed(change: PullRequestChange): Boolean = reviewedState?.isReviewed(change) == true
+
+    fun syncReviewedFiles() {
+        if (reviewSyncBusy || disposed) return
+        updateReviewedFiles("Syncing review status…", readReviewStatus)
+    }
+
+    private fun setReviewed(change: PullRequestChange, reviewed: Boolean) {
+        if (reviewSyncBusy || reviewedState == null || disposed) { refreshTree(); return }
+        updateReviewedFiles("Saving review status…") {
+            writeReviewStatus(change, reviewed)
+        }
+    }
+
+    private fun updateReviewedFiles(message: String, fetch: () -> ReviewedFilesState) {
+        reviewSyncBusy = true
+        reviewSyncButton.isEnabled = false
+        reviewStatusLabel.text = message
+        refreshTree()
+        ApplicationManager.getApplication().executeOnPooledThread {
+            val result = runCatching(fetch)
+            ApplicationManager.getApplication().invokeLater {
+                if (disposed || project.isDisposed) return@invokeLater
+                reviewSyncBusy = false
+                reviewSyncButton.isEnabled = true
+                result.onSuccess {
+                    reviewedState = it
+                    reviewStatusLabel.text = "Review status synced"
+                    reviewStatusLabel.toolTipText = "Synced with your Azure DevOps account; marks apply to this file version"
+                }.onFailure {
+                    // Keep the last confirmed snapshot. Never replace an API failure with unchecked files.
+                    reviewStatusLabel.text = "Review status sync failed"
+                    reviewStatusLabel.toolTipText = it.message ?: "Click Sync to retry"
+                }
+                renderFilteredChanges()
             }
         }
-        loadFileChanges(filtered)
     }
+
+    override fun dispose() { disposed = true }
 
     fun updateCommentCounts(threads: List<CommentThread>) {
         commentCountMap.clear()
@@ -273,10 +339,7 @@ class FileTreePanel(
     // ── Private helpers ─────────────────────────────────────────────────
 
     private fun hasDataChanged(new: List<PullRequestChange>): Boolean {
-        if (cachedChanges.size != new.size) return true
-        val cached = cachedChanges.map { it.effectivePath() }.toSet()
-        val next   = new.map { it.effectivePath() }.toSet()
-        return cached != next
+        return cachedChanges != new
     }
 
     private fun getOrCreateDirNode(parts: List<String>): DefaultMutableTreeNode {

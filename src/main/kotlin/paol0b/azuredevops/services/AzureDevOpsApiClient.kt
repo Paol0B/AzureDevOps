@@ -305,6 +305,33 @@ The plugin will automatically use your authenticated account for this repository
         return "$baseUrl/_apis$endpoint"
     }
 
+    /** Reads the authenticated user's version-specific marks used by the Azure DevOps website. */
+    fun getReviewedFiles(pullRequestId: Int, projectName: String? = null,
+                         repositoryId: String? = null): ReviewedFilesState =
+        queryReviewedFiles(pullRequestId, projectName, repositoryId)
+
+    fun setFileReviewed(pullRequestId: Int, change: PullRequestChange, reviewed: Boolean,
+                        projectName: String? = null, repositoryId: String? = null): ReviewedFilesState {
+        val result = queryReviewedFiles(pullRequestId, projectName, repositoryId, change, reviewed)
+        if (result.isReviewed(change) != reviewed) {
+            throw AzureDevOpsApiException("Azure DevOps did not confirm the reviewed-file change. Refresh and retry.")
+        }
+        return result
+    }
+
+    private fun queryReviewedFiles(pullRequestId: Int, projectName: String?, repositoryId: String?,
+                                  change: PullRequestChange? = null, reviewed: Boolean? = null): ReviewedFilesState {
+        val config = requireValidConfig()
+        val pr = getPullRequest(pullRequestId, projectName, repositoryId)
+        val repoId = pr.repository?.id?.takeIf { it.isNotBlank() }
+            ?: throw AzureDevOpsApiException("Could not resolve the PR repository for review status")
+        val projectId = pr.repository.project?.id?.takeIf { it.isNotBlank() }
+            ?: throw AzureDevOpsApiException("Could not resolve the PR project for review status")
+        val url = buildOrgApiUrl("/Contribution/HierarchyQuery/project/${encodePathSegment(projectId)}?api-version=5.0-preview.1")
+        val response = executePost(url, ReviewedFilesState.query(repoId, pullRequestId, change, reviewed), config.personalAccessToken)
+        return ReviewedFilesState.decode(response)
+    }
+
     fun buildRepositoryWebUrl(projectName: String, repositoryName: String): String {
         val configService = AzureDevOpsConfigService.getInstance(project)
         val baseUrl = configService.getApiBaseUrl()
