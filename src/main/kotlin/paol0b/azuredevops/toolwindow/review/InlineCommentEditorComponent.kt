@@ -2,6 +2,8 @@ package paol0b.azuredevops.toolwindow.review
 
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.ui.popup.JBPopup
+import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
@@ -45,6 +47,18 @@ class InlineCommentEditorComponent(
         border = JBUI.Borders.empty(4, 0, 4, 0)
         buildUI()
     }
+
+    /** Keep unsent text alive when the user clicks elsewhere or switches applications. */
+    fun createPopup(): JBPopup = JBPopupFactory.getInstance()
+        .createComponentPopupBuilder(this, this)
+        .setMovable(false)
+        .setResizable(false)
+        .setRequestFocus(true)
+        .setCancelOnClickOutside(false)
+        .setCancelOnOtherWindowOpen(false)
+        .setCancelOnWindowDeactivation(false)
+        .setCancelKeyEnabled(true)
+        .createPopup()
 
     private fun buildUI() {
         val card = RoundedPanel(8, cardBg, cardBorder)

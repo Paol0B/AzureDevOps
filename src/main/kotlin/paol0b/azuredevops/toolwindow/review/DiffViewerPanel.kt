@@ -346,15 +346,7 @@ class DiffViewerPanel(
         )
         component.preferredSize = Dimension(480, component.preferredSize.height.coerceAtLeast(150))
 
-        val popup = JBPopupFactory.getInstance()
-            .createComponentPopupBuilder(component, component)
-            .setMovable(false)
-            .setResizable(false)
-            .setRequestFocus(true)
-            .setCancelOnClickOutside(true)
-            .setCancelOnOtherWindowOpen(false)
-            .setCancelKeyEnabled(true)
-            .createPopup()
+        val popup = component.createPopup()
         popupRef = popup
         trackPopup(popup)
 
