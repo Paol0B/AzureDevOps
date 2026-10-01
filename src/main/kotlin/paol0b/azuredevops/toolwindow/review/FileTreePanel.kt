@@ -7,6 +7,8 @@ import com.intellij.ui.CheckboxTree
 import com.intellij.ui.CheckboxTreeBase
 import com.intellij.ui.CheckboxTreeListener
 import com.intellij.ui.CheckedTreeNode
+import com.intellij.ui.DocumentAdapter
+import com.intellij.ui.SearchTextField
 import com.intellij.ui.JBColor
 import com.intellij.ui.SimpleTextAttributes
 import com.intellij.ui.components.JBLabel
@@ -23,6 +25,7 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import java.awt.*
 import javax.swing.*
+import javax.swing.event.DocumentEvent
 import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.DefaultTreeModel
 import javax.swing.tree.TreePath
@@ -83,6 +86,7 @@ class FileTreePanel(
     // ── Mutable state ───────────────────────────────────────────────────
 
     private var currentFilterMode = FilterMode.ALL
+    private var textFilter = ""
     private var allChanges: List<PullRequestChange> = emptyList()
     private var cachedChanges: List<PullRequestChange> = emptyList()
     private val commentCountMap = mutableMapOf<String, Int>()
@@ -188,10 +192,23 @@ class FileTreePanel(
                 fileSelectionListeners.forEach { it(data.change) }
             }
         }
-        add(JPanel(BorderLayout()).apply {
+        val searchField = SearchTextField(false).apply {
+            textEditor.emptyText.text = "Filter files"
+            textEditor.toolTipText = "Filter by filename or path"
+            textEditor.document.addDocumentListener(object : DocumentAdapter() {
+                override fun textChanged(e: DocumentEvent) {
+                    textFilter = text.trim()
+                    renderFilteredChanges()
+                }
+            })
+        }
+        add(JPanel(BorderLayout(0, 4)).apply {
             border = JBUI.Borders.empty(4, 6)
-            add(reviewStatusLabel, BorderLayout.CENTER)
-            add(reviewSyncButton, BorderLayout.EAST)
+            add(searchField, BorderLayout.NORTH)
+            add(JPanel(BorderLayout()).apply {
+                add(reviewStatusLabel, BorderLayout.CENTER)
+                add(reviewSyncButton, BorderLayout.EAST)
+            }, BorderLayout.CENTER)
         }, BorderLayout.NORTH)
         add(JBScrollPane(tree).apply {
             border = JBUI.Borders.empty()
@@ -213,13 +230,13 @@ class FileTreePanel(
             FilterMode.ALL -> allChanges
             FilterMode.REVIEWED -> allChanges.filter { isReviewed(it) }
             FilterMode.UNREVIEWED -> allChanges.filter { !isReviewed(it) }
-        }
+        }.filter { it.effectivePath().contains(textFilter, ignoreCase = true) }
         if (!hasDataChanged(changes)) {
             refreshTree()
             return
         }
 
-        val previouslySelected = getSelectedFileChange()?.item?.path
+        val previouslySelected = getSelectedFileChange()?.effectivePath()
         rootNode.removeAllChildren()
         fileNodeMap.clear()
 

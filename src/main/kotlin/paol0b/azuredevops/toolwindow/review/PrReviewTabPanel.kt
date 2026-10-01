@@ -8,7 +8,6 @@ import com.intellij.openapi.ui.ComboBox
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
-import com.intellij.ui.JBSplitter
 import com.intellij.ui.scale.JBUIScale
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
@@ -84,41 +83,29 @@ class PrReviewTabPanel(
     }
 
     private fun setupUI() {
-        val scrollContent = JPanel().apply {
+        val header = JPanel(BorderLayout()).apply {
+            add(createHeaderPanel(), BorderLayout.CENTER)
+            add(createSeparator(), BorderLayout.SOUTH)
+        }
+        val details = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             background = UIUtil.getPanelBackground()
-            border = JBUI.Borders.empty(0)
+            add(createPolicyChecksSection())
+            add(createSeparator())
+            add(createReviewersSection())
+            add(Box.createVerticalGlue())
         }
-
-        // === HEADER SECTION ===
-        scrollContent.add(createHeaderPanel())
-        scrollContent.add(createSeparator())
-
-        // === FILE TREE SECTION ===
-        scrollContent.add(createFileTreeSection())
-
-        // === POLICY CHECKS SECTION ===
-        scrollContent.add(createSeparator())
-        scrollContent.add(createPolicyChecksSection())
-
-        // === REVIEWERS SECTION ===
-        scrollContent.add(createSeparator())
-        scrollContent.add(createReviewersSection())
-
-        // Glue - Place before vote to allow reviewers to expand
-        scrollContent.add(Box.createVerticalGlue())
-
-        // === VOTE SECTION ===
-        scrollContent.add(createSeparator())
-        scrollContent.add(createVoteSection())
-
-        val scrollPane = JBScrollPane(scrollContent).apply {
+        val detailsScroll = JBScrollPane(details).apply {
             border = JBUI.Borders.empty()
+            minimumSize = Dimension(0, 100)
             verticalScrollBar.unitIncrement = 16
             horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
         }
-
-        add(scrollPane, BorderLayout.CENTER)
+        val vote = JPanel(BorderLayout()).apply {
+            add(createSeparator(), BorderLayout.NORTH)
+            add(createVoteSection(), BorderLayout.CENTER)
+        }
+        add(PrReviewLayout(header, createFileTreeSection(), detailsScroll, vote), BorderLayout.CENTER)
     }
 
     // ========================
@@ -280,7 +267,6 @@ class PrReviewTabPanel(
             alignmentX = Component.LEFT_ALIGNMENT
             // Allow section to expand vertically to fill available space
             maximumSize = Dimension(Int.MAX_VALUE, Int.MAX_VALUE)
-            preferredSize = Dimension(Int.MAX_VALUE, 150)
         }
 
         section.add(reviewersContainer, BorderLayout.CENTER)
