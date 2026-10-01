@@ -106,6 +106,7 @@ class InlineCommentEditorComponent(
 
         val submitBtn = JButton("Add Review Comment").apply {
             font = font.deriveFont(Font.BOLD, 11f)
+            toolTipText = "Post comment (Ctrl+Enter or Cmd+Enter)"
         }
 
         submitBtn.addActionListener {
@@ -144,13 +145,16 @@ class InlineCommentEditorComponent(
             }
         }
 
-        // Allow Ctrl+Enter to submit
+        textArea.inputMap.put(KeyStroke.getKeyStroke("control ENTER"), "submitComment")
+        textArea.inputMap.put(KeyStroke.getKeyStroke("meta ENTER"), "submitComment")
+        textArea.actionMap.put("submitComment", object : AbstractAction() {
+            override fun actionPerformed(e: java.awt.event.ActionEvent?) {
+                if (submitBtn.isEnabled) submitBtn.doClick()
+            }
+        })
         textArea.addKeyListener(object : java.awt.event.KeyAdapter() {
             override fun keyPressed(e: java.awt.event.KeyEvent) {
-                if (e.keyCode == java.awt.event.KeyEvent.VK_ENTER && e.isControlDown) {
-                    submitBtn.doClick()
-                    e.consume()
-                } else if (e.keyCode == java.awt.event.KeyEvent.VK_ESCAPE) {
+                if (e.keyCode == java.awt.event.KeyEvent.VK_ESCAPE) {
                     onCancel()
                     e.consume()
                 }
