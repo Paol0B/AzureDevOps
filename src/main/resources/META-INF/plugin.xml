@@ -264,6 +264,13 @@
     </projectListeners>
 
     <actions>
+        <action id="AzureDevOps.AddEditorPRComment"
+                class="paol0b.azuredevops.actions.AddEditorPullRequestCommentAction"
+                text="Add PR comment"
+                description="Start a pull request comment on this line or selected code"
+                icon="AllIcons.General.Balloon">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+        </action>
         <action id="AzureDevOps.CommentSelectedText"
                 class="paol0b.azuredevops.toolwindow.review.PrSelectedTextCommentAction"
                 text="Comment on selected text"

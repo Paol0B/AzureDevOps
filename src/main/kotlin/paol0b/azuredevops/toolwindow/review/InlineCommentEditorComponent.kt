@@ -33,7 +33,8 @@ class InlineCommentEditorComponent(
     private val repositoryId: String?,
     private val changeTrackingId: Int?,
     private val onCommentAdded: () -> Unit,
-    private val onCancel: () -> Unit
+    private val onCancel: () -> Unit,
+    private val beforeSubmit: () -> Unit = {}
 ) : JPanel() {
 
     private val logger = Logger.getInstance(InlineCommentEditorComponent::class.java)
@@ -109,16 +110,25 @@ class InlineCommentEditorComponent(
             toolTipText = "Post comment (Ctrl+Enter or Cmd+Enter)"
         }
 
+        val errorLabel = JBLabel().apply {
+            foreground = JBColor.RED
+            isVisible = false
+            alignmentX = Component.LEFT_ALIGNMENT
+        }
+        card.add(errorLabel)
+
         submitBtn.addActionListener {
             val text = textArea.text.trim()
             if (text.isEmpty()) return@addActionListener
 
+            errorLabel.isVisible = false
             submitBtn.isEnabled = false
             submitBtn.text = "Adding…"
             cancelBtn.isEnabled = false
 
             ApplicationManager.getApplication().executeOnPooledThread {
                 try {
+                    beforeSubmit()
                     apiClient.createThread(
                         pullRequestId = pullRequestId,
                         filePath = filePath,
@@ -135,8 +145,11 @@ class InlineCommentEditorComponent(
                     logger.info("Comment added to $filePath:${range.startLine}")
                     ApplicationManager.getApplication().invokeLater { onCommentAdded() }
                 } catch (e: Exception) {
-                    logger.error("Failed to add comment", e)
+                    logger.warn("Failed to add comment", e)
                     ApplicationManager.getApplication().invokeLater {
+                        errorLabel.text = "Comment not posted. Hover for details."
+                        errorLabel.toolTipText = e.message ?: "Unable to post comment. Try again."
+                        errorLabel.isVisible = true
                         submitBtn.isEnabled = true
                         submitBtn.text = "Add Review Comment"
                         cancelBtn.isEnabled = true

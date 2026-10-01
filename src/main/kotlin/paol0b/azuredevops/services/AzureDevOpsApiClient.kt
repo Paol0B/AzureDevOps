@@ -941,12 +941,12 @@ The plugin will automatically use your authenticated account for this repository
      * @return The active PR associated with the branch, or null if it does not exist
      */
     @Throws(AzureDevOpsApiException::class)
-    fun findPullRequestForBranch(branchName: String): PullRequest? {
+    fun findPullRequestForBranch(branchName: String, projectName: String? = null, repositoryId: String? = null): PullRequest? {
         val config = requireValidConfig()
 
         val refName = "refs/heads/$branchName"
-        val url = buildApiUrl(config.project, config.repository, 
-            "/pullrequests?searchCriteria.status=active&searchCriteria.sourceRefName=$refName&api-version=$API_VERSION")
+        val url = buildApiUrl(projectName ?: config.project, repositoryId ?: config.repository,
+            "/pullrequests?searchCriteria.status=active&searchCriteria.sourceRefName=${URLEncoder.encode(refName, StandardCharsets.UTF_8)}&api-version=$API_VERSION")
         
         logger.info("Searching for active PR with source branch: $branchName")
         
@@ -956,7 +956,7 @@ The plugin will automatically use your authenticated account for this repository
             listResponse.value.firstOrNull()
         } catch (e: Exception) {
             logger.error("Failed to find PR for branch $branchName", e)
-            null // Returns null instead of throwing exception
+            throw e // Preserve authentication and transport failures for the caller.
         }
     }
 
