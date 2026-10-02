@@ -39,6 +39,17 @@ class PrDiffNavigationTest : LightPlatformTestCase() {
             "feature/topic", null, null, "refs/heads/feature/topic"))
     }
 
+    fun testLegacyCollectionPrUrlMatchesCheckedOutCloudRemote() {
+        val prUrl = "https://org.visualstudio.com/DefaultCollection/project/_git/repo"
+        val branch = "user/author/feature"
+        assertTrue(PrDiffNavigation.matchesCheckout(
+            listOf("https://org.visualstudio.com/project/_git/repo"), branch, null, prUrl, "refs/heads/$branch"))
+        assertTrue(PrDiffNavigation.matchesCheckout(
+            listOf("git@ssh.dev.azure.com:v3/org/project/repo"), branch, null, prUrl, "refs/heads/$branch"))
+        assertFalse(PrDiffNavigation.matchesCheckout(
+            listOf("https://other.visualstudio.com/project/_git/repo"), branch, null, prUrl, "refs/heads/$branch"))
+    }
+
     fun testLocalPathDoesNotEscapeRepositoryOrNavigateToDirectory() = withLocalFile { file ->
         val root = file.parent
         assertEquals(file, PrDiffNavigation.findFile(root, "/navigation.txt"))
