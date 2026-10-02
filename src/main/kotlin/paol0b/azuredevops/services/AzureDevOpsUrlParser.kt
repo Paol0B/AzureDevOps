@@ -17,9 +17,10 @@ object AzureDevOpsUrlParser {
         "https://(?:[^@]+@)?dev\\.azure\\.com/([^/]+)/([^/]+)/_git/([^/]+?)(?:\\.git)?/?$"
     )
 
-    // Pattern for alternative HTTPS URL: https://[username@]{organization}.visualstudio.com/{project}/_git/{repository}
+    // Legacy cloud PR metadata can include DefaultCollection before the project.
+    // https://[username@]{organization}.visualstudio.com/[DefaultCollection/]{project}/_git/{repository}
     private val VISUALSTUDIO_PATTERN = Pattern.compile(
-        "https://(?:[^@]+@)?([^.]+)\\.visualstudio\\.com/([^/]+)/_git/([^/]+?)(?:\\.git)?/?$"
+        "https://(?:[^@]+@)?([^.]+)\\.visualstudio\\.com/(?:DefaultCollection/)?([^/]+)/_git/([^/]+?)(?:\\.git)?/?$"
     )
 
     // Pattern for SSH v3: git@ssh.dev.azure.com:v3/{organization}/{project}/{repository}

@@ -12,6 +12,7 @@ import paol0b.azuredevops.toolwindow.review.editor.PrDiffVirtualFile
 import paol0b.azuredevops.toolwindow.review.editor.PrReviewKey
 import paol0b.azuredevops.toolwindow.review.editor.PrReviewVirtualFile
 import paol0b.azuredevops.toolwindow.review.editor.PrTimelineVirtualFile
+import paol0b.azuredevops.toolwindow.review.editor.PrTimelineFileEditor
 import java.util.concurrent.ConcurrentHashMap
 
 @Service(Service.Level.PROJECT)
@@ -97,19 +98,21 @@ class PrReviewTabService(private val project: Project) {
     // Timeline editor tab
     // ------------------------------------------------------------------
 
-    fun openTimelineTab(pullRequest: PullRequest) {
+    fun openTimelineTab(pullRequest: PullRequest, focusComment: Boolean = false) {
         val editorManager = FileEditorManager.getInstance(project)
 
         val existing = timelineFiles[pullRequest.pullRequestId]
         if (existing != null) {
-            editorManager.openFile(existing, true, true)
+            val editors = editorManager.openFile(existing, true, true)
+            if (focusComment) editors.filterIsInstance<PrTimelineFileEditor>().forEach { it.focusComment() }
             return
         }
 
         val timelineFile = PrTimelineVirtualFile(pullRequest.pullRequestId, pullRequest.repository?.id)
         prByFile[timelineFile] = pullRequest
         timelineFiles[pullRequest.pullRequestId] = timelineFile
-        editorManager.openFile(timelineFile, true, true)
+        val editors = editorManager.openFile(timelineFile, true, true)
+        if (focusComment) editors.filterIsInstance<PrTimelineFileEditor>().forEach { it.focusComment() }
     }
 
     // ------------------------------------------------------------------

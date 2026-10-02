@@ -15,6 +15,9 @@ import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import paol0b.azuredevops.model.PullRequest
 import paol0b.azuredevops.services.AzureDevOpsApiClient
+import paol0b.azuredevops.services.PullRequestDiffContents
+import paol0b.azuredevops.model.effectivePath
+import paol0b.azuredevops.model.previousPath
 import java.awt.*
 import javax.swing.*
 
@@ -156,15 +159,13 @@ class FileDiffPreviewComponent(
                 val sourceCommit = pullRequest.lastMergeSourceCommit?.commitId
                 val targetCommit = pullRequest.lastMergeTargetCommit?.commitId
 
-                val oldContent = if (targetCommit != null) {
-                    try { apiClient.getFileContent(targetCommit, filePath, projectName, repositoryId) }
-                    catch (_: Exception) { "" }
-                } else ""
-
-                val newContent = if (sourceCommit != null) {
-                    try { apiClient.getFileContent(sourceCommit, filePath, projectName, repositoryId) }
-                    catch (_: Exception) { "" }
-                } else ""
+                // Change metadata identifies intentionally absent sides and the old path of a rename.
+                val changes = apiClient.getPullRequestChanges(pullRequest.pullRequestId, projectName, repositoryId)
+                val change = changes.firstOrNull { it.effectivePath() == filePath }
+                    ?: changes.firstOrNull { it.previousPath() == filePath }
+                val (oldContent, newContent) = PullRequestDiffContents.load(
+                    change, filePath, sourceCommit, targetCommit
+                ) { commit, path -> apiClient.getFileContent(commit, path, projectName, repositoryId) }
 
                 val diffLines = buildUnifiedDiff(oldContent, newContent)
 

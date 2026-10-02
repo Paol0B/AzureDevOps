@@ -2,6 +2,8 @@ package paol0b.azuredevops.toolwindow.review
 
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.ui.popup.JBPopup
+import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
@@ -26,13 +28,13 @@ class InlineCommentEditorComponent(
     private val apiClient: AzureDevOpsApiClient,
     private val pullRequestId: Int,
     private val filePath: String,
-    private val lineNumber: Int,
-    private val isLeftSide: Boolean,
+    private val range: paol0b.azuredevops.model.FileCommentRange,
     private val projectName: String?,
     private val repositoryId: String?,
     private val changeTrackingId: Int?,
     private val onCommentAdded: () -> Unit,
-    private val onCancel: () -> Unit
+    private val onCancel: () -> Unit,
+    private val beforeSubmit: () -> Unit = {}
 ) : JPanel() {
 
     private val logger = Logger.getInstance(InlineCommentEditorComponent::class.java)
@@ -47,13 +49,25 @@ class InlineCommentEditorComponent(
         buildUI()
     }
 
+    /** Keep unsent text alive when the user clicks elsewhere or switches applications. */
+    fun createPopup(): JBPopup = JBPopupFactory.getInstance()
+        .createComponentPopupBuilder(this, this)
+        .setMovable(false)
+        .setResizable(false)
+        .setRequestFocus(true)
+        .setCancelOnClickOutside(false)
+        .setCancelOnOtherWindowOpen(false)
+        .setCancelOnWindowDeactivation(false)
+        .setCancelKeyEnabled(true)
+        .createPopup()
+
     private fun buildUI() {
         val card = RoundedPanel(8, cardBg, cardBorder)
         card.layout = BoxLayout(card, BoxLayout.Y_AXIS)
         card.border = JBUI.Borders.empty(10, 12, 10, 12)
 
         // Label
-        card.add(JBLabel("Add review comment — line $lineNumber").apply {
+        card.add(JBLabel("Add review comment — ${if (range.startLine == range.endLine) "line ${range.startLine}" else "lines ${range.startLine}–${range.endLine}"}").apply {
             font = font.deriveFont(Font.BOLD, 11f)
             foreground = JBColor.GRAY
             alignmentX = Component.LEFT_ALIGNMENT
@@ -93,34 +107,49 @@ class InlineCommentEditorComponent(
 
         val submitBtn = JButton("Add Review Comment").apply {
             font = font.deriveFont(Font.BOLD, 11f)
+            toolTipText = "Post comment (Ctrl+Enter or Cmd+Enter)"
         }
+
+        val errorLabel = JBLabel().apply {
+            foreground = JBColor.RED
+            isVisible = false
+            alignmentX = Component.LEFT_ALIGNMENT
+        }
+        card.add(errorLabel)
 
         submitBtn.addActionListener {
             val text = textArea.text.trim()
             if (text.isEmpty()) return@addActionListener
 
+            errorLabel.isVisible = false
             submitBtn.isEnabled = false
             submitBtn.text = "Adding…"
             cancelBtn.isEnabled = false
 
             ApplicationManager.getApplication().executeOnPooledThread {
                 try {
+                    beforeSubmit()
                     apiClient.createThread(
                         pullRequestId = pullRequestId,
                         filePath = filePath,
                         content = text,
-                        startLine = lineNumber,
-                        endLine = lineNumber,
-                        isLeft = isLeftSide,
+                        startLine = range.startLine,
+                        endLine = range.endLine,
+                        startOffset = range.startOffset,
+                        endOffset = range.endOffset,
+                        isLeft = range.isLeftSide,
                         projectName = projectName,
                         repositoryId = repositoryId,
                         changeTrackingId = changeTrackingId
                     )
-                    logger.info("Comment added to $filePath:$lineNumber")
+                    logger.info("Comment added to $filePath:${range.startLine}")
                     ApplicationManager.getApplication().invokeLater { onCommentAdded() }
                 } catch (e: Exception) {
-                    logger.error("Failed to add comment", e)
+                    logger.warn("Failed to add comment", e)
                     ApplicationManager.getApplication().invokeLater {
+                        errorLabel.text = "Comment not posted. Hover for details."
+                        errorLabel.toolTipText = e.message ?: "Unable to post comment. Try again."
+                        errorLabel.isVisible = true
                         submitBtn.isEnabled = true
                         submitBtn.text = "Add Review Comment"
                         cancelBtn.isEnabled = true
@@ -129,13 +158,16 @@ class InlineCommentEditorComponent(
             }
         }
 
-        // Allow Ctrl+Enter to submit
+        textArea.inputMap.put(KeyStroke.getKeyStroke("control ENTER"), "submitComment")
+        textArea.inputMap.put(KeyStroke.getKeyStroke("meta ENTER"), "submitComment")
+        textArea.actionMap.put("submitComment", object : AbstractAction() {
+            override fun actionPerformed(e: java.awt.event.ActionEvent?) {
+                if (submitBtn.isEnabled) submitBtn.doClick()
+            }
+        })
         textArea.addKeyListener(object : java.awt.event.KeyAdapter() {
             override fun keyPressed(e: java.awt.event.KeyEvent) {
-                if (e.keyCode == java.awt.event.KeyEvent.VK_ENTER && e.isControlDown) {
-                    submitBtn.doClick()
-                    e.consume()
-                } else if (e.keyCode == java.awt.event.KeyEvent.VK_ESCAPE) {
+                if (e.keyCode == java.awt.event.KeyEvent.VK_ESCAPE) {
                     onCancel()
                     e.consume()
                 }

@@ -425,12 +425,12 @@ class InlineCommentComponent(
     // ────────────────────────────────────────────────────────
 
     fun getLineNumber(): Int? {
-        val ctx = thread.pullRequestThreadContext ?: thread.threadContext
+        val ctx = thread.threadContext
         return ctx?.rightFileStart?.line ?: ctx?.leftFileStart?.line
     }
 
     fun isOnLeftSide(): Boolean {
-        val ctx = thread.pullRequestThreadContext ?: thread.threadContext
+        val ctx = thread.threadContext
         return ctx?.leftFileStart != null && ctx.rightFileStart == null
     }
 

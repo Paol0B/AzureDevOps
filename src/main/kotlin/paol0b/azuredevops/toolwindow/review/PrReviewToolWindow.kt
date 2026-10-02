@@ -342,6 +342,7 @@ class PrReviewToolWindow(
      * Clear the PR view when no PR is selected (empty selection)
      */
     private fun clearPullRequestView() {
+        fileTreePanel?.dispose()
         // Stop auto-refresh
         stopAutoRefresh()
         
@@ -468,7 +469,8 @@ class PrReviewToolWindow(
         mainContentPanel.removeAll()
         
         // Create panels
-        fileTreePanel = FileTreePanel(project, pullRequest.pullRequestId).apply {
+        fileTreePanel?.dispose()
+        fileTreePanel = FileTreePanel(project, pullRequest.pullRequestId, pullRequest.repository?.project?.name, pullRequest.repository?.id).apply {
             loadFileChanges(changes)
             
             // Connect file selection to diff viewer
@@ -676,6 +678,7 @@ class PrReviewToolWindow(
      * Cleanup resources
      */
     fun dispose() {
+        fileTreePanel?.dispose()
         stopAutoRefresh()
         diffViewerPanel?.dispose()
     }

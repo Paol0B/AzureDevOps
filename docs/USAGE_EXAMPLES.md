@@ -91,6 +91,14 @@ You've finished working on a new feature and want to create a PR for review.
 
 ---
 
+## Finding a Pull Request
+
+In **Azure DevOps PRs**, enter a PR number such as `12345` or `#12345`, or paste its Azure DevOps web URL. The plugin fetches that PR directly from the configured organization, even if it is completed, abandoned, outside the loaded list, or excluded by the current filters. URLs from a different organization or server require selecting that account first.
+
+For title or author text, the plugin searches fresh pages from Azure DevOps. Project, repository, author, reviewer, and status filters narrow requests on the server; title matching happens as pages arrive because the PR API has no title-text filter. Searches can examine more PRs than the normal list maximum. The maximum limits matching results, and a warning identifies incomplete results when that limit is reached.
+
+Choose **Assigned to you** for PRs listing you as a reviewer, or **Review requests** for those awaiting your vote. Use a project or repository filter to speed up searches in large organizations. Changing the query replaces the previous search; automatic polling does not restart an active text search.
+
 ## Reviewing a Pull Request
 
 ### Scenario: A colleague wants you to review their code
@@ -123,7 +131,10 @@ You've finished working on a new feature and want to create a PR for review.
 
 6. **Approve or request changes**
    - Click **"Approve"** button if you're satisfied
-   - Click **"Open in Browser"** if you need to leave detailed comments
+   - Click **Add comment** in the PR review header to open the timeline comment box
+   - Write your feedback and click **Add comment** (Ctrl+Enter or Cmd+Enter also submits)
+   - The draft stays in place if submission fails, with an error shown below it
+   - For a line-specific comment, open a file diff and hover over a line to reveal the **+** button
    - Or click **"Abandon"** if the PR should be closed
 
 7. **Follow the timeline (optional)**

@@ -8,7 +8,6 @@ import com.intellij.openapi.ui.ComboBox
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
-import com.intellij.ui.JBSplitter
 import com.intellij.ui.scale.JBUIScale
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
@@ -84,41 +83,29 @@ class PrReviewTabPanel(
     }
 
     private fun setupUI() {
-        val scrollContent = JPanel().apply {
+        val header = JPanel(BorderLayout()).apply {
+            add(createHeaderPanel(), BorderLayout.CENTER)
+            add(createSeparator(), BorderLayout.SOUTH)
+        }
+        val details = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             background = UIUtil.getPanelBackground()
-            border = JBUI.Borders.empty(0)
+            add(createPolicyChecksSection())
+            add(createSeparator())
+            add(createReviewersSection())
+            add(Box.createVerticalGlue())
         }
-
-        // === HEADER SECTION ===
-        scrollContent.add(createHeaderPanel())
-        scrollContent.add(createSeparator())
-
-        // === FILE TREE SECTION ===
-        scrollContent.add(createFileTreeSection())
-
-        // === POLICY CHECKS SECTION ===
-        scrollContent.add(createSeparator())
-        scrollContent.add(createPolicyChecksSection())
-
-        // === REVIEWERS SECTION ===
-        scrollContent.add(createSeparator())
-        scrollContent.add(createReviewersSection())
-
-        // Glue - Place before vote to allow reviewers to expand
-        scrollContent.add(Box.createVerticalGlue())
-
-        // === VOTE SECTION ===
-        scrollContent.add(createSeparator())
-        scrollContent.add(createVoteSection())
-
-        val scrollPane = JBScrollPane(scrollContent).apply {
+        val detailsScroll = JBScrollPane(details).apply {
             border = JBUI.Borders.empty()
+            minimumSize = Dimension(0, 100)
             verticalScrollBar.unitIncrement = 16
             horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
         }
-
-        add(scrollPane, BorderLayout.CENTER)
+        val vote = JPanel(BorderLayout()).apply {
+            add(createSeparator(), BorderLayout.NORTH)
+            add(createVoteSection(), BorderLayout.CENTER)
+        }
+        add(PrReviewLayout(header, createFileTreeSection(), detailsScroll, vote), BorderLayout.CENTER)
     }
 
     // ========================
@@ -196,6 +183,11 @@ class PrReviewTabPanel(
             addActionListener { openTimeline() }
         }
         actionsPanel.add(timelineButton)
+        actionsPanel.add(JButton("Add comment").apply {
+            icon = AllIcons.General.Add
+            toolTipText = "Write a general comment on this pull request"
+            addActionListener { PrReviewTabService.getInstance(project).openTimelineTab(pullRequest, focusComment = true) }
+        })
 
         header.add(actionsPanel)
 
@@ -229,7 +221,7 @@ class PrReviewTabPanel(
         section.add(filterBar, BorderLayout.NORTH)
 
         // Create file tree panel
-        fileTreePanel = FileTreePanel(project, pullRequest.pullRequestId).apply {
+        fileTreePanel = FileTreePanel(project, pullRequest.pullRequestId, pullRequest.repository?.project?.name, pullRequest.repository?.id).apply {
             addFileSelectionListener { change ->
                 openDiffForFile(change)
             }
@@ -275,7 +267,6 @@ class PrReviewTabPanel(
             alignmentX = Component.LEFT_ALIGNMENT
             // Allow section to expand vertically to fill available space
             maximumSize = Dimension(Int.MAX_VALUE, Int.MAX_VALUE)
-            preferredSize = Dimension(Int.MAX_VALUE, 150)
         }
 
         section.add(reviewersContainer, BorderLayout.CENTER)
@@ -692,6 +683,7 @@ class PrReviewTabPanel(
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
                 val updatedPr = apiClient.getPullRequest(pullRequest.pullRequestId, projectName, repositoryId)
+                val changes = apiClient.getPullRequestChanges(pullRequest.pullRequestId, projectName, repositoryId)
                 val threads = apiClient.getCommentThreads(pullRequest.pullRequestId, projectName, repositoryId)
                 val policies = apiClient.getPolicyEvaluations(
                     pullRequest.pullRequestId, projectName,
@@ -703,6 +695,7 @@ class PrReviewTabPanel(
 
                 ApplicationManager.getApplication().invokeLater {
                     updateReviewersUI(updatedPr.reviewers ?: emptyList())
+                    fileTreePanel?.loadFileChanges(changes)
                     fileTreePanel?.updateCommentCounts(threads)
                     updatePolicyChecksUI(policies, updatedPr, activeCommentThreads)
                 }
@@ -713,6 +706,7 @@ class PrReviewTabPanel(
     }
 
     fun dispose() {
+        fileTreePanel?.dispose()
         refreshTimer?.stop()
         refreshTimer = null
     }

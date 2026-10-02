@@ -54,7 +54,9 @@ data class PullRequestSearchValue(
         NO_REVIEW("No reviews"),
         APPROVED("Approved review"),
         CHANGES_REQUESTED("Changes requested"),
-        REVIEWED_BY_YOU("Reviewed by you");
+        REVIEWED_BY_YOU("Reviewed by you"),
+        ASSIGNED_TO_YOU("Assigned to you"),
+        AWAITING_YOUR_REVIEW("Awaiting your review");
 
         override fun toString(): String = displayName
     }

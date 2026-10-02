@@ -21,6 +21,10 @@ import paol0b.azuredevops.services.AvatarService
 import paol0b.azuredevops.services.AzureDevOpsApiClient
 import paol0b.azuredevops.services.AzureDevOpsConfigService
 import paol0b.azuredevops.services.AzureDevOpsSettingsService
+import paol0b.azuredevops.services.PullRequestLookup
+import paol0b.azuredevops.services.PullRequestSearchCriteria
+import paol0b.azuredevops.services.PullRequestSearchProgress
+import java.util.concurrent.CancellationException
 import paol0b.azuredevops.toolwindow.filters.PullRequestFilterPanel
 import paol0b.azuredevops.toolwindow.filters.PullRequestSearchValue
 import paol0b.azuredevops.util.NotificationUtil
@@ -59,6 +63,9 @@ class PullRequestListPanel(
     // another refresh. Without this, late pages from an aborted load would clobber the new
     // results.
     private val refreshGeneration = AtomicLong(0)
+    private var activeGeneration: Long? = null
+    private var lastSearchProgress: PullRequestSearchProgress? = null
+    private val searchTimer = Timer(350) { if (!project.isDisposed) refreshPullRequests() }.apply { isRepeats = false }
 
     // Derived from filter panel state
     private var currentSearchValue = PullRequestSearchValue.DEFAULT
@@ -139,110 +146,96 @@ class PullRequestListPanel(
      * Called when the filter panel reports a new filter value.
      */
     private fun onFilterChanged(newValue: PullRequestSearchValue) {
-        val statusChanged = currentSearchValue.state != newValue.state
-        val orgChanged = currentSearchValue.showAllOrg != newValue.showAllOrg
-        val projectsChanged = currentSearchValue.selectedProjectIds != newValue.selectedProjectIds
+        val oldValue = currentSearchValue
         currentSearchValue = newValue
-
-        if (projectsChanged) {
-            // Persist immediately so a hard restart preserves the user's narrowed view.
+        if (oldValue.selectedProjectIds != newValue.selectedProjectIds) {
             AzureDevOpsSettingsService.getInstance(project).state.prFilterSelectedProjectIds =
                 newValue.selectedProjectIds.toMutableList()
         }
-
-        if (statusChanged || orgChanged || projectsChanged) {
-            refreshPullRequests()
+        val queryChanged = oldValue.searchQuery != newValue.searchQuery
+        val serverFiltersChanged = oldValue.state != newValue.state ||
+            oldValue.showAllOrg != newValue.showAllOrg ||
+            oldValue.selectedProjectIds != newValue.selectedProjectIds ||
+            oldValue.author != newValue.author || oldValue.review != newValue.review ||
+            oldValue.repositoryFilter != newValue.repositoryFilter
+        if (queryChanged || serverFiltersChanged) {
+            // Invalidate immediately, including the debounce interval, so old pages cannot flash back.
+            refreshGeneration.incrementAndGet()
+            searchTimer.stop()
+            if (queryChanged) searchTimer.restart() else refreshPullRequests()
         } else {
             applyClientFilters()
         }
     }
 
-    fun refreshPullRequests() {
+    fun refreshPullRequests(force: Boolean = true) {
+        if (project.isDisposed) return
+        // Polling must not continually restart a long text search or exact lookup.
+        if (!force && (activeGeneration != null || !currentSearchValue.searchQuery.isNullOrBlank())) return
+        searchTimer.stop()
         val generation = refreshGeneration.incrementAndGet()
-        statusLabel.text = "Loading Pull Requests..."
+        activeGeneration = generation
+        val searchValue = currentSearchValue
+        val selectedPrId = getSelectedPullRequest()?.pullRequestId ?: lastSelectedPrId
+        statusLabel.text = "Searching Azure DevOps…"
         statusLabel.icon = AllIcons.Process.Step_1
 
-        val selectedPrId = getSelectedPullRequest()?.pullRequestId ?: lastSelectedPrId
-        val apiStatus = currentSearchValue.state?.apiValue ?: "active"
-        val showAllOrg = currentSearchValue.showAllOrg
-
-        ProgressManager.getInstance().run(object : Task.Backgroundable(
-            project, "Loading Pull Requests...", false
-        ) {
+        ProgressManager.getInstance().run(object : Task.Backgroundable(project, "Searching Pull Requests…", false) {
             override fun run(indicator: ProgressIndicator) {
                 indicator.isIndeterminate = true
                 try {
                     val apiClient = AzureDevOpsApiClient.getInstance(project)
                     val resolvedCurrentUserId = apiClient.getCurrentUserIdCached()
-
-                    val onPage: (List<PullRequest>, List<PullRequest>) -> Unit = { _, accumulated ->
+                    val lookup = PullRequestLookup.parse(searchValue.searchQuery)
+                    val creatorId = if (lookup != null) null else searchValue.author?.let {
+                        if (it.id == "@me") resolvedCurrentUserId
+                            ?: throw IllegalStateException("Unable to identify your Azure DevOps account.") else it.id
+                    }
+                    val reviewerId = if (searchValue.review in setOf(
+                            PullRequestSearchValue.ReviewState.ASSIGNED_TO_YOU,
+                            PullRequestSearchValue.ReviewState.AWAITING_YOUR_REVIEW,
+                            PullRequestSearchValue.ReviewState.REVIEWED_BY_YOU
+                        ) && lookup == null) {
+                        resolvedCurrentUserId ?: throw IllegalStateException("Unable to identify your Azure DevOps account.")
+                    } else null
+                    val update: (List<PullRequest>, PullRequestSearchProgress, Boolean) -> Unit = { prs, progress, final ->
                         ApplicationManager.getApplication().invokeLater {
-                            if (refreshGeneration.get() != generation) return@invokeLater
-                            applyStreamingUpdate(
-                                accumulated = accumulated,
-                                resolvedCurrentUserId = resolvedCurrentUserId,
-                                originalSelectedPrId = selectedPrId,
-                                isFinal = false
-                            )
+                            if (project.isDisposed || refreshGeneration.get() != generation) return@invokeLater
+                            applyStreamingUpdate(prs, resolvedCurrentUserId, selectedPrId, final, progress)
+                            if (final) activeGeneration = null
                         }
                     }
-
-                    val onComplete: (List<PullRequest>) -> Unit = { total ->
-                        ApplicationManager.getApplication().invokeLater {
-                            if (refreshGeneration.get() != generation) return@invokeLater
-                            applyStreamingUpdate(
-                                accumulated = total,
-                                resolvedCurrentUserId = resolvedCurrentUserId,
-                                originalSelectedPrId = selectedPrId,
-                                isFinal = true
-                            )
-                        }
-                    }
-
-                    val selectedProjectIds = currentSearchValue.selectedProjectIds
-                    when {
-                        // Per-project server-side scoping: fetch only the projects the user
-                        // selected, sequentially. Pages from each project flow into the same
-                        // aggregated list so the UI fills in across project boundaries.
-                        selectedProjectIds.isNotEmpty() -> {
-                            val aggregated = mutableListOf<PullRequest>()
-                            val seenIds = HashSet<Int>()
-                            selectedProjectIds.forEach { projectId ->
-                                apiClient.getProjectPullRequestsStreaming(
-                                    projectIdOrName = projectId,
-                                    status = apiStatus,
-                                    onPage = { page, _ ->
-                                        val fresh = page.filter { seenIds.add(it.pullRequestId) }
-                                        aggregated.addAll(fresh)
-                                        onPage(fresh, aggregated.toList())
-                                    },
-                                    // Per-project complete is intentionally a no-op — the
-                                    // aggregated onComplete fires once after every project.
-                                    onComplete = { /* aggregated below */ }
-                                )
-                            }
-                            onComplete(aggregated.toList())
-                        }
-                        showAllOrg -> apiClient.getAllOrganizationPullRequestsStreaming(
-                            status = apiStatus, onPage = onPage, onComplete = onComplete
-                        )
-                        else -> apiClient.getPullRequestsStreaming(
-                            status = apiStatus, onPage = onPage, onComplete = onComplete
-                        )
-                    }
+                    apiClient.searchPullRequestsStreaming(
+                        query = searchValue.searchQuery.orEmpty(),
+                        criteria = PullRequestSearchCriteria(
+                            searchValue.state?.apiValue ?: "active", creatorId, reviewerId, searchValue.repositoryFilter?.id
+                        ),
+                        selectedProjectIds = searchValue.selectedProjectIds,
+                        showAllOrg = searchValue.showAllOrg,
+                        isCancelled = { project.isDisposed || refreshGeneration.get() != generation },
+                        accept = { pr ->
+                            val reviewMatches = searchValue.review?.let { matchesReviewFilter(pr, it, resolvedCurrentUserId) } ?: true
+                            val authorMatches = searchValue.author?.let {
+                                it.id != null || pr.createdBy?.displayName == it.displayName
+                            } ?: true
+                            val repoMatches = searchValue.repositoryFilter?.let {
+                                it.id != null || pr.repository?.name == it.name
+                            } ?: true
+                            reviewMatches && authorMatches && repoMatches
+                        },
+                        onPage = { prs, progress -> update(prs, progress, false) },
+                        onComplete = { prs, progress -> update(prs, progress, true) }
+                    )
+                } catch (_: CancellationException) {
+                    // A newer query owns the UI now.
                 } catch (e: Exception) {
                     ApplicationManager.getApplication().invokeLater {
-                        if (refreshGeneration.get() != generation) return@invokeLater
+                        if (project.isDisposed || refreshGeneration.get() != generation) return@invokeLater
+                        activeGeneration = null
                         isErrorState = true
                         listModel.clear()
-                        val isConfigError = e.message?.contains("not configured", ignoreCase = true) == true
-                        if (isConfigError) {
-                            statusLabel.text = "Azure DevOps not configured"
-                            statusLabel.icon = AllIcons.General.Warning
-                        } else {
-                            statusLabel.text = "Error: ${e.message}"
-                            statusLabel.icon = AllIcons.General.Error
-                        }
+                        statusLabel.text = "Search failed: ${e.message}"
+                        statusLabel.icon = AllIcons.General.Error
                     }
                 }
             }
@@ -261,8 +254,10 @@ class PullRequestListPanel(
         accumulated: List<PullRequest>,
         resolvedCurrentUserId: String?,
         originalSelectedPrId: Int?,
-        isFinal: Boolean
+        isFinal: Boolean,
+        progress: PullRequestSearchProgress
     ) {
+        lastSearchProgress = progress
         currentUserId = resolvedCurrentUserId
         cachedPullRequests = accumulated
         lastLoadedPullRequests = accumulated
@@ -276,7 +271,7 @@ class PullRequestListPanel(
             updateStatusLabel(filtered.size, accumulated.size)
         } else {
             statusLabel.icon = AllIcons.Process.Step_1
-            statusLabel.text = "Loading Pull Requests… ${accumulated.size} so far"
+            statusLabel.text = "Searching Azure DevOps… ${progress.scanned} examined, ${filtered.size} matches"
         }
         isErrorState = false
     }
@@ -296,6 +291,10 @@ class PullRequestListPanel(
     private fun applyAllFilters(pullRequests: List<PullRequest>): List<PullRequest> {
         var result = pullRequests
         val sv = currentSearchValue
+        // A direct ID/URL lookup is explicit and must remain visible even with stale filters.
+        if (try { PullRequestLookup.parse(sv.searchQuery) != null } catch (_: IllegalArgumentException) { false }) {
+            return result
+        }
 
         // Text search
         val query = sv.searchQuery
@@ -352,7 +351,11 @@ class PullRequestListPanel(
         return result
     }
 
-    private fun matchesReviewFilter(pr: PullRequest, review: PullRequestSearchValue.ReviewState): Boolean {
+    private fun matchesReviewFilter(
+        pr: PullRequest,
+        review: PullRequestSearchValue.ReviewState,
+        userId: String? = currentUserId
+    ): Boolean {
         val reviewers = pr.reviewers ?: emptyList()
         return when (review) {
             PullRequestSearchValue.ReviewState.NO_REVIEW -> {
@@ -364,8 +367,14 @@ class PullRequestListPanel(
             PullRequestSearchValue.ReviewState.CHANGES_REQUESTED -> {
                 reviewers.any { it.vote == -5 || it.vote == -10 }
             }
+            PullRequestSearchValue.ReviewState.ASSIGNED_TO_YOU -> {
+                reviewers.any { it.id == userId }
+            }
+            PullRequestSearchValue.ReviewState.AWAITING_YOUR_REVIEW -> {
+                reviewers.any { it.id == userId && (it.vote == null || it.vote == 0) }
+            }
             PullRequestSearchValue.ReviewState.REVIEWED_BY_YOU -> {
-                reviewers.any { it.id == currentUserId && (it.vote != null && it.vote != 0) }
+                reviewers.any { it.id == userId && (it.vote != null && it.vote != 0) }
             }
         }
     }
@@ -492,11 +501,13 @@ class PullRequestListPanel(
     }
 
     private fun updateStatusLabel(filteredCount: Int, totalCount: Int) {
-        statusLabel.icon = AllIcons.General.InspectionsOK
-        statusLabel.text = if (filteredCount < totalCount) {
+        val limited = lastSearchProgress?.complete == false
+        statusLabel.icon = if (limited) AllIcons.General.Warning else AllIcons.General.InspectionsOK
+        val summary = if (filteredCount < totalCount) {
             "Showing $filteredCount of $totalCount Pull Request(s)"
         } else {
             "Loaded $totalCount Pull Request(s)"
         }
+        statusLabel.text = summary + if (limited) " — Results limited; narrow filters or increase the list maximum" else ""
     }
 }

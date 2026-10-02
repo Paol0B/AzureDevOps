@@ -6,6 +6,7 @@ import com.intellij.ide.projectView.ProjectViewNode
 import com.intellij.ide.projectView.ProjectViewNodeDecorator
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.ui.JBColor
@@ -63,6 +64,7 @@ class FileWithCommentsDecorator(private val project: Project) : ProjectViewNodeD
             val badgeText = " ($activeComments)"
             
             // Append to existing text instead of replacing
+            preserveNodeName(data, dir.name)
             data.addText(badgeText, SimpleTextAttributes(
                 SimpleTextAttributes.STYLE_BOLD,
                 badgeColor
@@ -98,6 +100,7 @@ class FileWithCommentsDecorator(private val project: Project) : ProjectViewNodeD
             val badgeText = " ($activeCount)"
             
             // Append badge AFTER filename
+            preserveNodeName(data, file.name)
             data.addText(badgeText, SimpleTextAttributes(
                 SimpleTextAttributes.STYLE_BOLD,
                 badgeColor
@@ -111,6 +114,17 @@ class FileWithCommentsDecorator(private val project: Project) : ProjectViewNodeD
             // Enhanced tooltip
             data.tooltip = buildFileTooltip(commentCount, activeCount, file.name)
         }
+    }
+
+    /** Adding the first colored fragment suppresses IntelliJ's plain-name fallback. */
+    private fun preserveNodeName(data: PresentationData, fallbackName: String) {
+        if (data.coloredText.isNotEmpty()) return
+        val textAttributes = data.textAttributesKey?.let { EditorColorsManager.getInstance().globalScheme.getAttributes(it) }
+        val attributes = textAttributes?.let(SimpleTextAttributes::fromTextAttributes)
+            ?: SimpleTextAttributes.REGULAR_ATTRIBUTES
+        data.addText(data.presentableText?.takeIf { it.isNotEmpty() } ?: fallbackName,
+            attributes.derive(attributes.style, data.forcedTextForeground ?: attributes.fgColor,
+                attributes.bgColor, attributes.waveColor))
     }
 
     /**
