@@ -33,34 +33,34 @@ class AddEditorPullRequestCommentAction : AnAction() {
         fun showError(message: String) {
             if (!project.isDisposed && !editor.isDisposed) Messages.showErrorDialog(project, message, "Unable to Add PR Comment")
         }
-        val repository = GitRepositoryManager.getInstance(project).getRepositoryForFile(file)
-            ?: return showError("This file is not in a Git repository.")
-        val branch = repository.currentBranch?.name ?: return showError("Check out the PR source branch first.")
-        val tracking = repository.branchTrackInfos.firstOrNull { it.localBranch.name == branch }
-        val sourceBranch = tracking?.remoteBranch?.nameForRemoteOperations ?: branch
-        val remote = try {
-            RegularEditorCommentGuards.repository(repository.remotes.flatMap { remote -> remote.urls.map { remote.name to it } },
-                tracking?.remote?.name)
-        } catch (error: IllegalArgumentException) { return showError(error.message.orEmpty()) }
-        val relativePath = VfsUtilCore.getRelativePath(file, repository.root, '/')
-            ?: return showError("Could not find the file path in this repository.")
         if (editor.caretModel.caretCount > 1) return showError("Select one contiguous code range to comment.")
         val text = editor.document.text
         val stamp = editor.document.modificationStamp
-        val revision = repository.currentRevision
         val caret = editor.caretModel.offset
         val start = editor.selectionModel.selectionStart
         val end = editor.selectionModel.selectionEnd
-        val api = AzureDevOpsApiClient.getInstance(project)
-        fun checkLocalVersion() {
-            check(ReadAction.compute<Boolean, RuntimeException> {
-                !project.isDisposed && !editor.isDisposed && file.isValid &&
-                    editor.document.modificationStamp == stamp && repository.currentBranch?.name == branch &&
-                    repository.currentRevision == revision
-            }) { "The file or branch changed. Your draft is preserved; reopen Add PR comment against the current code." }
-        }
         ApplicationManager.getApplication().executeOnPooledThread {
+            if (project.isDisposed || editor.isDisposed) return@executeOnPooledThread
             try {
+                val repository = GitRepositoryManager.getInstance(project).getRepositoryForFile(file)
+                    ?: error("This file is not in a Git repository.")
+                val branch = repository.currentBranch?.name ?: error("Check out the PR source branch first.")
+                val tracking = repository.branchTrackInfos.firstOrNull { it.localBranch.name == branch }
+                val sourceBranch = tracking?.remoteBranch?.nameForRemoteOperations ?: branch
+                val remote = RegularEditorCommentGuards.repository(
+                    repository.remotes.flatMap { remote -> remote.urls.map { remote.name to it } }, tracking?.remote?.name)
+                val relativePath = VfsUtilCore.getRelativePath(file, repository.root, '/')
+                    ?: error("Could not find the file path in this repository.")
+                val revision = repository.currentRevision
+                fun checkLocalVersion() {
+                    check(ReadAction.compute<Boolean, RuntimeException> {
+                        !project.isDisposed && !editor.isDisposed && file.isValid &&
+                            editor.document.modificationStamp == stamp && repository.currentBranch?.name == branch &&
+                            repository.currentRevision == revision
+                    }) { "The file or branch changed. Your draft is preserved; reopen Add PR comment against the current code." }
+                }
+                checkLocalVersion()
+                val api = AzureDevOpsApiClient.getInstance(project)
                 val base = remote.selfHostedUrl ?: "https://dev.azure.com/${remote.organization}"
                 PullRequestLookup(1, serverBase = base).requireSameServer(AzureDevOpsConfigService.getInstance(project).getApiBaseUrl())
                 val pr = api.findPullRequestForBranch(sourceBranch, remote.project, remote.repository)
