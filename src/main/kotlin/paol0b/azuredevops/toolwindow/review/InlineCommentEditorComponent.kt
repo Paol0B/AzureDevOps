@@ -58,7 +58,8 @@ class InlineCommentEditorComponent(
         .setCancelOnClickOutside(false)
         .setCancelOnOtherWindowOpen(false)
         .setCancelOnWindowDeactivation(false)
-        .setCancelKeyEnabled(true)
+        // The composer handles Escape so a disabled Cancel action cannot be bypassed.
+        .setCancelKeyEnabled(false)
         .createPopup()
 
     private fun buildUI() {
@@ -67,7 +68,7 @@ class InlineCommentEditorComponent(
         card.border = JBUI.Borders.empty(10, 12, 10, 12)
 
         // Label
-        card.add(JBLabel("Add review comment — ${if (range.startLine == range.endLine) "line ${range.startLine}" else "lines ${range.startLine}–${range.endLine}"}").apply {
+        card.add(JBLabel("Add review comment — PR #$pullRequestId · ${if (range.startLine == range.endLine) "line ${range.startLine}" else "lines ${range.startLine}–${range.endLine}"}").apply {
             font = font.deriveFont(Font.BOLD, 11f)
             foreground = JBColor.GRAY
             alignmentX = Component.LEFT_ALIGNMENT
@@ -125,6 +126,7 @@ class InlineCommentEditorComponent(
             submitBtn.isEnabled = false
             submitBtn.text = "Adding…"
             cancelBtn.isEnabled = false
+            textArea.isEditable = false
 
             ApplicationManager.getApplication().executeOnPooledThread {
                 try {
@@ -153,6 +155,7 @@ class InlineCommentEditorComponent(
                         submitBtn.isEnabled = true
                         submitBtn.text = "Add Review Comment"
                         cancelBtn.isEnabled = true
+                        textArea.isEditable = true
                     }
                 }
             }
@@ -167,7 +170,7 @@ class InlineCommentEditorComponent(
         })
         textArea.addKeyListener(object : java.awt.event.KeyAdapter() {
             override fun keyPressed(e: java.awt.event.KeyEvent) {
-                if (e.keyCode == java.awt.event.KeyEvent.VK_ESCAPE) {
+                if (e.keyCode == java.awt.event.KeyEvent.VK_ESCAPE && cancelBtn.isEnabled) {
                     onCancel()
                     e.consume()
                 }

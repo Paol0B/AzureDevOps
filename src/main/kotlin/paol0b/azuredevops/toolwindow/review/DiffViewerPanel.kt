@@ -86,6 +86,13 @@ class DiffViewerPanel(
     private val commentRequests = LatestRequest<LatestRequest.Ticket<PullRequestChange>>()
     private var displayedRequest: LatestRequest.Ticket<PullRequestChange>? = null
     private val activePopups = mutableSetOf<JBPopup>()
+    private class DraftEditor(val component: InlineCommentEditorComponent, var popup: JBPopup? = null)
+    private val commentDrafts = InlineCommentDrafts<DraftEditor>()
+    private val draftsButton = JButton("Comment drafts").apply {
+        isEnabled = false
+        toolTipText = "Recover unsent comments, including drafts from earlier revisions"
+        addActionListener { showCommentDrafts() }
+    }
     private var currentDiffPanel: DiffRequestPanel? = null
     private var currentChange: PullRequestChange? = null
     private var cachedPullRequest: paol0b.azuredevops.model.PullRequest? = null
@@ -325,34 +332,85 @@ class DiffViewerPanel(
 
         val location = commentEditors[editor]?.location?.invoke(line0based) ?: return
 
-        // We need a reference to the popup so callbacks can dismiss it.
-        // Use a holder so the lambda can capture it before the popup is built.
-        var popupRef: com.intellij.openapi.ui.popup.JBPopup? = null
-
-        val component = InlineCommentEditorComponent(
-            project = project,
-            apiClient = apiClient,
-            pullRequestId = pullRequestId,
-            filePath = filePath,
-            range = selectedRange ?: FileCommentRange(location.isLeftSide, location.lineNumber),
-            projectName = externalProjectName,
-            repositoryId = externalRepositoryId,
-            changeTrackingId = change.changeTrackingId,
-            onCommentAdded = {
-                popupRef?.cancel()
-                if (diffRequests.isCurrent(request)) refreshInlineComments()
-            },
-            onCancel = { popupRef?.cancel() }
+        val pr = cachedPullRequest ?: return
+        val draftKey = InlineCommentDraftKey(
+            pullRequestId, externalProjectName, externalRepositoryId, filePath,
+            selectedRange ?: FileCommentRange(location.isLeftSide, location.lineNumber),
+            pr.lastMergeSourceCommit?.commitId, pr.lastMergeTargetCommit?.commitId
         )
-        component.preferredSize = Dimension(480, component.preferredSize.height.coerceAtLeast(150))
-
-        val popup = component.createPopup()
-        popupRef = popup
-        trackPopup(popup)
-
-        // Position below the target line
+        val draft = commentDrafts.getOrCreate(draftKey) {
+            lateinit var retained: DraftEditor
+            val component = InlineCommentEditorComponent(
+                project = project,
+                apiClient = apiClient,
+                pullRequestId = pullRequestId,
+                filePath = filePath,
+                range = draftKey.range,
+                projectName = externalProjectName,
+                repositoryId = externalRepositoryId,
+                changeTrackingId = change.changeTrackingId,
+                onCommentAdded = {
+                    commentDrafts.remove(draftKey)
+                    updateDraftsButton()
+                    retained.popup?.cancel()
+                    if (!disposed && currentChange?.effectivePath() == filePath) refreshInlineComments()
+                },
+                onCancel = {
+                    commentDrafts.remove(draftKey)
+                    updateDraftsButton()
+                    retained.popup?.cancel()
+                },
+                beforeSubmit = {
+                    check(!disposed && !project.isDisposed) { "This PR review is closed. Reopen it before posting." }
+                    val freshPr = apiClient.getPullRequest(pullRequestId, externalProjectName, externalRepositoryId)
+                    check(freshPr.lastMergeSourceCommit?.commitId == draftKey.sourceCommit &&
+                        freshPr.lastMergeTargetCommit?.commitId == draftKey.targetCommit) {
+                        "The PR revisions changed. Copy this draft into a comment on the updated diff before posting."
+                    }
+                }
+            )
+            retained = DraftEditor(component)
+            retained
+        }
+        updateDraftsButton()
         val lineY = editor.logicalPositionToXY(LogicalPosition(line0based + 1, 0))
-        popup.show(RelativePoint(editor.contentComponent, Point(40, lineY.y)))
+        showDraftPopup(draft, RelativePoint(editor.contentComponent, Point(40, lineY.y)))
+    }
+
+    private fun showDraftPopup(draft: DraftEditor, location: RelativePoint) {
+        draft.popup?.cancel()
+        draft.component.preferredSize = Dimension(480, draft.component.preferredSize.height.coerceAtLeast(150))
+        val popup = draft.component.createPopup()
+        draft.popup = popup
+        trackPopup(popup)
+        popup.show(location)
+    }
+
+    private fun updateDraftsButton() {
+        val count = commentDrafts.keys().size
+        draftsButton.text = "Comment drafts ($count)"
+        draftsButton.isEnabled = count > 0
+    }
+
+    private fun addDraftRecoveryToolbar() {
+        if (commentDrafts.keys().isNotEmpty()) {
+            add(JPanel(FlowLayout(FlowLayout.LEFT)).apply { add(draftsButton) }, BorderLayout.NORTH)
+        }
+    }
+
+    private fun showCommentDrafts() {
+        val menu = javax.swing.JPopupMenu()
+        for (key in commentDrafts.keys()) {
+            val side = if (key.range.isLeftSide) "before" else "after"
+            val revision = (if (key.range.isLeftSide) key.targetCommit else key.sourceCommit)?.take(8) ?: "unknown revision"
+            val item = javax.swing.JMenuItem("${key.filePath}:${key.range.startLine}–${key.range.endLine} ($side, $revision)")
+            item.addActionListener {
+                val draft = commentDrafts.get(key) ?: return@addActionListener
+                showDraftPopup(draft, RelativePoint(draftsButton, Point(0, draftsButton.height)))
+            }
+            menu.add(item)
+        }
+        menu.show(draftsButton, 0, draftsButton.height)
     }
 
     // ==================================================================
@@ -523,7 +581,7 @@ class DiffViewerPanel(
                     }
                 }
             } catch (e: Exception) {
-                logger.error("Failed to load diff for file: $filePath", e)
+                logger.warn("Failed to load diff for file: $filePath", e)
                 ApplicationManager.getApplication().invokeLater {
                     if (project.isDisposed) return@invokeLater
                     diffRequests.applyIfCurrent(request) { showError("Failed to load diff: ${e.message}") }
@@ -598,6 +656,7 @@ class DiffViewerPanel(
 
         add(JPanel(FlowLayout(FlowLayout.LEFT)).apply {
             add(addCommentButton)
+            add(draftsButton)
             add(JBLabel("Select text to comment, or hover over the gutter and click +"))
         }, BorderLayout.NORTH)
         add(currentDiffPanel!!.component, BorderLayout.CENTER)
@@ -627,7 +686,7 @@ class DiffViewerPanel(
                     }
                 }
             } catch (e: Exception) {
-                logger.error("Failed to refresh comments", e)
+                logger.warn("Failed to refresh comments", e)
             }
         }
     }
@@ -658,6 +717,7 @@ class DiffViewerPanel(
 
         removeAll()
         add(placeholderLabel, BorderLayout.CENTER)
+        addDraftRecoveryToolbar()
         revalidate()
         repaint()
     }
@@ -684,6 +744,7 @@ class DiffViewerPanel(
 
     private fun showLoading(fileName: String) {
         removeAll()
+        addDraftRecoveryToolbar()
         add(JBLabel("Loading diff for $fileName…").apply {
             horizontalAlignment = JBLabel.CENTER
             border = JBUI.Borders.empty(20)
@@ -694,6 +755,7 @@ class DiffViewerPanel(
 
     private fun showError(message: String) {
         removeAll()
+        addDraftRecoveryToolbar()
         add(JBLabel("❌ $message").apply {
             horizontalAlignment = JBLabel.CENTER
             border = JBUI.Borders.empty(20)

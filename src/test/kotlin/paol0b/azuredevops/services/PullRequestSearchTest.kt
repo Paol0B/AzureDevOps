@@ -103,4 +103,73 @@ class PullRequestSearchTest {
     fun `download errors do not become empty results`() {
         PullRequestSearchPager.search("fix", 50, 10, { _, _ -> throw IllegalStateException("Server unavailable") })
     }
+
+    @Test fun `rare text query stops after default examined PR budget`() {
+        var fetched = 0
+        val result = PullRequestSearchPager.search("needle", 200, 10, { size, skip ->
+            fetched += size
+            if (skip >= 6000) emptyList() else (skip until skip + size).map { pr(it + 1, "other") }
+        })
+        assertEquals(5000, fetched)
+        assertEquals(5000, result.progress.scanned)
+        assertFalse(result.progress.complete)
+    }
+
+    @Test fun `short pages stop after default request budget`() {
+        var requests = 0
+        val result = PullRequestSearchPager.search("needle", 200, 10, { _, skip ->
+            requests++
+            if (skip >= 101) emptyList() else listOf(pr(skip + 1, "other"))
+        })
+        assertEquals(100, requests)
+        assertEquals(100, result.progress.scanned)
+        assertFalse(result.progress.complete)
+    }
+
+    @Test fun `cancelling between pages retains published partial matches`() {
+        var cancelled = false
+        var requests = 0
+        var published = emptyList<PullRequest>()
+        try {
+            PullRequestSearchPager.search("needle", 50, 10,
+                fetchPage = { _, _ -> requests++; listOf(pr(1, "needle first")) },
+                isCancelled = { cancelled },
+                onPage = { matches, _ -> published = matches; cancelled = true })
+            fail("Expected cancellation")
+        } catch (_: CancellationException) {
+            assertEquals(1, requests)
+            assertEquals(listOf(1), published.map { it.pullRequestId })
+        }
+    }
+
+    @Test fun `examined budget is shared across project scopes and bounds last page`() {
+        val budget = PullRequestSearchBudget(maxScanned = 3, maxPages = 100)
+        val requests = mutableListOf<Int>()
+        val first = PullRequestSearchPager.search("needle", 2, 10,
+            fetchPage = { size, skip ->
+                requests.add(size)
+                if (skip == 0) listOf(pr(1, "needle first"), pr(2, "other")) else emptyList()
+            }, budget = budget)
+        assertTrue(first.progress.complete)
+        val second = PullRequestSearchPager.search("needle", 2, 10,
+            fetchPage = { size, _ -> requests.add(size); listOf(pr(3, "needle second")) }, budget = budget)
+        assertEquals(listOf(2, 1, 1), requests)
+        assertEquals(listOf(3), second.pullRequests.map { it.pullRequestId })
+        assertFalse(second.progress.complete)
+        assertTrue(budget.exhausted)
+        val third = PullRequestSearchPager.search("needle", 2, 10,
+            fetchPage = { _, _ -> fail("Exhausted shared budget must not fetch another scope"); emptyList() }, budget = budget)
+        assertFalse(third.progress.complete)
+    }
+
+    @Test fun `page request budget is shared across empty project scopes`() {
+        val budget = PullRequestSearchBudget(maxScanned = 5000, maxPages = 1)
+        assertTrue(PullRequestSearchPager.search("needle", 200, 10,
+            fetchPage = { _, _ -> emptyList() }, budget = budget).progress.complete)
+        val next = PullRequestSearchPager.search("needle", 200, 10,
+            fetchPage = { _, _ -> fail("Request budget was consumed by previous scope"); emptyList() }, budget = budget)
+        assertFalse(next.progress.complete)
+        assertEquals(0, next.progress.scanned)
+    }
+
 }

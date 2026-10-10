@@ -259,7 +259,7 @@ The plugin will automatically use your authenticated account for this repository
             errorBody.ifEmpty { "HTTP Error $statusCode" }
         }
 
-        return when (statusCode) {
+        val failure = when (statusCode) {
             HttpURLConnection.HTTP_UNAUTHORIZED -> 
                 AzureDevOpsApiException("Authentication failed (401). Please login:\n" +
                     "1. Go to File → Settings → Tools → Azure DevOps Accounts\n" +
@@ -279,6 +279,7 @@ The plugin will automatically use your authenticated account for this repository
             else ->
                 AzureDevOpsApiException("HTTP Error $statusCode: $errorMessage")
         }
+        return AzureDevOpsApiException(failure.message.orEmpty(), failure, statusCode)
     }
 
     // endregion
@@ -551,18 +552,19 @@ The plugin will automatically use your authenticated account for this repository
         val config = requireValidConfig()
         val configService = AzureDevOpsConfigService.getInstance(project)
         val baseUrl = configService.getApiBaseUrl()
-        val lookup = PullRequestLookup.parse(query)
         if (isCancelled()) throw java.util.concurrent.CancellationException()
-        if (lookup != null) {
+        val exact = PullRequestExactSearch.resolve(query) { lookup ->
             lookup.requireSameServer(baseUrl)
-            val pr = if (lookup.project != null && lookup.repository != null) {
+            if (lookup.project != null && lookup.repository != null) {
                 getPullRequest(lookup.id, lookup.project, lookup.repository)
             } else {
                 val url = buildOrgApiUrl("/git/pullrequests/${lookup.id}?api-version=$API_VERSION")
                 gson.fromJson(executeGet(url, config.personalAccessToken), PullRequest::class.java)
             }
+        }
+        if (exact != null) {
             if (isCancelled()) throw java.util.concurrent.CancellationException()
-            onComplete(listOf(pr), PullRequestSearchProgress(1, true))
+            onComplete(listOf(exact), PullRequestSearchProgress(1, true))
             return
         }
 
@@ -578,6 +580,7 @@ The plugin will automatically use your authenticated account for this repository
         val limit = effectiveMaxTotal()
         var scanned = 0
         var complete = true
+        val scanBudget = PullRequestSearchBudget()
         for ((index, endpoint) in endpoints.withIndex()) {
             val previouslyScanned = scanned
             val scopeResult = PullRequestSearchPager.search(
@@ -587,6 +590,7 @@ The plugin will automatically use your authenticated account for this repository
                     gson.fromJson(executeGet(url, config.personalAccessToken), PullRequestListResponse::class.java).value
                 },
                 isCancelled = isCancelled,
+                budget = scanBudget,
                 accept = accept,
                 onPage = { matches, progress ->
                     val accumulated = (results + matches).distinctBy { it.pullRequestId }
@@ -596,7 +600,7 @@ The plugin will automatically use your authenticated account for this repository
             results.addAll(scopeResult.pullRequests.filter { seen.add(it.pullRequestId) })
             scanned += scopeResult.progress.scanned
             complete = complete && scopeResult.progress.complete
-            if (results.size >= limit) {
+            if (results.size >= limit || scanBudget.exhausted) {
                 complete = complete && index == endpoints.lastIndex
                 break
             }
@@ -760,7 +764,7 @@ The plugin will automatically use your authenticated account for this repository
             val response = executeGet(url, config.personalAccessToken)
             gson.fromJson(response, PullRequest::class.java)
         } catch (e: Exception) {
-            logger.error("Failed to fetch pull request #$pullRequestId from $effectiveProject/$effectiveRepo", e)
+            logger.warn("Failed to fetch pull request #$pullRequestId from $effectiveProject/$effectiveRepo", e)
             throw AzureDevOpsApiException("Error while retrieving Pull Request: ${e.message}", e)
         }
     }
@@ -941,23 +945,27 @@ The plugin will automatically use your authenticated account for this repository
      * @return The active PR associated with the branch, or null if it does not exist
      */
     @Throws(AzureDevOpsApiException::class)
-    fun findPullRequestForBranch(branchName: String, projectName: String? = null, repositoryId: String? = null): PullRequest? {
-        val config = requireValidConfig()
+    fun findPullRequestForBranch(branchName: String, projectName: String? = null, repositoryId: String? = null): PullRequest? =
+        BranchPullRequestSelection.unambiguous(findPullRequestsForBranch(branchName, projectName, repositoryId))
 
-        val refName = "refs/heads/$branchName"
-        val url = buildApiUrl(projectName ?: config.project, repositoryId ?: config.repository,
-            "/pullrequests?searchCriteria.status=active&searchCriteria.sourceRefName=${URLEncoder.encode(refName, StandardCharsets.UTF_8)}&api-version=$API_VERSION")
-        
-        logger.info("Searching for active PR with source branch: $branchName")
-        
-        return try {
-            val response = executeGet(url, config.personalAccessToken)
-            val listResponse = gson.fromJson(response, PullRequestListResponse::class.java)
-            listResponse.value.firstOrNull()
-        } catch (e: Exception) {
-            logger.error("Failed to find PR for branch $branchName", e)
-            throw e // Preserve authentication and transport failures for the caller.
+    /** Fetch every active target for a branch; never choose an arbitrary review target. */
+    fun findPullRequestsForBranch(branchName: String, projectName: String? = null, repositoryId: String? = null): List<PullRequest> {
+        val config = requireValidConfig()
+        val refName = URLEncoder.encode("refs/heads/$branchName", StandardCharsets.UTF_8)
+        val found = mutableListOf<PullRequest>()
+        val seen = mutableSetOf<Int>()
+        var skip = 0
+        repeat(100) {
+            val url = buildApiUrl(projectName ?: config.project, repositoryId ?: config.repository,
+                "/pullrequests?searchCriteria.status=active&searchCriteria.sourceRefName=$refName&\$top=100&\$skip=$skip&api-version=$API_VERSION")
+            val page = gson.fromJson(executeGet(url, config.personalAccessToken), PullRequestListResponse::class.java).value
+            if (page.isEmpty()) return found
+            val fresh = page.filter { seen.add(it.pullRequestId) }
+            check(fresh.isNotEmpty()) { "Azure DevOps repeated a PR page. Cannot identify every review target." }
+            found.addAll(fresh)
+            skip += page.size
         }
+        error("Too many active PRs for this branch. Open the intended PR from the PR list instead.")
     }
 
     /**
@@ -1090,7 +1098,7 @@ The plugin will automatically use your authenticated account for this repository
             logger.info("Extracted content: ${content.length} characters")
             content
         } catch (e: Exception) {
-            logger.error("Failed to parse file content response", e)
+            logger.warn("Failed to parse file content response", e)
             throw AzureDevOpsApiException("Unable to read text content for $filePath: ${e.message}", e)
         }
     }
@@ -2321,4 +2329,4 @@ The plugin will automatically use your authenticated account for this repository
 /**
  * Custom exception for Azure DevOps API errors
  */
-class AzureDevOpsApiException(message: String, cause: Throwable? = null) : Exception(message, cause)
+class AzureDevOpsApiException(message: String, cause: Throwable? = null, val statusCode: Int? = null) : Exception(message, cause)

@@ -4,6 +4,7 @@ import com.intellij.icons.AllIcons
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.progress.ProgressIndicator
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
@@ -180,28 +181,52 @@ class PullRequestListPanel(
         statusLabel.text = "Searching Azure DevOps…"
         statusLabel.icon = AllIcons.Process.Step_1
 
-        ProgressManager.getInstance().run(object : Task.Backgroundable(project, "Searching Pull Requests…", false) {
+        ProgressManager.getInstance().run(object : Task.Backgroundable(project, "Searching Pull Requests…", true) {
+            private var partialResults = emptyList<PullRequest>()
+            private var partialProgress = PullRequestSearchProgress(0, false)
+            private var resolvedCurrentUserId: String? = null
+
+            private fun showCancellation() {
+                ApplicationManager.getApplication().invokeLater {
+                    if (project.isDisposed || refreshGeneration.get() != generation) return@invokeLater
+                    applyStreamingUpdate(partialResults, resolvedCurrentUserId, selectedPrId, true,
+                        partialProgress.copy(complete = false, cancelled = true))
+                    activeGeneration = null
+                }
+            }
+
+            override fun onCancel() { showCancellation() }
+
             override fun run(indicator: ProgressIndicator) {
                 indicator.isIndeterminate = true
                 try {
                     val apiClient = AzureDevOpsApiClient.getInstance(project)
-                    val resolvedCurrentUserId = apiClient.getCurrentUserIdCached()
+                    resolvedCurrentUserId = apiClient.getCurrentUserIdCached()
                     val lookup = PullRequestLookup.parse(searchValue.searchQuery)
-                    val creatorId = if (lookup != null) null else searchValue.author?.let {
-                        if (it.id == "@me") resolvedCurrentUserId
-                            ?: throw IllegalStateException("Unable to identify your Azure DevOps account.") else it.id
+                    val explicitLookup = lookup != null && !searchValue.searchQuery.orEmpty().trim().matches(Regex("\\d+"))
+                    val needsCurrentUser = searchValue.author?.id == "@me" || searchValue.review in setOf(
+                        PullRequestSearchValue.ReviewState.ASSIGNED_TO_YOU,
+                        PullRequestSearchValue.ReviewState.AWAITING_YOUR_REVIEW,
+                        PullRequestSearchValue.ReviewState.REVIEWED_BY_YOU
+                    )
+                    if (lookup == null && needsCurrentUser && resolvedCurrentUserId == null) {
+                        throw IllegalStateException("Unable to identify your Azure DevOps account.")
                     }
-                    val reviewerId = if (searchValue.review in setOf(
-                            PullRequestSearchValue.ReviewState.ASSIGNED_TO_YOU,
-                            PullRequestSearchValue.ReviewState.AWAITING_YOUR_REVIEW,
-                            PullRequestSearchValue.ReviewState.REVIEWED_BY_YOU
-                        ) && lookup == null) {
-                        resolvedCurrentUserId ?: throw IllegalStateException("Unable to identify your Azure DevOps account.")
-                    } else null
+                    val creatorId = if (explicitLookup) null else searchValue.author?.let {
+                        if (it.id == "@me") resolvedCurrentUserId else it.id
+                    }
+                    val reviewerId = if (!explicitLookup && searchValue.review in setOf(
+                        PullRequestSearchValue.ReviewState.ASSIGNED_TO_YOU,
+                        PullRequestSearchValue.ReviewState.AWAITING_YOUR_REVIEW,
+                        PullRequestSearchValue.ReviewState.REVIEWED_BY_YOU
+                    )) resolvedCurrentUserId else null
                     val update: (List<PullRequest>, PullRequestSearchProgress, Boolean) -> Unit = { prs, progress, final ->
+                        partialResults = prs
+                        partialProgress = progress
                         ApplicationManager.getApplication().invokeLater {
                             if (project.isDisposed || refreshGeneration.get() != generation) return@invokeLater
-                            applyStreamingUpdate(prs, resolvedCurrentUserId, selectedPrId, final, progress)
+                            applyStreamingUpdate(prs, resolvedCurrentUserId, selectedPrId, final,
+                                if (final && indicator.isCanceled) progress.copy(complete = false, cancelled = true) else progress)
                             if (final) activeGeneration = null
                         }
                     }
@@ -212,14 +237,22 @@ class PullRequestListPanel(
                         ),
                         selectedProjectIds = searchValue.selectedProjectIds,
                         showAllOrg = searchValue.showAllOrg,
-                        isCancelled = { project.isDisposed || refreshGeneration.get() != generation },
+                        isCancelled = { indicator.isCanceled || project.isDisposed || refreshGeneration.get() != generation },
                         accept = { pr ->
+                            // Exact lookup bypasses this predicate; numeric title fallback must honor identity filters.
+                            if (needsCurrentUser && resolvedCurrentUserId == null) {
+                                throw IllegalStateException("Unable to identify your Azure DevOps account.")
+                            }
                             val reviewMatches = searchValue.review?.let { matchesReviewFilter(pr, it, resolvedCurrentUserId) } ?: true
                             val authorMatches = searchValue.author?.let {
-                                it.id != null || pr.createdBy?.displayName == it.displayName
+                                when (it.id) {
+                                    "@me" -> pr.isCreatedByUser(resolvedCurrentUserId)
+                                    null -> pr.createdBy?.displayName == it.displayName
+                                    else -> pr.createdBy?.id == it.id
+                                }
                             } ?: true
                             val repoMatches = searchValue.repositoryFilter?.let {
-                                it.id != null || pr.repository?.name == it.name
+                                if (it.id != null) pr.repository?.id == it.id else pr.repository?.name == it.name
                             } ?: true
                             reviewMatches && authorMatches && repoMatches
                         },
@@ -227,8 +260,14 @@ class PullRequestListPanel(
                         onComplete = { prs, progress -> update(prs, progress, true) }
                     )
                 } catch (_: CancellationException) {
-                    // A newer query owns the UI now.
+                    showCancellation()
+                } catch (_: ProcessCanceledException) {
+                    showCancellation()
                 } catch (e: Exception) {
+                    if (indicator.isCanceled) {
+                        showCancellation()
+                        return
+                    }
                     ApplicationManager.getApplication().invokeLater {
                         if (project.isDisposed || refreshGeneration.get() != generation) return@invokeLater
                         activeGeneration = null
@@ -292,7 +331,9 @@ class PullRequestListPanel(
         var result = pullRequests
         val sv = currentSearchValue
         // A direct ID/URL lookup is explicit and must remain visible even with stale filters.
-        if (try { PullRequestLookup.parse(sv.searchQuery) != null } catch (_: IllegalArgumentException) { false }) {
+        val lookup = try { PullRequestLookup.parse(sv.searchQuery) } catch (_: IllegalArgumentException) { null }
+        if (lookup != null && (!sv.searchQuery.orEmpty().trim().matches(Regex("\\d+")) ||
+                (result.size == 1 && result.single().pullRequestId == lookup.id))) {
             return result
         }
 
@@ -508,6 +549,10 @@ class PullRequestListPanel(
         } else {
             "Loaded $totalCount Pull Request(s)"
         }
-        statusLabel.text = summary + if (limited) " — Results limited; narrow filters or increase the list maximum" else ""
+        statusLabel.text = when {
+            lastSearchProgress?.cancelled == true -> "Search cancelled — $summary. More matches may exist; search again or narrow filters"
+            limited -> "$summary — Search incomplete. More matches may exist; narrow filters"
+            else -> summary
+        }
     }
 }

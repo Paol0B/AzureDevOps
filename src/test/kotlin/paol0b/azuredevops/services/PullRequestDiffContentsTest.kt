@@ -12,9 +12,13 @@ class PullRequestDiffContentsTest {
         assertEquals("", PullRequestDiffContents.decodeFileContent("""{"content":""}"""))
     }
 
+    @Test fun `binary files have empty text without an error`() {
+        assertEquals("", PullRequestDiffContents.decodeFileContent("""{"path":"/image.png","isBinary":true}"""))
+    }
+
     @Test(expected = IllegalStateException::class)
-    fun `missing file content is not interpreted as an empty file`() {
-        PullRequestDiffContents.decodeFileContent("""{"path":"/new.kt","isBinary":true}""")
+    fun `missing text content for a nonbinary file still fails`() {
+        PullRequestDiffContents.decodeFileContent("""{"path":"/new.kt","isBinary":false}""")
     }
 
     @Test fun `added files fetch only the source side`() {

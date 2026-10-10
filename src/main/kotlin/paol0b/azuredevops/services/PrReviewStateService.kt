@@ -40,7 +40,12 @@ class PrReviewStateService(private val project: Project) : PersistentStateCompon
         var currentPullRequestId: Int? = null,
         
         // Map of PR ID to vote status (for caching)
-        var prVotes: MutableMap<Int, Int> = mutableMapOf()
+        var prVotes: MutableMap<Int, Int> = mutableMapOf(),
+
+        // Version-specific snapshots and local choices awaiting server confirmation.
+        var reviewedVersions: MutableMap<String, Boolean> = mutableMapOf(),
+        var pendingReviewedVersions: MutableMap<String, Boolean> = mutableMapOf(),
+        var boundLegacyPaths: MutableSet<String> = mutableSetOf()
     )
 
     override fun getState(): State = myState
@@ -89,6 +94,54 @@ class PrReviewStateService(private val project: Project) : PersistentStateCompon
         myState.reviewedFiles.remove(pullRequestId)
         notifyStateChanged()
         logger.info("Cleared all reviewed files for PR #$pullRequestId")
+    }
+
+    private fun versionKey(scope: String, hash: String): String = "${scope.length}:$scope$hash"
+    private fun legacyKey(pullRequestId: Int, path: String): String = "$pullRequestId:$path"
+
+    /** Bind old path-only marks once, so they never follow a file onto a newer version. */
+    fun bindLegacyReviewedFile(pullRequestId: Int, scope: String, path: String, hash: String) {
+        val legacy = legacyKey(pullRequestId, path)
+        if (myState.boundLegacyPaths.add(legacy) && isFileReviewed(pullRequestId, path)) {
+            val key = versionKey(scope, hash)
+            myState.pendingReviewedVersions.putIfAbsent(key, true)
+            myState.reviewedVersions.putIfAbsent(key, true)
+        }
+    }
+
+    fun getPendingFileReview(scope: String, hash: String): Boolean? =
+        myState.pendingReviewedVersions[versionKey(scope, hash)]
+
+    fun getCachedFileReview(scope: String, hash: String): Boolean? =
+        myState.reviewedVersions[versionKey(scope, hash)]
+
+    fun setLocalFileReview(pullRequestId: Int, scope: String, path: String, hash: String, reviewed: Boolean) {
+        val key = versionKey(scope, hash)
+        myState.boundLegacyPaths.add(legacyKey(pullRequestId, path))
+        myState.pendingReviewedVersions[key] = reviewed
+        myState.reviewedVersions[key] = reviewed
+        updatePathMark(pullRequestId, path, reviewed)
+        notifyStateChanged()
+    }
+
+    /** Confirmation only clears the choice that was actually submitted. */
+    fun confirmFileReview(scope: String, hash: String, submitted: Boolean) {
+        val key = versionKey(scope, hash)
+        if (myState.pendingReviewedVersions[key] == submitted) {
+            myState.pendingReviewedVersions.remove(key)
+        }
+    }
+
+    fun cacheServerFileReview(pullRequestId: Int, scope: String, path: String, hash: String, reviewed: Boolean) {
+        val key = versionKey(scope, hash)
+        myState.reviewedVersions[key] = reviewed
+        updatePathMark(pullRequestId, path, myState.pendingReviewedVersions[key] ?: reviewed)
+        notifyStateChanged()
+    }
+
+    private fun updatePathMark(pullRequestId: Int, path: String, reviewed: Boolean) {
+        if (reviewed) myState.reviewedFiles.getOrPut(pullRequestId) { mutableSetOf() }.add(path)
+        else myState.reviewedFiles[pullRequestId]?.remove(path)
     }
 
     /**

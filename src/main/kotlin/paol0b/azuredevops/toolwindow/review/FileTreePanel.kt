@@ -21,6 +21,7 @@ import paol0b.azuredevops.model.effectivePath
 import paol0b.azuredevops.model.primaryChangeType
 import paol0b.azuredevops.services.AzureDevOpsApiClient
 import paol0b.azuredevops.services.ReviewedFilesState
+import paol0b.azuredevops.services.PrReviewStateService
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import java.awt.*
@@ -55,9 +56,12 @@ class FileTreePanel(
     }
 ) : JPanel(BorderLayout()), Disposable {
 
+    private val localReviewState = PrReviewStateService.getInstance(project)
+    private val reviewScope = listOf(externalProjectName.orEmpty(), externalRepositoryId.orEmpty(), pullRequestId.toString())
+        .joinToString("") { "${it.length}:$it" }
     private var reviewedState: ReviewedFilesState? = null
     private var reviewSyncBusy = false
-    private var disposed = false
+    @Volatile private var disposed = false
     private var restoringSelection = false
     private val reviewStatusLabel = JBLabel("Review status not loaded")
     private val reviewSyncButton = JButton("Sync").apply {
@@ -221,6 +225,9 @@ class FileTreePanel(
 
     fun loadFileChanges(changes: List<PullRequestChange>) {
         allChanges = changes
+        changes.forEach {
+            localReviewState.bindLegacyReviewedFile(pullRequestId, reviewScope, it.effectivePath(), ReviewedFilesState.hash(it))
+        }
         renderFilteredChanges()
         syncReviewedFiles()
     }
@@ -253,7 +260,7 @@ class FileTreePanel(
             val data = FileTreeData(change, ::isReviewed)
             val fileNode = CheckedTreeNode(data).apply {
                 isChecked = data.isReviewed
-                isEnabled = reviewedState != null && !reviewSyncBusy
+                isEnabled = !reviewSyncBusy
             }
             parentNode.add(fileNode)
             fileNodeMap[fullPath] = fileNode
@@ -289,7 +296,7 @@ class FileTreePanel(
         fileNodeMap.values.forEach { node ->
             (node.userObject as? FileTreeData)?.let {
                 node.isChecked = it.isReviewed
-                node.isEnabled = reviewedState != null && !reviewSyncBusy
+                node.isEnabled = !reviewSyncBusy
             }
         }
         tree.repaint()
@@ -301,7 +308,13 @@ class FileTreePanel(
         renderFilteredChanges()
     }
 
-    private fun isReviewed(change: PullRequestChange): Boolean = reviewedState?.isReviewed(change) == true
+    private fun isReviewed(change: PullRequestChange): Boolean {
+        val hash = ReviewedFilesState.hash(change)
+        return localReviewState.getPendingFileReview(reviewScope, hash)
+            ?: reviewedState?.isReviewed(change)
+            ?: localReviewState.getCachedFileReview(reviewScope, hash)
+            ?: false
+    }
 
     fun syncReviewedFiles() {
         if (reviewSyncBusy || disposed) return
@@ -309,9 +322,14 @@ class FileTreePanel(
     }
 
     private fun setReviewed(change: PullRequestChange, reviewed: Boolean) {
-        if (reviewSyncBusy || reviewedState == null || disposed) { refreshTree(); return }
+        if (reviewSyncBusy || disposed) { refreshTree(); return }
+        // Save before attempting the request: a failed endpoint must not discard the user's choice.
+        localReviewState.setLocalFileReview(pullRequestId, reviewScope, change.effectivePath(),
+            ReviewedFilesState.hash(change), reviewed)
         updateReviewedFiles("Saving review status…") {
-            writeReviewStatus(change, reviewed)
+            writeReviewStatus(change, reviewed).also {
+                check(it.isReviewed(change) == reviewed) { "Azure DevOps did not confirm the reviewed-file change" }
+            }
         }
     }
 
@@ -320,22 +338,53 @@ class FileTreePanel(
         reviewSyncButton.isEnabled = false
         reviewStatusLabel.text = message
         refreshTree()
+        val changes = allChanges.toList()
+        val pending = changes.mapNotNull { change ->
+            localReviewState.getPendingFileReview(reviewScope, ReviewedFilesState.hash(change))
+                ?.let { change to it }
+        }
         ApplicationManager.getApplication().executeOnPooledThread {
-            val result = runCatching(fetch)
+            var snapshot: ReviewedFilesState? = null
+            val confirmed = mutableListOf<Pair<PullRequestChange, Boolean>>()
+            val result = runCatching {
+                snapshot = fetch()
+                for ((change, desired) in pending) {
+                    if (disposed || project.isDisposed) return@executeOnPooledThread
+                    if (snapshot!!.isReviewed(change) != desired) {
+                        snapshot = writeReviewStatus(change, desired)
+                    }
+                    check(snapshot!!.isReviewed(change) == desired) { "Azure DevOps did not confirm the reviewed-file change" }
+                    confirmed.add(change to desired)
+                }
+            }
             ApplicationManager.getApplication().invokeLater {
                 if (disposed || project.isDisposed) return@invokeLater
                 reviewSyncBusy = false
                 reviewSyncButton.isEnabled = true
+                confirmed.forEach { (change, desired) ->
+                    localReviewState.confirmFileReview(reviewScope, ReviewedFilesState.hash(change), desired)
+                }
+                snapshot?.let { state ->
+                    reviewedState = state
+                    changes.forEach { change ->
+                        localReviewState.cacheServerFileReview(pullRequestId, reviewScope, change.effectivePath(),
+                            ReviewedFilesState.hash(change), state.isReviewed(change))
+                    }
+                }
                 result.onSuccess {
-                    reviewedState = it
-                    reviewStatusLabel.text = "Review status synced"
-                    reviewStatusLabel.toolTipText = "Synced with your Azure DevOps account; marks apply to this file version"
+                    val stillPending = allChanges.any {
+                        localReviewState.getPendingFileReview(reviewScope, ReviewedFilesState.hash(it)) != null
+                    }
+                    reviewStatusLabel.text = if (stillPending) "Local review status — pending sync" else "Review status synced"
+                    reviewStatusLabel.toolTipText = if (stillPending) "Local changes are saved; click Sync to upload them"
+                        else "Synced with your Azure DevOps account; marks apply to this file version"
                 }.onFailure {
-                    // Keep the last confirmed snapshot. Never replace an API failure with unchecked files.
-                    reviewStatusLabel.text = "Review status sync failed"
-                    reviewStatusLabel.toolTipText = it.message ?: "Click Sync to retry"
+                    reviewStatusLabel.text = "Local review status — sync failed"
+                    reviewStatusLabel.toolTipText = "Local changes are saved and will be retried with Sync. ${it.message.orEmpty()}"
                 }
                 renderFilteredChanges()
+                // Metadata may have changed while the request ran. Sync the new versions separately.
+                if (allChanges != changes) syncReviewedFiles()
             }
         }
     }

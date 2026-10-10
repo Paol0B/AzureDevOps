@@ -63,8 +63,19 @@ class AddEditorPullRequestCommentAction : AnAction() {
                 val api = AzureDevOpsApiClient.getInstance(project)
                 val base = remote.selfHostedUrl ?: "https://dev.azure.com/${remote.organization}"
                 PullRequestLookup(1, serverBase = base).requireSameServer(AzureDevOpsConfigService.getInstance(project).getApiBaseUrl())
-                val pr = api.findPullRequestForBranch(sourceBranch, remote.project, remote.repository)
-                    ?: error("No active pull request was found for branch '$sourceBranch'.")
+                val requests = api.findPullRequestsForBranch(sourceBranch, remote.project, remote.repository)
+                check(requests.isNotEmpty()) { "No active pull request was found for branch '$sourceBranch'." }
+                val pr = BranchPullRequestSelection.choose(requests) { labels ->
+                    var selected = -1
+                    ApplicationManager.getApplication().invokeAndWait {
+                        if (!project.isDisposed && !editor.isDisposed) {
+                            selected = Messages.showChooseDialog(project, "Choose the PR to comment on:",
+                                "Add PR Comment", Messages.getQuestionIcon(), labels.toTypedArray(), labels.first())
+                        }
+                    }
+                    selected
+                } ?: return@executeOnPooledThread
+                checkLocalVersion()
                 check(pr.sourceRefName == "refs/heads/$sourceBranch") { "The PR does not match the checked-out branch." }
                 val sourceCommit = pr.lastMergeSourceCommit?.commitId?.takeIf { it.isNotBlank() }
                     ?: error("The PR source version is unavailable. Try refreshing the PR.")

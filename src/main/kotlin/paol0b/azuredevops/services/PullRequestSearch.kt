@@ -81,7 +81,21 @@ data class PullRequestSearchCriteria(
     }
 }
 
-data class PullRequestSearchProgress(val scanned: Int, val complete: Boolean)
+data class PullRequestSearchProgress(val scanned: Int, val complete: Boolean, val cancelled: Boolean = false)
+
+/** Share one budget across all scopes of a search to bound rare or absent text queries. */
+class PullRequestSearchBudget(val maxScanned: Int = 5000, val maxPages: Int = 100) {
+    init { require(maxScanned > 0 && maxPages > 0) }
+    private var scanned = 0
+    private var pages = 0
+    val remainingScanned: Int get() = (maxScanned - scanned).coerceAtLeast(0)
+    val exhausted: Boolean get() = remainingScanned == 0 || pages >= maxPages
+
+    internal fun recordPage(size: Int) {
+        pages++
+        scanned += size
+    }
+}
 data class PullRequestSearchResult(val pullRequests: List<PullRequest>, val progress: PullRequestSearchProgress)
 
 /** The result cap counts matches, not the number of PRs examined for a text search. */
@@ -93,7 +107,8 @@ object PullRequestSearchPager {
         fetchPage: (Int, Int) -> List<PullRequest>,
         isCancelled: () -> Boolean = { false },
         accept: (PullRequest) -> Boolean = { true },
-        onPage: (List<PullRequest>, PullRequestSearchProgress) -> Unit = { _, _ -> }
+        onPage: (List<PullRequest>, PullRequestSearchProgress) -> Unit = { _, _ -> },
+        budget: PullRequestSearchBudget = PullRequestSearchBudget()
     ): PullRequestSearchResult {
         require(pageSize > 0 && maxResults > 0)
         val matches = mutableListOf<PullRequest>()
@@ -102,7 +117,11 @@ object PullRequestSearchPager {
         var skip = 0
         while (matches.size < maxResults) {
             if (isCancelled()) throw CancellationException()
-            val page = fetchPage(pageSize, skip)
+            if (budget.exhausted) break
+            val requestedSize = minOf(pageSize, budget.remainingScanned)
+            val fetched = fetchPage(requestedSize, skip)
+            budget.recordPage(fetched.size)
+            val page = fetched.take(requestedSize)
             if (isCancelled()) throw CancellationException()
             if (page.isEmpty()) return PullRequestSearchResult(matches.toList(), PullRequestSearchProgress(skip, true))
             skip += page.size

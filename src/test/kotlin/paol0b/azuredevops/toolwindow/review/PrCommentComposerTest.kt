@@ -17,7 +17,7 @@ class PrCommentComposerTest {
             var refreshes = 0
             val composer = PrCommentComposer({ text, callback -> submitted = text; completion = callback }, { refreshes++ })
             val area = components(composer).filterIsInstance<JTextArea>().single()
-            val button = components(composer).filterIsInstance<JButton>().single()
+            val button = components(composer).filterIsInstance<JButton>().single { it.text == "Add comment" }
             area.text = "  Please add coverage  "
             button.doClick()
             assertEquals("Please add coverage", submitted)
@@ -39,7 +39,7 @@ class PrCommentComposerTest {
         SwingUtilities.invokeAndWait {
             val composer = PrCommentComposer({ _, _ -> fail("Blank comment sent") }, {})
             components(composer).filterIsInstance<JTextArea>().single().text = "  "
-            components(composer).filterIsInstance<JButton>().single().doClick()
+            components(composer).filterIsInstance<JButton>().single { it.text == "Add comment" }.doClick()
         }
     }
 }
