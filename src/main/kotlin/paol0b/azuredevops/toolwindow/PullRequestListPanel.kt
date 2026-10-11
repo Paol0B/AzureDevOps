@@ -17,10 +17,12 @@ import paol0b.azuredevops.actions.CompletePullRequestAction
 import paol0b.azuredevops.actions.ConvertToDraftPullRequestAction
 import paol0b.azuredevops.actions.SetAutoCompletePullRequestAction
 import paol0b.azuredevops.model.PullRequest
+import paol0b.azuredevops.model.stableOrganizationKey
 import paol0b.azuredevops.services.AvatarService
 import paol0b.azuredevops.services.AzureDevOpsApiClient
 import paol0b.azuredevops.services.AzureDevOpsConfigService
 import paol0b.azuredevops.services.AzureDevOpsSettingsService
+import paol0b.azuredevops.services.PullRequestQueryCriteria
 import paol0b.azuredevops.toolwindow.filters.PullRequestFilterPanel
 import paol0b.azuredevops.toolwindow.filters.PullRequestSearchValue
 import paol0b.azuredevops.util.NotificationUtil
@@ -142,6 +144,7 @@ class PullRequestListPanel(
         val statusChanged = currentSearchValue.state != newValue.state
         val orgChanged = currentSearchValue.showAllOrg != newValue.showAllOrg
         val projectsChanged = currentSearchValue.selectedProjectIds != newValue.selectedProjectIds
+        val involvementChanged = currentSearchValue.involvement != newValue.involvement
         currentSearchValue = newValue
 
         if (projectsChanged) {
@@ -150,7 +153,7 @@ class PullRequestListPanel(
                 newValue.selectedProjectIds.toMutableList()
         }
 
-        if (statusChanged || orgChanged || projectsChanged) {
+        if (statusChanged || orgChanged || projectsChanged || involvementChanged) {
             refreshPullRequests()
         } else {
             applyClientFilters()
@@ -174,6 +177,10 @@ class PullRequestListPanel(
                 try {
                     val apiClient = AzureDevOpsApiClient.getInstance(project)
                     val resolvedCurrentUserId = apiClient.getCurrentUserIdCached()
+
+                    if (currentSearchValue.involvement != null && resolvedCurrentUserId.isNullOrBlank()) {
+                        error("Could not resolve your Azure DevOps identity for the selected PR filter")
+                    }
 
                     val onPage: (List<PullRequest>, List<PullRequest>) -> Unit = { _, accumulated ->
                         ApplicationManager.getApplication().invokeLater {
@@ -199,37 +206,50 @@ class PullRequestListPanel(
                         }
                     }
 
+                    val criteriaList = currentSearchValue.serverQueryCriteria(resolvedCurrentUserId)
                     val selectedProjectIds = currentSearchValue.selectedProjectIds
-                    when {
-                        // Per-project server-side scoping: fetch only the projects the user
-                        // selected, sequentially. Pages from each project flow into the same
-                        // aggregated list so the UI fills in across project boundaries.
-                        selectedProjectIds.isNotEmpty() -> {
-                            val aggregated = mutableListOf<PullRequest>()
-                            val seenIds = HashSet<Int>()
+                    val aggregated = mutableListOf<PullRequest>()
+                    val seenKeys = HashSet<String>()
+
+                    // "Relevant to me" is an OR query. Azure DevOps ANDs creatorId and
+                    // reviewerId, so issue two small server-filtered requests and merge them.
+                    // The same aggregator also handles multi-project selections.
+                    val mergePage: (List<PullRequest>) -> Unit = { page ->
+                        val fresh = page.filter { seenKeys.add(it.stableOrganizationKey()) }
+                        if (fresh.isNotEmpty()) {
+                            aggregated.addAll(fresh)
+                            onPage(fresh, aggregated.toList())
+                        }
+                    }
+
+                    criteriaList.forEach { criteria ->
+                        if (selectedProjectIds.isNotEmpty()) {
                             selectedProjectIds.forEach { projectId ->
                                 apiClient.getProjectPullRequestsStreaming(
                                     projectIdOrName = projectId,
                                     status = apiStatus,
-                                    onPage = { page, _ ->
-                                        val fresh = page.filter { seenIds.add(it.pullRequestId) }
-                                        aggregated.addAll(fresh)
-                                        onPage(fresh, aggregated.toList())
-                                    },
-                                    // Per-project complete is intentionally a no-op — the
-                                    // aggregated onComplete fires once after every project.
-                                    onComplete = { /* aggregated below */ }
+                                    criteria = criteria,
+                                    onPage = { page, _ -> mergePage(page) },
+                                    onComplete = { /* merged after every scoped request */ }
                                 )
                             }
-                            onComplete(aggregated.toList())
+                        } else if (showAllOrg) {
+                            apiClient.getAllOrganizationPullRequestsStreaming(
+                                status = apiStatus,
+                                criteria = criteria,
+                                onPage = { page, _ -> mergePage(page) },
+                                onComplete = { /* merged after every scoped request */ }
+                            )
+                        } else {
+                            apiClient.getPullRequestsStreaming(
+                                status = apiStatus,
+                                criteria = criteria,
+                                onPage = { page, _ -> mergePage(page) },
+                                onComplete = { /* merged after every scoped request */ }
+                            )
                         }
-                        showAllOrg -> apiClient.getAllOrganizationPullRequestsStreaming(
-                            status = apiStatus, onPage = onPage, onComplete = onComplete
-                        )
-                        else -> apiClient.getPullRequestsStreaming(
-                            status = apiStatus, onPage = onPage, onComplete = onComplete
-                        )
                     }
+                    onComplete(aggregated.toList())
                 } catch (e: Exception) {
                     ApplicationManager.getApplication().invokeLater {
                         if (refreshGeneration.get() != generation) return@invokeLater
@@ -296,6 +316,13 @@ class PullRequestListPanel(
     private fun applyAllFilters(pullRequests: List<PullRequest>): List<PullRequest> {
         var result = pullRequests
         val sv = currentSearchValue
+
+        // Only the pending-vote part needs a local check. Assignment itself was already
+        // evaluated by Azure DevOps using searchCriteria.reviewerId (which also preserves
+        // assignments made through reviewer groups).
+        if (sv.involvement == PullRequestSearchValue.Involvement.AWAITING_MY_REVIEW) {
+            result = result.filter { it.isAwaitingReviewFrom(currentUserId) }
+        }
 
         // Text search
         val query = sv.searchQuery

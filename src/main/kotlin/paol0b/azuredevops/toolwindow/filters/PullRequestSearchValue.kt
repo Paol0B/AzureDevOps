@@ -7,6 +7,12 @@ package paol0b.azuredevops.toolwindow.filters
 data class PullRequestSearchValue(
     val searchQuery: String? = null,
     val state: State? = null,
+    /**
+     * Server-side "who is this PR relevant to?" scope.  Azure DevOps exposes creatorId and
+     * reviewerId search criteria, so these presets must not be emulated by downloading every
+     * PR in the organization and filtering locally.
+     */
+    val involvement: Involvement? = null,
     val author: AuthorFilter? = null,
     val review: ReviewState? = null,
     val sort: Sort? = null,
@@ -21,6 +27,7 @@ data class PullRequestSearchValue(
             var count = 0
             if (searchQuery != null) count++
             if (state != null) count++
+            if (involvement != null) count++
             if (author != null) count++
             if (review != null) count++
             if (sort != null) count++
@@ -35,6 +42,16 @@ data class PullRequestSearchValue(
         COMPLETED("completed", "Completed"),
         ABANDONED("abandoned", "Abandoned"),
         ALL("all", "All");
+
+        override fun toString(): String = displayName
+    }
+
+    /** User-centric scopes used by the quick-filter presets. */
+    enum class Involvement(val displayName: String) {
+        RELEVANT_TO_ME("Relevant to me"),
+        CREATED_BY_ME("Created by me"),
+        ASSIGNED_TO_ME("Assigned to me"),
+        AWAITING_MY_REVIEW("Needs my review");
 
         override fun toString(): String = displayName
     }
@@ -86,7 +103,13 @@ data class PullRequestSearchValue(
     }
 
     companion object {
-        val DEFAULT = PullRequestSearchValue(state = State.OPEN, showAllOrg = true)
+        // A useful and inexpensive default: two narrowly scoped API calls (creator + reviewer)
+        // instead of an unbounded organization-wide PR download.
+        val DEFAULT = PullRequestSearchValue(
+            state = State.OPEN,
+            involvement = Involvement.RELEVANT_TO_ME,
+            showAllOrg = true
+        )
         val EMPTY = PullRequestSearchValue()
     }
 }
@@ -95,7 +118,8 @@ data class PullRequestSearchValue(
  * Quick filter presets, modeled after GHPRListQuickFilter.
  */
 enum class PullRequestQuickFilter(val displayName: String) {
-    OPEN("Open"),
+    RELEVANT_TO_ME("Relevant to me"),
+    OPEN("Open (all organization)"),
     YOUR_PULL_REQUESTS("Your pull requests"),
     ASSIGNED_TO_YOU("Assigned to you"),
     REVIEW_REQUESTS("Review requests");
