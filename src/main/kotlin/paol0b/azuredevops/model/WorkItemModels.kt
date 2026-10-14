@@ -237,6 +237,30 @@ data class WorkItemTypeCategoryListResponse(
     @SerializedName("count") val count: Int?
 )
 
+/**
+ * One backlog level of the team backlog configuration (Epics, Features, Stories, Tasks...
+ * or a custom portfolio level). [id] is the category reference name.
+ */
+data class BacklogLevel(
+    @SerializedName("id") val id: String?,
+    @SerializedName("name") val name: String?,
+    @SerializedName("workItemTypes") val workItemTypes: List<WorkItemTypeReference>?
+)
+
+/**
+ * Team backlog configuration: the backlog levels and the work item types shown on each
+ * of them. `GET {project}/_apis/work/backlogconfiguration` (default team of the project).
+ */
+data class BacklogConfiguration(
+    @SerializedName("requirementBacklog") val requirementBacklog: BacklogLevel?,
+    @SerializedName("taskBacklog") val taskBacklog: BacklogLevel?,
+    @SerializedName("portfolioBacklogs") val portfolioBacklogs: List<BacklogLevel>?,
+    /** "off", "asRequirements" or "asTasks". */
+    @SerializedName("bugsBehavior") val bugsBehavior: String?,
+    /** Category reference names of the backlog levels the team chose to hide. */
+    @SerializedName("hiddenBacklogs") val hiddenBacklogs: List<String>?
+)
+
 // endregion
 
 // region Iterations / Sprints

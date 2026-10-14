@@ -240,11 +240,13 @@ class WorkItemFilterPanel(
      * State filter: the choices are the states configured in the Azure DevOps project
      * (loaded by [WorkItemStateCatalog]); several states can be checked, and the
      * "Exclude selected" toggle hides them instead (e.g. hide Closed and Removed).
+     * When a type filter is set, only the states of that type are offered.
      * Falls back to the standard Agile states when the catalog could not be loaded.
      */
     private fun showStatePopup(chip: FilterChipComponent) {
-        val stateNames = WorkItemStateCatalog.getInstance(project).stateNames()
-            .ifEmpty { WorkItemStateCatalog.FALLBACK_STATES }
+        val catalog = WorkItemStateCatalog.getInstance(project)
+        val stateNames = currentValue.type?.let { catalog.statesFor(it.displayName) }
+            ?: catalog.stateNames().ifEmpty { WorkItemStateCatalog.FALLBACK_STATES }
         val current = currentValue.state
 
         FilterPopupUtil.showMultiSelectPopup(

@@ -2095,6 +2095,27 @@ The plugin will automatically use your authenticated account for this repository
     }
 
     /**
+     * Get the backlog configuration of the project's default team: the backlog levels
+     * (portfolio, requirement, task) with the work item types shown on each of them.
+     * Used to know which types actually appear on boards and backlogs.
+     * API: GET https://dev.azure.com/{org}/{project}/_apis/work/backlogconfiguration
+     */
+    @Throws(AzureDevOpsApiException::class)
+    fun getBacklogConfiguration(): BacklogConfiguration {
+        val config = requireValidConfig()
+        val url = buildWorkApiUrl(config.project, null, "/backlogconfiguration?api-version=$API_VERSION")
+
+        return try {
+            val response = executeGet(url, config.personalAccessToken)
+            gson.fromJson(response, BacklogConfiguration::class.java)
+        } catch (e: AzureDevOpsApiException) {
+            throw e
+        } catch (e: Exception) {
+            throw AzureDevOpsApiException("Error fetching backlog configuration: ${e.message}", e)
+        }
+    }
+
+    /**
      * Get the current iteration/sprint for the project's default team.
      * API: GET https://dev.azure.com/{org}/{project}/{team}/_apis/work/teamsettings/iterations
      */
