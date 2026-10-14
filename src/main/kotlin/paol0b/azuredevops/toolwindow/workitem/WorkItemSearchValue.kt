@@ -36,14 +36,34 @@ data class WorkItemSearchValue(
         override fun toString(): String = displayName
     }
 
-    enum class StateFilter(val displayName: String) {
-        NEW("New"),
-        ACTIVE("Active"),
-        RESOLVED("Resolved"),
-        CLOSED("Closed"),
-        ALL("All");
+    /**
+     * State filter built from the states actually configured in the Azure DevOps project
+     * (see [paol0b.azuredevops.services.WorkItemStateCatalog]), so it also works on
+     * customized processes whose states are not New / Active / Resolved / Closed.
+     *
+     * @param states  selected state names; empty means "every state" (no WIQL condition)
+     * @param exclude when true the selection is inverted: show every state EXCEPT [states]
+     *                (typically used to hide Closed / Removed items)
+     */
+    data class StateFilter(
+        val states: List<String> = emptyList(),
+        val exclude: Boolean = false
+    ) {
+        val isAll: Boolean
+            get() = states.isEmpty()
+
+        val displayName: String
+            get() {
+                if (states.isEmpty()) return "All"
+                val names = if (states.size <= 2) states.joinToString(", ") else "${states.size} states"
+                return if (exclude) "Not $names" else names
+            }
 
         override fun toString(): String = displayName
+
+        companion object {
+            val ALL = StateFilter()
+        }
     }
 
     enum class AssignedToFilter(val displayName: String) {

@@ -1982,21 +1982,33 @@ The plugin will automatically use your authenticated account for this repository
     @Throws(AzureDevOpsApiException::class)
     fun getMyWorkItems(
         iterationPath: String? = null,
-        state: String? = null,
+        states: Collection<String>? = null,
+        excludeStates: Boolean = false,
         type: String? = null,
         top: Int = 200
-    ): List<WorkItem> = queryWorkItems(assignedToMe = true, iterationPath = iterationPath, state = state, type = type, top = top)
+    ): List<WorkItem> = queryWorkItems(
+        assignedToMe = true, iterationPath = iterationPath,
+        states = states, excludeStates = excludeStates, type = type, top = top
+    )
 
     /**
      * Get all work items for a project, optionally filtered.
+     *
+     * @param states        state names to match (project-specific, see [WorkItemStateCatalog]);
+     *                      null or empty = no state condition
+     * @param excludeStates when true, [states] are the states to hide instead of the states to show
      */
     @Throws(AzureDevOpsApiException::class)
     fun getAllWorkItems(
         iterationPath: String? = null,
-        state: String? = null,
+        states: Collection<String>? = null,
+        excludeStates: Boolean = false,
         type: String? = null,
         top: Int = 200
-    ): List<WorkItem> = queryWorkItems(assignedToMe = false, iterationPath = iterationPath, state = state, type = type, top = top)
+    ): List<WorkItem> = queryWorkItems(
+        assignedToMe = false, iterationPath = iterationPath,
+        states = states, excludeStates = excludeStates, type = type, top = top
+    )
 
     /**
      * Get all work items matching a WIQL query (full objects).
@@ -2010,7 +2022,8 @@ The plugin will automatically use your authenticated account for this repository
     private fun queryWorkItems(
         assignedToMe: Boolean,
         iterationPath: String? = null,
-        state: String? = null,
+        states: Collection<String>? = null,
+        excludeStates: Boolean = false,
         type: String? = null,
         top: Int = 200
     ): List<WorkItem> {
@@ -2018,9 +2031,7 @@ The plugin will automatically use your authenticated account for this repository
         if (assignedToMe) {
             conditions.add("[System.AssignedTo] = @Me")
         }
-        if (!state.isNullOrBlank()) {
-            conditions.add("[System.State] = '${escapeWiql(state)}'")
-        }
+        Wiql.stateCondition(states, excludeStates)?.let { conditions.add(it) }
         if (!type.isNullOrBlank()) {
             conditions.add("[System.WorkItemType] = '${escapeWiql(type)}'")
         }
@@ -2040,7 +2051,7 @@ The plugin will automatically use your authenticated account for this repository
     }
 
     /** Escape single quotes in WIQL string literals. */
-    private fun escapeWiql(value: String): String = value.replace("'", "''")
+    private fun escapeWiql(value: String): String = Wiql.escape(value)
 
     /**
      * Get available work item types for the current project.

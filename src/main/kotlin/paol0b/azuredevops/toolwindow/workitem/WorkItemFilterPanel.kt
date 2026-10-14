@@ -14,6 +14,7 @@ import com.intellij.openapi.ui.popup.util.BaseListPopupStep
 import com.intellij.ui.awt.RelativePoint
 import com.intellij.util.ui.JBUI
 import paol0b.azuredevops.model.TeamIteration
+import paol0b.azuredevops.services.WorkItemStateCatalog
 import paol0b.azuredevops.toolwindow.filters.FilterBadgeIcon
 import paol0b.azuredevops.toolwindow.filters.FilterChipComponent
 import paol0b.azuredevops.toolwindow.filters.FilterPopupUtil
@@ -180,8 +181,13 @@ class WorkItemFilterPanel(
                         WorkItemQuickFilter.MY_WORK_ITEMS -> applyQuickFilter(
                             WorkItemSearchValue(assignedTo = WorkItemSearchValue.AssignedToFilter.ME)
                         )
+                        // "All active" = every state except the Completed / Removed ones of the
+                        // project (works for custom processes that have no "Active" state)
                         WorkItemQuickFilter.ALL_ACTIVE -> applyQuickFilter(
-                            WorkItemSearchValue(state = WorkItemSearchValue.StateFilter.ACTIVE)
+                            WorkItemSearchValue(state = WorkItemSearchValue.StateFilter(
+                                states = WorkItemStateCatalog.getInstance(project).completedStateNames(),
+                                exclude = true
+                            ))
                         )
                         WorkItemQuickFilter.MY_BUGS -> applyQuickFilter(
                             WorkItemSearchValue(
@@ -230,14 +236,31 @@ class WorkItemFilterPanel(
         )
     }
 
+    /**
+     * State filter: the choices are the states configured in the Azure DevOps project
+     * (loaded by [WorkItemStateCatalog]); several states can be checked, and the
+     * "Exclude selected" toggle hides them instead (e.g. hide Closed and Removed).
+     * Falls back to the standard Agile states when the catalog could not be loaded.
+     */
     private fun showStatePopup(chip: FilterChipComponent) {
-        FilterPopupUtil.showSimplePopup(
+        val stateNames = WorkItemStateCatalog.getInstance(project).stateNames()
+            .ifEmpty { WorkItemStateCatalog.FALLBACK_STATES }
+        val current = currentValue.state
+
+        FilterPopupUtil.showMultiSelectPopup(
             component = chip,
-            items = WorkItemSearchValue.StateFilter.entries.toList(),
-            presenter = { it.displayName },
-            onSelected = { state ->
-                chip.setValue(state.displayName)
-                updateFilter(currentValue.copy(state = state))
+            items = stateNames,
+            presenter = { it },
+            initiallySelected = current?.states.orEmpty(),
+            excludeInitially = current?.exclude ?: false,
+            excludeLabel = "Exclude selected states",
+            onApply = { selected, exclude ->
+                val newState = if (selected.isEmpty()) null
+                else WorkItemSearchValue.StateFilter(selected, exclude)
+                if (newState != current) {
+                    if (newState != null) chip.setValue(newState.displayName) else chip.clearValue()
+                    updateFilter(currentValue.copy(state = newState))
+                }
             }
         )
     }

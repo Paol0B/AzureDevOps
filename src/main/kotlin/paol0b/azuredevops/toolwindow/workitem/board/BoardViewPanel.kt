@@ -13,6 +13,7 @@ import paol0b.azuredevops.model.JsonPatchOperation
 import paol0b.azuredevops.model.WorkItem
 import paol0b.azuredevops.model.WorkItemTypeState
 import paol0b.azuredevops.services.AzureDevOpsApiClient
+import paol0b.azuredevops.services.WorkItemStateCatalog
 import paol0b.azuredevops.util.NotificationUtil
 import java.awt.*
 import javax.swing.*
@@ -104,22 +105,13 @@ class BoardViewPanel(
             try {
                 val apiClient = AzureDevOpsApiClient.getInstance(project)
 
-                // Fetch board column definitions from Azure DevOps (work item type states)
+                // Fetch board column definitions from Azure DevOps (work item type states),
+                // shared with the state filter / sprint view through the project catalog
                 if (!isBoardColumnsLoaded) {
                     try {
-                        val types = apiClient.getWorkItemTypes()
-                        // Collect all unique states across all work item types, preserving order
-                        val seen = linkedSetOf<String>()
-                        val stateList = mutableListOf<WorkItemTypeState>()
-                        for (type in types) {
-                            for (state in type.states.orEmpty()) {
-                                val name = state.name ?: continue
-                                if (seen.add(name)) {
-                                    stateList.add(state)
-                                }
-                            }
-                        }
-                        boardColumns = stateList
+                        val catalog = WorkItemStateCatalog.getInstance(project)
+                        catalog.ensureLoaded()
+                        boardColumns = catalog.allStates()
                         isBoardColumnsLoaded = true
                     } catch (e: Exception) {
                         isBoardColumnsLoaded = true // don't retry on every refresh

@@ -10,6 +10,7 @@ import com.intellij.openapi.ui.popup.util.BaseListPopupStep
 import paol0b.azuredevops.model.JsonPatchOperation
 import paol0b.azuredevops.model.WorkItem
 import paol0b.azuredevops.services.AzureDevOpsApiClient
+import paol0b.azuredevops.services.WorkItemStateCatalog
 import paol0b.azuredevops.util.NotificationUtil
 import java.awt.Component
 
@@ -21,11 +22,11 @@ object ChangeWorkItemStateAction {
 
     private val logger = Logger.getInstance(ChangeWorkItemStateAction::class.java)
 
-    // Standard states for common work item types
-    private val COMMON_STATES = listOf("New", "Active", "Resolved", "Closed", "Removed")
-
     /**
      * Show a popup allowing the user to select a new state for the work item.
+     * The states offered are the ones configured for the work item's type in the
+     * Azure DevOps project (custom processes supported); the standard Agile states
+     * are used only when the project states cannot be fetched.
      *
      * @param project The current project
      * @param workItem The work item to update
@@ -38,8 +39,36 @@ object ChangeWorkItemStateAction {
         component: Component,
         onUpdated: ((WorkItem) -> Unit)? = null
     ) {
+        val catalog = WorkItemStateCatalog.getInstance(project)
+        if (catalog.isLoaded) {
+            showStatePopupWithStates(project, workItem, component, catalog, onUpdated)
+            return
+        }
+
+        // Catalog not loaded yet: fetch it off the EDT, then show the popup
+        ApplicationManager.getApplication().executeOnPooledThread {
+            try {
+                catalog.ensureLoaded()
+            } catch (e: Exception) {
+                logger.warn("Failed to load work item states, using default states", e)
+            }
+            ApplicationManager.getApplication().invokeLater {
+                if (component.isShowing) {
+                    showStatePopupWithStates(project, workItem, component, catalog, onUpdated)
+                }
+            }
+        }
+    }
+
+    private fun showStatePopupWithStates(
+        project: Project,
+        workItem: WorkItem,
+        component: Component,
+        catalog: WorkItemStateCatalog,
+        onUpdated: ((WorkItem) -> Unit)?
+    ) {
         val currentState = workItem.getState()
-        val availableStates = COMMON_STATES.filter { it != currentState }
+        val availableStates = catalog.statesFor(workItem.getWorkItemType()).filter { it != currentState }
 
         val step = object : BaseListPopupStep<String>("Change State", availableStates) {
             override fun onChosen(selectedValue: String, finalChoice: Boolean): PopupStep<*>? {
