@@ -2074,6 +2074,27 @@ The plugin will automatically use your authenticated account for this repository
     }
 
     /**
+     * Get the work item type categories of the current project (requirement, bug, task,
+     * hidden...). Used to drop the hidden types from the state catalog.
+     * API: GET https://dev.azure.com/{org}/{project}/_apis/wit/workitemtypecategories
+     */
+    @Throws(AzureDevOpsApiException::class)
+    fun getWorkItemTypeCategories(): List<WorkItemTypeCategory> {
+        val config = requireValidConfig()
+        val url = buildWitApiUrl(config.project, "/workitemtypecategories?api-version=$API_VERSION")
+
+        return try {
+            val response = executeGet(url, config.personalAccessToken)
+            val listResponse = gson.fromJson(response, WorkItemTypeCategoryListResponse::class.java)
+            listResponse.value ?: emptyList()
+        } catch (e: AzureDevOpsApiException) {
+            throw e
+        } catch (e: Exception) {
+            throw AzureDevOpsApiException("Error fetching work item type categories: ${e.message}", e)
+        }
+    }
+
+    /**
      * Get the current iteration/sprint for the project's default team.
      * API: GET https://dev.azure.com/{org}/{project}/{team}/_apis/work/teamsettings/iterations
      */
