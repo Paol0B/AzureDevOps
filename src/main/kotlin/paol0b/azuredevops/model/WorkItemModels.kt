@@ -195,7 +195,9 @@ data class WorkItemType(
     @SerializedName("description") val description: String?,
     @SerializedName("color") val color: String?,
     @SerializedName("icon") val icon: WorkItemTypeIcon?,
-    @SerializedName("states") val states: List<WorkItemTypeState>?
+    @SerializedName("states") val states: List<WorkItemTypeState>?,
+    /** True when the type is disabled in the process (not creatable, not shown on boards). */
+    @SerializedName("isDisabled") val isDisabled: Boolean? = null
 )
 
 data class WorkItemTypeIcon(
@@ -212,6 +214,51 @@ data class WorkItemTypeState(
 data class WorkItemTypeListResponse(
     @SerializedName("value") val value: List<WorkItemType>?,
     @SerializedName("count") val count: Int?
+)
+
+/**
+ * A work item type category (`GET _apis/wit/workitemtypecategories`), e.g.
+ * `Microsoft.RequirementCategory`, `Microsoft.BugCategory` or `Microsoft.HiddenCategory`.
+ * The hidden category lists the types Azure DevOps never shows on boards
+ * (Code Review Request/Response, Feedback Request/Response, Shared Steps, Test Plan...).
+ */
+data class WorkItemTypeCategory(
+    @SerializedName("referenceName") val referenceName: String?,
+    @SerializedName("name") val name: String?,
+    @SerializedName("workItemTypes") val workItemTypes: List<WorkItemTypeReference>?
+)
+
+data class WorkItemTypeReference(
+    @SerializedName("name") val name: String?
+)
+
+data class WorkItemTypeCategoryListResponse(
+    @SerializedName("value") val value: List<WorkItemTypeCategory>?,
+    @SerializedName("count") val count: Int?
+)
+
+/**
+ * One backlog level of the team backlog configuration (Epics, Features, Stories, Tasks...
+ * or a custom portfolio level). [id] is the category reference name.
+ */
+data class BacklogLevel(
+    @SerializedName("id") val id: String?,
+    @SerializedName("name") val name: String?,
+    @SerializedName("workItemTypes") val workItemTypes: List<WorkItemTypeReference>?
+)
+
+/**
+ * Team backlog configuration: the backlog levels and the work item types shown on each
+ * of them. `GET {project}/_apis/work/backlogconfiguration` (default team of the project).
+ */
+data class BacklogConfiguration(
+    @SerializedName("requirementBacklog") val requirementBacklog: BacklogLevel?,
+    @SerializedName("taskBacklog") val taskBacklog: BacklogLevel?,
+    @SerializedName("portfolioBacklogs") val portfolioBacklogs: List<BacklogLevel>?,
+    /** "off", "asRequirements" or "asTasks". */
+    @SerializedName("bugsBehavior") val bugsBehavior: String?,
+    /** Category reference names of the backlog levels the team chose to hide. */
+    @SerializedName("hiddenBacklogs") val hiddenBacklogs: List<String>?
 )
 
 // endregion

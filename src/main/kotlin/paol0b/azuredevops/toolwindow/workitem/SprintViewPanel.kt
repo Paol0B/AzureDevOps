@@ -16,6 +16,7 @@ import com.intellij.util.ui.UIUtil
 import paol0b.azuredevops.model.TeamIteration
 import paol0b.azuredevops.model.WorkItem
 import paol0b.azuredevops.services.AzureDevOpsApiClient
+import paol0b.azuredevops.services.WorkItemStateCatalog
 import java.awt.*
 import javax.swing.*
 import javax.swing.tree.DefaultMutableTreeNode
@@ -163,10 +164,10 @@ class SprintViewPanel(private val project: Project) {
         sprintHeaderLabel.text = "${iteration.name}$suffix"
 
         val total = workItems.size
-        val completed = workItems.count {
-            val state = it.getState().lowercase()
-            state == "closed" || state == "done" || state == "resolved"
-        }
+        // "Done" is decided by the state category (Resolved / Completed / Removed) so that
+        // custom process states such as "VERIFICATION NEEDED" are classified correctly.
+        val catalog = WorkItemStateCatalog.getInstance(project)
+        val completed = workItems.count { catalog.isDone(it.getState()) }
         val pct = if (total > 0) (completed * 100 / total) else 0
         progressBar.value = pct
         progressBar.string = "$completed / $total ($pct%)"
@@ -181,9 +182,10 @@ class SprintViewPanel(private val project: Project) {
             return
         }
 
-        // Group by state
+        // Group by state, in the order the states are defined in the Azure DevOps project
         val grouped = workItems.groupBy { it.getState() }
-        val stateOrder = listOf("New", "Active", "Resolved", "Closed")
+        val stateOrder = WorkItemStateCatalog.getInstance(project).stateNames()
+            .ifEmpty { listOf("New", "Active", "Resolved", "Closed") }
 
         // Add states in order, then any remaining
         val orderedStates = stateOrder.filter { grouped.containsKey(it) } +

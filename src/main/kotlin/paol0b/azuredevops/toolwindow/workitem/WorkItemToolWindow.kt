@@ -7,6 +7,7 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.SimpleToolWindowPanel
 import paol0b.azuredevops.services.AzureDevOpsApiClient
+import paol0b.azuredevops.services.WorkItemStateCatalog
 import paol0b.azuredevops.services.WorkItemTabService
 import paol0b.azuredevops.ui.CreateWorkItemDialog
 import java.awt.BorderLayout
@@ -42,12 +43,14 @@ class WorkItemToolWindow(private val project: Project) {
         }
 
         loadIterations()
+        loadWorkItemStates()
     }
 
     fun loadWorkItemsIfNeeded() {
         if (!isIterationsLoaded) {
             loadIterations()
         }
+        loadWorkItemStates()
         if (!isInitialLoadDone) {
             isInitialLoadDone = true
             workItemListPanel.refreshWorkItems()
@@ -153,9 +156,29 @@ class WorkItemToolWindow(private val project: Project) {
         }
     }
 
+    /**
+     * Loads the work item types and their states configured in the project, so the
+     * State filter, the change-state popup and the sprint view use the real state names
+     * (custom processes) instead of the default Agile ones.
+     */
+    private fun loadWorkItemStates() {
+        val catalog = WorkItemStateCatalog.getInstance(project)
+        if (catalog.isLoaded) return
+
+        ApplicationManager.getApplication().executeOnPooledThread {
+            try {
+                catalog.load()
+            } catch (e: Exception) {
+                logger.warn("Failed to load work item states: ${e.message}")
+            }
+        }
+    }
+
     fun refreshAll() {
         isIterationsLoaded = false
         loadIterations()
+        WorkItemStateCatalog.getInstance(project).invalidate()
+        loadWorkItemStates()
         workItemListPanel.refreshWorkItems()
     }
 

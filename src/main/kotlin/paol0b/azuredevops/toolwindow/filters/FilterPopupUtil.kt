@@ -2,13 +2,17 @@ package paol0b.azuredevops.toolwindow.filters
 
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.ui.popup.JBPopupFactory
+import com.intellij.openapi.ui.popup.JBPopupListener
+import com.intellij.openapi.ui.popup.LightweightWindowEvent
 import com.intellij.openapi.ui.popup.ListPopup
 import com.intellij.openapi.ui.popup.PopupStep
 import com.intellij.openapi.ui.popup.util.BaseListPopupStep
+import com.intellij.ui.CheckBoxList
 import com.intellij.ui.ColoredListCellRenderer
 import com.intellij.ui.SearchTextField
 import com.intellij.ui.SimpleTextAttributes
 import com.intellij.ui.awt.RelativePoint
+import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.scale.JBUIScale
@@ -16,6 +20,7 @@ import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
 import java.awt.Component
 import java.awt.Dimension
+import java.awt.FlowLayout
 import java.awt.Point
 import javax.swing.*
 
@@ -24,6 +29,108 @@ import javax.swing.*
  * modeled after ChooserPopupUtil from the JetBrains GitHub plugin.
  */
 object FilterPopupUtil {
+
+    private const val MULTI_SELECT_MAX_VISIBLE_ROWS = 12
+
+    /**
+     * Shows a multi-select popup (checkbox list) with Select All / Clear buttons and an
+     * optional "exclude" toggle that inverts the selection.
+     *
+     * The result is delivered once, through [onApply], when the popup closes.
+     *
+     * @param component        The component to position the popup relative to
+     * @param items            The items to choose from (displayed in this order)
+     * @param presenter        Function to get display text for each item
+     * @param initiallySelected Items checked when the popup opens
+     * @param excludeInitially Initial value of the exclude toggle
+     * @param excludeLabel     Label of the exclude toggle; null hides the toggle
+     * @param onApply          Callback with the checked items (in [items] order) and the exclude flag
+     */
+    fun <T> showMultiSelectPopup(
+        component: JComponent,
+        items: List<T>,
+        presenter: (T) -> String,
+        initiallySelected: Collection<T>,
+        excludeInitially: Boolean = false,
+        excludeLabel: String? = "Exclude selected",
+        onApply: (selected: List<T>, exclude: Boolean) -> Unit
+    ) {
+        val selection = LinkedHashSet(initiallySelected)
+
+        val checkBoxList = CheckBoxList<T>()
+        checkBoxList.setCheckBoxListListener { index, checked ->
+            val item = checkBoxList.getItemAt(index) ?: return@setCheckBoxListListener
+            if (checked) selection.add(item) else selection.remove(item)
+        }
+
+        fun rebuild() {
+            checkBoxList.clear()
+            items.forEach { item -> checkBoxList.addItem(item, presenter(item), selection.contains(item)) }
+        }
+        rebuild()
+
+        val rowsToShow = items.size.coerceIn(1, MULTI_SELECT_MAX_VISIBLE_ROWS)
+        val rowHeight = if (items.isEmpty()) JBUIScale.scale(24)
+        else (checkBoxList.preferredSize.height + items.size - 1) / items.size
+        val scrollPane = JBScrollPane(checkBoxList).apply {
+            border = JBUI.Borders.empty()
+            preferredSize = Dimension(JBUIScale.scale(260), rowsToShow * rowHeight + JBUIScale.scale(8))
+        }
+
+        val selectAll = JButton("Select All").apply {
+            addActionListener {
+                selection.clear()
+                selection.addAll(items)
+                rebuild()
+            }
+        }
+        val clear = JButton("Clear").apply {
+            addActionListener {
+                selection.clear()
+                rebuild()
+            }
+        }
+        val buttons = JPanel(FlowLayout(FlowLayout.LEFT, JBUIScale.scale(4), 0)).apply {
+            border = JBUI.Borders.empty(4)
+            add(selectAll)
+            add(clear)
+        }
+
+        val excludeCheckBox = excludeLabel?.let { JBCheckBox(it, excludeInitially) }
+        val south = JPanel(BorderLayout()).apply {
+            add(buttons, BorderLayout.NORTH)
+            if (excludeCheckBox != null) {
+                add(JPanel(FlowLayout(FlowLayout.LEFT, JBUIScale.scale(4), 0)).apply {
+                    border = JBUI.Borders.empty(0, 4, 4, 4)
+                    add(excludeCheckBox)
+                }, BorderLayout.SOUTH)
+            }
+        }
+
+        val content = JPanel(BorderLayout()).apply {
+            add(scrollPane, BorderLayout.CENTER)
+            add(south, BorderLayout.SOUTH)
+        }
+
+        val popup = JBPopupFactory.getInstance()
+            .createComponentPopupBuilder(content, checkBoxList)
+            .setRequestFocus(true)
+            .setFocusable(true)
+            .setMovable(false)
+            .setResizable(true)
+            .setCancelOnClickOutside(true)
+            .setCancelOnWindowDeactivation(true)
+            .addListener(object : JBPopupListener {
+                override fun onClosed(event: LightweightWindowEvent) {
+                    val ordered = items.filter { selection.contains(it) }
+                    onApply(ordered, excludeCheckBox?.isSelected ?: false)
+                }
+            })
+            .createPopup()
+
+        val point = RelativePoint(component, Point(0, component.height + JBUIScale.scale(2)))
+        popup.show(point)
+    }
 
     /**
      * Shows a simple list selection popup for enum-based filters.
