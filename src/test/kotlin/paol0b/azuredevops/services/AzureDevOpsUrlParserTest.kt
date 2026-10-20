@@ -37,6 +37,16 @@ class AzureDevOpsUrlParserTest {
     }
 
     @Test
+    fun `legacy cloud collection URL identifies the project and repository`() {
+        val info = AzureDevOpsUrlParser.parse("https://myorg.visualstudio.com/DefaultCollection/My%20Project/_git/MyRepo")
+        assertNotNull("Azure PR metadata uses the legacy collection URL", info)
+        assertEquals("myorg", info?.organization)
+        assertEquals("My Project", info?.project)
+        assertEquals("MyRepo", info?.repository)
+        assertNull(info?.selfHostedUrl)
+    }
+
+    @Test
     fun `test parsing legacy ssh url`() {
         val url = "myorg@vs-ssh.visualstudio.com:v3/myorg/MyProject/MyRepo"
         val info = AzureDevOpsUrlParser.parse(url)

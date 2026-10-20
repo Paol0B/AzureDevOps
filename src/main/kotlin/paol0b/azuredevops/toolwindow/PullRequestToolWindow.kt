@@ -27,7 +27,7 @@ class PullRequestToolWindow(private val project: Project) {
         }
 
         pollingService.startPolling {
-            pullRequestListPanel.refreshPullRequests()
+            pullRequestListPanel.refreshPullRequests(force = false)
         }
     }
 

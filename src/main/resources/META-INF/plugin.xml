@@ -121,6 +121,7 @@
     <!-- Extension points defined by the plugin.
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
     <extensions defaultExtensionNs="com.intellij">
+        <diff.DiffExtension implementation="paol0b.azuredevops.toolwindow.review.PrDiffCommentExtension"/>
         <!-- Azure DevOps Clone Dialog Extension - appears in left panel alongside GitHub/GitLab -->
         <openapi.vcs.ui.cloneDialog.VcsCloneDialogExtension 
             id="paol0b.azuredevops.checkout.AzureDevOpsCloneDialogExtension" 
@@ -263,6 +264,20 @@
     </projectListeners>
 
     <actions>
+        <action id="AzureDevOps.AddEditorPRComment"
+                class="paol0b.azuredevops.actions.AddEditorPullRequestCommentAction"
+                text="Add PR comment"
+                description="Start a pull request comment on this line or selected code"
+                icon="AllIcons.General.Balloon">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+        </action>
+        <action id="AzureDevOps.CommentSelectedText"
+                class="paol0b.azuredevops.toolwindow.review.PrSelectedTextCommentAction"
+                text="Comment on selected text"
+                description="Comment on the selected PR code range"
+                icon="AllIcons.General.Balloon">
+            <add-to-group group-id="Diff.EditorPopupMenu" anchor="last"/>
+        </action>
         <!-- Azure DevOps Group in Git Menu -->
         <group id="AzureDevOps.Group"
                text="Azure DevOps"

@@ -37,6 +37,8 @@ class PrTimelineFileEditor(
     override fun removePropertyChangeListener(listener: PropertyChangeListener) {}
     override fun getCurrentLocation(): FileEditorLocation? = null
 
+    fun focusComment() { javax.swing.SwingUtilities.invokeLater { if (!isDisposed) timelinePanel.focusComment() } }
+
     override fun dispose() {
         if (!isDisposed) {
             isDisposed = true

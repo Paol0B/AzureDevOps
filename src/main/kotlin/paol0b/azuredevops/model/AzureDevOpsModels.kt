@@ -338,7 +338,7 @@ data class AzureDevOpsErrorResponse(
 data class CommentThread(
     val id: Int?,
     @SerializedName("pullRequestThreadContext")
-    val pullRequestThreadContext: ThreadContext?,
+    val pullRequestThreadContext: PullRequestThreadContext?,
     val comments: List<Comment>?,
     val status: ThreadStatus?,
     @SerializedName("threadContext")
@@ -347,19 +347,19 @@ data class CommentThread(
     val isDeleted: Boolean?
 ) {
     /**
-     * Gets the file path, searching in pullRequestThreadContext first, then threadContext
+     * Gets the file path from the file-position context.
      */
-    fun getFilePath(): String? = pullRequestThreadContext?.filePath ?: threadContext?.filePath
+    fun getFilePath(): String? = threadContext?.filePath
     
     /**
-     * Gets the start line, searching in pullRequestThreadContext first, then threadContext
+     * Gets the right-side start line from the file-position context.
      */
-    fun getRightFileStart(): Int? = pullRequestThreadContext?.rightFileStart?.line ?: threadContext?.rightFileStart?.line
+    fun getRightFileStart(): Int? = threadContext?.rightFileStart?.line
     
     /**
-     * Gets the end line, searching in pullRequestThreadContext first, then threadContext
+     * Gets the right-side end line from the file-position context.
      */
-    fun getRightFileEnd(): Int? = pullRequestThreadContext?.rightFileEnd?.line ?: threadContext?.rightFileEnd?.line
+    fun getRightFileEnd(): Int? = threadContext?.rightFileEnd?.line
     
     fun isActive(): Boolean = status == ThreadStatus.Active || status == ThreadStatus.Pending
     fun isResolved(): Boolean = !isActive()
@@ -373,6 +373,17 @@ data class CommentThread(
         return firstComment.commentType == "system" || firstComment.author == null
     }
 }
+
+/** Iteration tracking metadata is separate from the comment's file coordinates. */
+data class PullRequestThreadContext(
+    val changeTrackingId: Int?,
+    val iterationContext: IterationContext?
+)
+
+data class IterationContext(
+    val firstComparingIteration: Int?,
+    val secondComparingIteration: Int?
+)
 
 /**
  * Thread context (position in file)

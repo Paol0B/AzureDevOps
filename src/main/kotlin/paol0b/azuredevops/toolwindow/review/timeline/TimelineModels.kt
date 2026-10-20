@@ -118,7 +118,7 @@ object TimelineConverter {
                 }
 
                 // Extract line range from thread context
-                val ctx = thread.pullRequestThreadContext ?: thread.threadContext
+                val ctx = thread.threadContext
                 val rightStart = thread.getRightFileStart()
                 val rightEnd = thread.getRightFileEnd()
                 val leftStart = ctx?.leftFileStart?.line
@@ -163,20 +163,9 @@ object TimelineConverter {
      * Only triggers re-render when something actually changed.
      */
     fun calculateHash(threads: List<CommentThread>, reviewers: List<Reviewer>?): Int {
-        var hash = threads.size
-        for (thread in threads) {
-            hash = 31 * hash + (thread.id ?: 0)
-            hash = 31 * hash + (thread.status?.hashCode() ?: 0)
-            hash = 31 * hash + (thread.comments?.size ?: 0)
-            hash = 31 * hash + (thread.comments?.firstOrNull()?.content?.hashCode() ?: 0)
-            hash = 31 * hash + (thread.comments?.lastOrNull()?.content?.hashCode() ?: 0)
-            hash = 31 * hash + (thread.comments?.lastOrNull()?.publishedDate?.hashCode() ?: 0)
-        }
-        // Include reviewer votes so badge panel updates
-        for (r in reviewers ?: emptyList()) {
-            hash = 31 * hash + (r.id?.hashCode() ?: 0)
-            hash = 31 * hash + (r.vote ?: 0)
-        }
-        return hash
+        // Data-class hashes include every comment's content, author, dates and deletion flag,
+        // plus the thread's deletion flag and file context. A middle reply matters as much
+        // as the first or last comment.
+        return 31 * threads.hashCode() + reviewers.orEmpty().hashCode()
     }
 }
