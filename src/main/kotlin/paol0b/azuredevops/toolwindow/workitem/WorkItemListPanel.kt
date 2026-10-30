@@ -149,20 +149,23 @@ class WorkItemListPanel(
                     val apiClient = AzureDevOpsApiClient.getInstance(project)
 
                     val useMe = sv.assignedTo == null || sv.assignedTo == WorkItemSearchValue.AssignedToFilter.ME
-                    val stateFilter = if (sv.state == WorkItemSearchValue.StateFilter.ALL) null else sv.state?.displayName
+                    // Project-specific state names (loaded from the API), not hard-coded Agile states
+                    val stateFilter = sv.state?.takeUnless { it.isAll }
                     val typeFilter = sv.type?.displayName
                     val iterationPath = sv.iteration?.path
 
                     val workItems = if (useMe) {
                         apiClient.getMyWorkItems(
                             iterationPath = iterationPath,
-                            state = stateFilter,
+                            states = stateFilter?.states,
+                            excludeStates = stateFilter?.exclude ?: false,
                             type = typeFilter
                         )
                     } else {
                         apiClient.getAllWorkItems(
                             iterationPath = iterationPath,
-                            state = stateFilter,
+                            states = stateFilter?.states,
+                            excludeStates = stateFilter?.exclude ?: false,
                             type = typeFilter
                         )
                     }
