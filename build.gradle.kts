@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "paol0b"
-version = "4.2"
+version = "4.3"
 
 repositories {
     mavenCentral()
@@ -39,6 +39,30 @@ intellijPlatform {
         }
 
         changeNotes = """
+            <h2>Version 4.3 - PR Search, Review Comments &amp; Custom Work Item States</h2>
+
+            <h3>New Features</h3>
+            <ul>
+                <li><b>Server-side PR search</b> – Find PRs by ID, URL, title, author or reviewer across the organization, not only in the loaded list.</li>
+                <li><b>Comments on selected code</b> – Comment on a selected range in unified and side-by-side diffs, or from a regular editor on the PR branch. Ctrl+Enter / Cmd+Enter posts; drafts survive focus changes.</li>
+                <li><b>Reviewed files sync</b> – Reviewed-file checkboxes are read from and saved to Azure DevOps.</li>
+                <li><b>Review panel</b> – File path filter, resizable file list, Jump to Source from PR diffs.</li>
+                <li><b>Custom work item states</b> – State filter, Change State popup, sprint view and board use the states of the project process. The state filter accepts several states and can exclude them.</li>
+                <li><b>Work item prefix option</b> – The work item ID prefix on commit messages can be turned off in the commit options.</li>
+            </ul>
+
+            <h3>Fixes</h3>
+            <ul>
+                <li>Clicking a comment in the Comments tool window no longer fails with a read-access error.</li>
+                <li>Removing an account no longer removes other accounts; a new login for the same server replaces the old account.</li>
+                <li>Background refresh no longer opens Git Credential Manager prompts for dev.azure.com or ssh.dev.azure.com.</li>
+                <li>Remotes in the legacy https://{org}.visualstudio.com/DefaultCollection/ form are detected.</li>
+                <li>File and folder names stay visible next to PR comment badges in the project tree.</li>
+                <li>Existing comment threads show on the correct side and line in diffs.</li>
+            </ul>
+
+            <hr>
+
             <h2>Version 4.2 - PR List Pagination &amp; Project Filtering</h2>
 
             <h3>New Features</h3>
