@@ -59,6 +59,7 @@ intellijPlatform {
                 <li>Remotes in the legacy https://{org}.visualstudio.com/DefaultCollection/ form are detected.</li>
                 <li>File and folder names stay visible next to PR comment badges in the project tree.</li>
                 <li>Existing comment threads show on the correct side and line in diffs.</li>
+                <li>PR lists and the metrics dashboard no longer stop early when the organization has PRs you cannot read.</li>
             </ul>
 
             <hr>

@@ -55,19 +55,19 @@ class PullRequestSearchTest {
 
     @Test fun `text search scans beyond the normal loaded list and short pages`() {
         val skips = mutableListOf<Int>()
-        val pages = mapOf(0 to listOf(pr(3, "unrelated")), 1 to listOf(pr(2, "another")), 2 to listOf(pr(1, "Fix Needle")))
+        val pages = mapOf(0 to listOf(pr(3, "unrelated")), 50 to listOf(pr(2, "another")), 100 to listOf(pr(1, "Fix Needle")))
         val result = PullRequestSearchPager.search("needle", 50, 10, { _, skip ->
             skips.add(skip)
             pages[skip].orEmpty()
         })
         assertEquals(listOf(1), result.pullRequests.map { it.pullRequestId })
-        assertEquals(listOf(0, 1, 2, 3), skips)
+        assertEquals(listOf(0, 50, 100, 150), skips)
         assertEquals(3, result.progress.scanned)
         assertTrue(result.progress.complete)
     }
 
     @Test fun `unsupported filters are applied before counting the result limit`() {
-        val pages = mapOf(0 to listOf(pr(3, "Fix unrelated")), 1 to listOf(pr(1, "Fix wanted")))
+        val pages = mapOf(0 to listOf(pr(3, "Fix unrelated")), 50 to listOf(pr(1, "Fix wanted")))
         val result = PullRequestSearchPager.search("fix", 50, 1, { _, skip -> pages[skip].orEmpty() },
             accept = { it.pullRequestId == 1 })
         assertEquals(listOf(1), result.pullRequests.map { it.pullRequestId })
@@ -119,11 +119,21 @@ class PullRequestSearchTest {
         var requests = 0
         val result = PullRequestSearchPager.search("needle", 200, 10, { _, skip ->
             requests++
-            if (skip >= 101) emptyList() else listOf(pr(skip + 1, "other"))
+            if (skip >= 200 * 101) emptyList() else listOf(pr(skip + 1, "other"))
         })
         assertEquals(100, requests)
         assertEquals(100, result.progress.scanned)
         assertFalse(result.progress.complete)
+    }
+
+    @Test fun `skip also counts PRs the server hides from the caller`() {
+        val visible = (1..48).filter { it % 3 != 0 }.map { pr(it, "fix $it") }
+        val result = PullRequestSearchPager.search("", 50, 100, { size, skip ->
+            visible.filter { it.pullRequestId - 1 in skip until skip + size }
+        })
+        assertEquals(visible.map { it.pullRequestId }, result.pullRequests.map { it.pullRequestId })
+        assertEquals(visible.size, result.progress.scanned)
+        assertTrue(result.progress.complete)
     }
 
     @Test fun `cancelling between pages retains published partial matches`() {
