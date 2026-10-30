@@ -4,7 +4,7 @@
 
 **Pull requests, work items, pipelines, code reviews — without leaving your editor.**
 
-[![Version](https://img.shields.io/badge/version-4.2-blue?style=flat-square)](docs/CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-4.3-blue?style=flat-square)](docs/CHANGELOG.md)
 [![JetBrains IDE](https://img.shields.io/badge/JetBrains-2025.3%2B-blue?style=flat-square&logo=jetbrains)](https://www.jetbrains.com/)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.3-blueviolet?style=flat-square&logo=kotlin)](https://kotlinlang.org/)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-green?style=flat-square)](LICENSE)
