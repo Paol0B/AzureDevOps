@@ -59,18 +59,9 @@ class CommentsNavigatorToolWindow : ToolWindowFactory {
             "",
             false
         )
+        loadWhenSelected(project, toolWindow.contentManager, content) { panel.loadCommentsIfNeeded() }
         toolWindow.contentManager.addContent(content)
-        
-        // Add listener to load comments when tab becomes visible
-        toolWindow.addContentManagerListener(object : com.intellij.ui.content.ContentManagerListener {
-            override fun selectionChanged(event: com.intellij.ui.content.ContentManagerEvent) {
-                if (event.content == content && event.operation == com.intellij.ui.content.ContentManagerEvent.ContentOperation.add) {
-                    // Tab just opened/became visible - load comments
-                    panel.loadCommentsIfNeeded()
-                }
-            }
-        })
-        
+
         // Also add cleanup listener
         toolWindow.contentManager.addContentManagerListener(object : com.intellij.ui.content.ContentManagerListener {
             override fun contentRemoved(event: com.intellij.ui.content.ContentManagerEvent) {

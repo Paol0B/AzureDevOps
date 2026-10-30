@@ -164,6 +164,7 @@ class PullRequestToolWindowFactory : ToolWindowFactory, DumbAware {
         ).apply {
             isCloseable = false          // main list tab is never closable
         }
+        loadWhenSelected(project, toolWindow.contentManager, content) { pullRequestToolWindow.loadPullRequestsIfNeeded() }
         toolWindow.contentManager.addContent(content)
 
         // Place actions in the native tool window title bar (like JetBrains GitHub plugin)
@@ -196,17 +197,6 @@ class PullRequestToolWindowFactory : ToolWindowFactory, DumbAware {
                 }
             }
         ))
-
-        // Load PRs when the list tab becomes visible
-        toolWindow.addContentManagerListener(object : ContentManagerListener {
-            override fun selectionChanged(event: ContentManagerEvent) {
-                if (event.content == content &&
-                    event.operation == ContentManagerEvent.ContentOperation.add
-                ) {
-                    pullRequestToolWindow.loadPullRequestsIfNeeded()
-                }
-            }
-        })
 
         // Dispose resources when content is removed
         toolWindow.contentManager.addContentManagerListener(object : ContentManagerListener {
