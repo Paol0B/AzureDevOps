@@ -8,6 +8,7 @@ import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.ui.content.ContentManagerEvent
 import com.intellij.ui.content.ContentManagerListener
 import paol0b.azuredevops.model.PipelineBuild
+import paol0b.azuredevops.toolwindow.loadWhenSelected
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -70,18 +71,8 @@ class PipelineToolWindowFactory : ToolWindowFactory, DumbAware {
         ).apply {
             isCloseable = false
         }
+        loadWhenSelected(project, toolWindow.contentManager, content) { pipelineToolWindow.loadPipelinesIfNeeded() }
         toolWindow.contentManager.addContent(content)
-
-        // Load pipelines when the list tab becomes visible
-        toolWindow.addContentManagerListener(object : ContentManagerListener {
-            override fun selectionChanged(event: ContentManagerEvent) {
-                if (event.content == content &&
-                    event.operation == ContentManagerEvent.ContentOperation.add
-                ) {
-                    pipelineToolWindow.loadPipelinesIfNeeded()
-                }
-            }
-        })
 
         // Dispose resources when content is removed
         toolWindow.contentManager.addContentManagerListener(object : ContentManagerListener {

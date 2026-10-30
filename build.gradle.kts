@@ -60,6 +60,7 @@ intellijPlatform {
                 <li>File and folder names stay visible next to PR comment badges in the project tree.</li>
                 <li>Existing comment threads show on the correct side and line in diffs.</li>
                 <li>PR lists and the metrics dashboard no longer stop early when the organization has PRs you cannot read.</li>
+                <li>The PR, work item, pipeline and comments tool windows load their content when opened, without pressing Refresh.</li>
             </ul>
 
             <hr>

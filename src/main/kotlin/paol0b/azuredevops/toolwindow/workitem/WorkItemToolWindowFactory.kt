@@ -8,6 +8,7 @@ import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.ui.content.ContentManagerEvent
 import com.intellij.ui.content.ContentManagerListener
 import paol0b.azuredevops.model.WorkItem
+import paol0b.azuredevops.toolwindow.loadWhenSelected
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -70,18 +71,8 @@ class WorkItemToolWindowFactory : ToolWindowFactory, DumbAware {
         ).apply {
             isCloseable = false
         }
+        loadWhenSelected(project, toolWindow.contentManager, content) { workItemToolWindow.loadWorkItemsIfNeeded() }
         toolWindow.contentManager.addContent(content)
-
-        // Load work items when the list tab becomes visible
-        toolWindow.addContentManagerListener(object : ContentManagerListener {
-            override fun selectionChanged(event: ContentManagerEvent) {
-                if (event.content == content &&
-                    event.operation == ContentManagerEvent.ContentOperation.add
-                ) {
-                    workItemToolWindow.loadWorkItemsIfNeeded()
-                }
-            }
-        })
 
         // Dispose resources when content is removed
         toolWindow.contentManager.addContentManagerListener(object : ContentManagerListener {
