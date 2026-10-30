@@ -17,6 +17,12 @@ class GitCredentialHelperService(private val project: Project) {
         fun getInstance(project: Project): GitCredentialHelperService {
             return project.getService(GitCredentialHelperService::class.java)
         }
+
+        // background lookups run on every refresh, so git and GCM must never prompt for a login
+        internal fun credentialFillProcess(): ProcessBuilder = ProcessBuilder("git", "credential", "fill").apply {
+            environment()["GIT_TERMINAL_PROMPT"] = "0"
+            environment()["GCM_INTERACTIVE"] = "never"
+        }
     }
 
     /**
@@ -27,11 +33,8 @@ class GitCredentialHelperService(private val project: Project) {
      */
     fun getCredentialsFromHelper(url: String): String? {
         return try {
-            // Try first with the specific protocol
-            getCredentialForUrl(url) ?:
-            // If it doesn't work, try with generic Azure DevOps URLs
-            getCredentialForUrl("https://dev.azure.com") ?:
-            getCredentialForUrl("https://ssh.dev.azure.com")
+            // no fallback to generic dev.azure.com hosts: each lookup can open a GCM login prompt
+            getCredentialForUrl(url)
         } catch (e: Exception) {
             logger.warn("Failed to retrieve credentials from Git credential helper", e)
             null
@@ -59,8 +62,8 @@ class GitCredentialHelperService(private val project: Project) {
             }
             
             // Run git credential fill with redirectErrorStream to avoid popup windows
-            val processBuilder = ProcessBuilder("git", "credential", "fill")
-            
+            val processBuilder = credentialFillProcess()
+
             // IMPORTANT: Prevent process window from opening on Windows
             if (System.getProperty("os.name").lowercase().contains("windows")) {
                 // Hide process window on Windows
