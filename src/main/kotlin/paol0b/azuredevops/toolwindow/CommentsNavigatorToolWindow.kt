@@ -5,11 +5,13 @@ import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.FileEditorManagerListener
 import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.psi.search.FilenameIndex
@@ -452,10 +454,9 @@ class CommentsNavigatorPanel(private val project: Project) : JPanel(BorderLayout
             try {
                 logger.warn("File not found by path: $fullPath, searching by filename...")
                 val fileName = item.filePath.substringAfterLast('/')
-                val matchingFiles = FilenameIndex.getVirtualFilesByName(
-                    fileName, 
-                    GlobalSearchScope.projectScope(project)
-                )
+                val matchingFiles = ReadAction.nonBlocking<Collection<VirtualFile>> {
+                    FilenameIndex.getVirtualFilesByName(fileName, GlobalSearchScope.projectScope(project))
+                }.inSmartMode(project).executeSynchronously()
                 
                 val foundFile = if (matchingFiles.isNotEmpty()) {
                     matchingFiles.firstOrNull { file ->
