@@ -102,7 +102,7 @@ class AzureDevOpsAccountManager : PersistentStateComponent<AzureDevOpsAccountMan
             lastRefreshed = now,
             authType = AuthType.OAUTH.name
         )
-        myState.accounts.add(accountData)
+        putAccount(accountData)
 
         // Store tokens securely
         saveToken(id, token)
@@ -135,7 +135,7 @@ class AzureDevOpsAccountManager : PersistentStateComponent<AzureDevOpsAccountMan
             lastValidationSucceeded = true,
             selfHosted = selfHosted
         )
-        myState.accounts.add(accountData)
+        putAccount(accountData)
 
         saveToken(id, pat)
 
@@ -153,8 +153,15 @@ class AzureDevOpsAccountManager : PersistentStateComponent<AzureDevOpsAccountMan
         // Remove token from PasswordSafe
         val credentialAttributes = createCredentialAttributes(accountId)
         PasswordSafe.instance.set(credentialAttributes, null)
-        
+        PasswordSafe.instance.set(createCredentialAttributes(accountId, "refresh"), null)
+
         logger.info("Removed Azure DevOps account: $accountId")
+    }
+
+    // the id and the stored tokens are keyed by the server URL, so a new login replaces the old account
+    private fun putAccount(account: AccountData) {
+        removeAccount(account.id)
+        myState.accounts.add(account)
     }
 
     /**
