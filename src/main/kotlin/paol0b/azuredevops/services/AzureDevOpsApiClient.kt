@@ -646,9 +646,9 @@ The plugin will automatically use your authenticated account for this repository
      * an empty page, when it returns only items we've already seen (defensive against unstable
      * ordering across pages), or when [maxTotal] is reached.
      *
-     * Uses received-count rather than requested-count for the `$skip` cursor so the ADO
-     * "$top - 1" quirk doesn't make us miss the next page. Returns the fully-accumulated list
-     * once the loop exits.
+     * Advances the `$skip` cursor by the requested count: Azure DevOps applies `$skip` before
+     * dropping the PRs the caller cannot read, so a short page is not the last one. Returns the
+     * fully-accumulated list once the loop exits.
      */
     private fun paginatePullRequests(
         maxTotal: Int,
@@ -705,6 +705,7 @@ The plugin will automatically use your authenticated account for this repository
         val seenIds = HashSet<Int>()
         val maxHops = (maxTotal / configuredPageSize) * 2 + 5
         var hops = 0
+        var skip = 0
 
         logger.info("Fetching Pull Requests $contextForLog (cap: $maxTotal, pageSize: $configuredPageSize)")
 
@@ -713,7 +714,8 @@ The plugin will automatically use your authenticated account for this repository
                 hops++
                 val remaining = maxTotal - collected.size
                 val pageSize = minOf(configuredPageSize, remaining)
-                val url = urlBuilder(pageSize, collected.size)
+                val url = urlBuilder(pageSize, skip)
+                skip += pageSize
                 val response = executeGet(url, config.personalAccessToken)
                 val page = gson.fromJson(response, PullRequestListResponse::class.java).value
                 if (page.isEmpty()) break
@@ -963,7 +965,8 @@ The plugin will automatically use your authenticated account for this repository
             val fresh = page.filter { seen.add(it.pullRequestId) }
             check(fresh.isNotEmpty()) { "Azure DevOps repeated a PR page. Cannot identify every review target." }
             found.addAll(fresh)
-            skip += page.size
+            // $skip also counts PRs hidden from the caller, see paginatePullRequestsStreaming
+            skip += 100
         }
         error("Too many active PRs for this branch. Open the intended PR from the PR list instead.")
     }

@@ -115,6 +115,7 @@ object PullRequestSearchPager {
         val seen = mutableSetOf<Int>()
         val text = query.trim()
         var skip = 0
+        var scanned = 0
         while (matches.size < maxResults) {
             if (isCancelled()) throw CancellationException()
             if (budget.exhausted) break
@@ -123,8 +124,10 @@ object PullRequestSearchPager {
             budget.recordPage(fetched.size)
             val page = fetched.take(requestedSize)
             if (isCancelled()) throw CancellationException()
-            if (page.isEmpty()) return PullRequestSearchResult(matches.toList(), PullRequestSearchProgress(skip, true))
-            skip += page.size
+            if (page.isEmpty()) return PullRequestSearchResult(matches.toList(), PullRequestSearchProgress(scanned, true))
+            // Azure DevOps applies $skip before dropping PRs the caller cannot read, so advance by the requested size
+            skip += requestedSize
+            scanned += page.size
             val fresh = page.filter { seen.add(it.pullRequestId) }
             check(fresh.isNotEmpty()) { "Azure DevOps repeated a PR page. Search results are incomplete; please narrow the project or repository." }
             matches.addAll(fresh.filter {
@@ -132,8 +135,8 @@ object PullRequestSearchPager {
                     it.createdBy?.displayName?.contains(text, true) == true ||
                     it.createdBy?.uniqueName?.contains(text, true) == true)
             }.take(maxResults - matches.size))
-            onPage(matches.toList(), PullRequestSearchProgress(skip, false))
+            onPage(matches.toList(), PullRequestSearchProgress(scanned, false))
         }
-        return PullRequestSearchResult(matches.toList(), PullRequestSearchProgress(skip, false))
+        return PullRequestSearchResult(matches.toList(), PullRequestSearchProgress(scanned, false))
     }
 }
