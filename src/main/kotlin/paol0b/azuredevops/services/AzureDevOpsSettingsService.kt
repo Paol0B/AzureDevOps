@@ -22,6 +22,9 @@ class AzureDevOpsSettingsService(private val project: Project) : PersistentState
         var timelineIntervalSeconds: Long = 15,
         var statusBarIntervalSeconds: Long = 60,
 
+        // --- Commit ---
+        var workItemCommitPrefix: Boolean = true,
+
         // --- PR list pagination ---
         // pullRequestPageSize: how many PRs to ask Azure DevOps for per HTTP call.
         // pullRequestMaxTotal: safety cap on the total accumulated across pages, so a
