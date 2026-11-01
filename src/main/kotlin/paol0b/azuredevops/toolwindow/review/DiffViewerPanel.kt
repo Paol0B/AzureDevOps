@@ -384,6 +384,7 @@ class DiffViewerPanel(
         draft.popup = popup
         trackPopup(popup)
         popup.show(location)
+        draft.component.requestInputFocus()
     }
 
     private fun updateDraftsButton() {
@@ -534,7 +535,7 @@ class DiffViewerPanel(
         )
 
         val popup = JBPopupFactory.getInstance()
-            .createComponentPopupBuilder(commentComponent, commentComponent)
+            .createComponentPopupBuilder(commentComponent, commentComponent.preferredFocusComponent)
             .setMovable(true)
             .setResizable(true)
             .setRequestFocus(true)
@@ -546,6 +547,7 @@ class DiffViewerPanel(
         trackPopup(popup)
         val lineY = editor.logicalPositionToXY(LogicalPosition(lineIndex + 1, 0))
         popup.show(RelativePoint(editor.contentComponent, Point(40, lineY.y)))
+        commentComponent.requestInputFocus()
     }
 
     // ==================================================================

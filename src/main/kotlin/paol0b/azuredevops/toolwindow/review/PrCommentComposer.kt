@@ -10,9 +10,8 @@ class PrCommentComposer(
     private val submitComment: (String, (Result<Unit>) -> Unit) -> Unit,
     private val onCommentAdded: () -> Unit
 ) : JPanel(BorderLayout(0, 6)) {
-    private val textArea = JTextArea(4, 40).apply {
-        lineWrap = true
-        wrapStyleWord = true
+    private val textArea = ReviewCommentInput(null, false, "Write a comment…").apply {
+        preferredSize = java.awt.Dimension(450, 100)
         accessibleContext.accessibleName = "PR comment"
     }
     private val errorLabel = JLabel().apply { foreground = Color(190, 45, 45); isVisible = false }
@@ -21,21 +20,17 @@ class PrCommentComposer(
     init {
         border = BorderFactory.createEmptyBorder(8, 14, 10, 14)
         add(JLabel("Comment on this pull request"), BorderLayout.NORTH)
-        add(JScrollPane(textArea), BorderLayout.CENTER)
+        add(textArea, BorderLayout.CENTER)
         val footer = JPanel(BorderLayout()).apply {
             add(errorLabel, BorderLayout.CENTER)
             add(JPanel(FlowLayout(FlowLayout.RIGHT, 0, 0)).apply { add(submitButton) }, BorderLayout.EAST)
         }
         add(footer, BorderLayout.SOUTH)
         submitButton.addActionListener { submit() }
-        textArea.inputMap.put(KeyStroke.getKeyStroke("control ENTER"), "submitComment")
-        textArea.inputMap.put(KeyStroke.getKeyStroke("meta ENTER"), "submitComment")
-        textArea.actionMap.put("submitComment", object : AbstractAction() {
-            override fun actionPerformed(e: java.awt.event.ActionEvent?) { if (submitButton.isEnabled) submit() }
-        })
+        textArea.registerSubmitShortcut { if (submitButton.isEnabled) submit() }
     }
 
-    fun focusComment() { textArea.requestFocusInWindow() }
+    fun focusComment() { textArea.requestEditorFocus() }
 
     private fun submit() {
         val content = textArea.text.trim()
@@ -43,11 +38,11 @@ class PrCommentComposer(
         errorLabel.isVisible = false
         submitButton.isEnabled = false
         submitButton.text = "Adding…"
-        textArea.isEditable = false
+        textArea.isEnabled = false
         val completed: (Result<Unit>) -> Unit = { result ->
             submitButton.isEnabled = true
             submitButton.text = "Add comment"
-            textArea.isEditable = true
+            textArea.isEnabled = true
             result.fold(
                 onSuccess = { textArea.text = ""; onCommentAdded() },
                 onFailure = { errorLabel.text = it.message ?: "Unable to add comment. Please try again."; errorLabel.isVisible = true }

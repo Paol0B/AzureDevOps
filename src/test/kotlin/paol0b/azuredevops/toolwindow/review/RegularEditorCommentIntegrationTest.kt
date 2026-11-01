@@ -25,7 +25,7 @@ class RegularEditorCommentIntegrationTest : LightPlatformTestCase() {
         val composer = InlineCommentEditorComponent(project, AzureDevOpsApiClient(project),
             1, "/file.kt", FileCommentRange(false, 2), null, null, null, { posted = true }, {},
             beforeSubmit = { checks++; error("The file or branch changed") })
-        val area = components(composer).filterIsInstance<JTextArea>().single()
+        val area = components(composer).filterIsInstance<ReviewCommentInput>().single()
         val button = components(composer).filterIsInstance<JButton>().single { it.text == "Add Review Comment" }
         area.text = "Please simplify this code"
         button.doClick()

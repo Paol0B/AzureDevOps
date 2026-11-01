@@ -60,6 +60,10 @@ class InlineCommentComponent(
     private val resolvedBadgeBg = JBColor(Color(220, 255, 220), Color(35, 70, 45))
     private val resolvedBadgeFg = JBColor(Color(34, 139, 34), Color(50, 200, 50))
     private val replyBarColor = JBColor(Color(180, 195, 215), Color(80, 90, 105))
+    private var replyInput: ReviewCommentInput? = null
+    val preferredFocusComponent: JComponent get() = replyInput ?: this
+    fun requestInputFocus() { replyInput?.requestEditorFocus() }
+
     private val locallyDeletedCommentIds = mutableSetOf<Int>()
 
     init {
@@ -286,14 +290,10 @@ class InlineCommentComponent(
             border = JBUI.Borders.emptyTop(2)
         }
 
-        val field = JTextField().apply {
-            border = BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(cardBorder),
-                JBUI.Borders.empty(4, 8)
-            )
-            font = UIUtil.getLabelFont().deriveFont(12f)
-            putClientProperty("JTextField.placeholderText", "Reply…")
+        val field = ReviewCommentInput(project, true, "Reply…").apply {
+            border = BorderFactory.createLineBorder(cardBorder)
         }
+        replyInput = field
 
         val sendBtn = JButton("Reply").apply {
             font = font.deriveFont(11f)
@@ -301,16 +301,16 @@ class InlineCommentComponent(
         }
 
         sendBtn.addActionListener { submitReply(field, sendBtn) }
-        field.addActionListener { submitReply(field, sendBtn) }
+        field.registerSubmitShortcut { if (sendBtn.isEnabled) submitReply(field, sendBtn) }
 
         panel.add(field, BorderLayout.CENTER)
         panel.add(sendBtn, BorderLayout.EAST)
         return panel
     }
 
-    private fun submitReply(field: JTextField, sendBtn: JButton) {
+    private fun submitReply(field: ReviewCommentInput, sendBtn: JButton) {
         val text = field.text.trim()
-        if (text.isEmpty()) return
+        if (text.isEmpty() || !sendBtn.isEnabled) return
         val threadId = thread.id ?: return
 
         sendBtn.isEnabled = false
