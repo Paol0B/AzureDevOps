@@ -4,7 +4,6 @@ import com.intellij.testFramework.LightPlatformTestCase
 import paol0b.azuredevops.model.FileCommentRange
 import paol0b.azuredevops.services.AzureDevOpsApiClient
 import java.awt.Container
-import java.awt.event.ActionEvent
 import javax.swing.*
 
 class InlineCommentShortcutTest : LightPlatformTestCase() {
@@ -15,25 +14,23 @@ class InlineCommentShortcutTest : LightPlatformTestCase() {
     fun testControlAndCommandEnterUseSubmitButtonAndRespectPendingSubmission() {
         val composer = InlineCommentEditorComponent(project, AzureDevOpsApiClient(project),
             1, "/file.kt", FileCommentRange(false, 2), null, null, null, {}, {})
-        val area = components(composer).filterIsInstance<JTextArea>().single()
+        val area = components(composer).filterIsInstance<ReviewCommentInput>().single()
         val button = components(composer).filterIsInstance<JButton>().single { it.text == "Add Review Comment" }
         // Empty text keeps the real submission handler off the network; observe actual button dispatch.
         var clicks = 0
         button.addActionListener { clicks++ }
         for (stroke in listOf("control ENTER", "meta ENTER")) {
-            val key = area.inputMap.get(KeyStroke.getKeyStroke(stroke))
-            assertNotNull("$stroke must have a submit binding", key)
-            val action = area.actionMap.get(key)
-            assertNotNull(action)
-            action.actionPerformed(ActionEvent(area, ActionEvent.ACTION_PERFORMED, "submit"))
+            invokeReviewShortcut(area, stroke)
             assertEquals(1, clicks)
             button.isEnabled = false
-            action.actionPerformed(ActionEvent(area, ActionEvent.ACTION_PERFORMED, "submit"))
+            invokeReviewShortcut(area, stroke)
             assertEquals("Shortcut must not post again while submission is pending", 1, clicks)
             button.isEnabled = true
             clicks = 0
         }
-        assertFalse("Plain Enter must remain a newline", area.inputMap.get(KeyStroke.getKeyStroke("meta ENTER")) ==
-            area.inputMap.get(KeyStroke.getKeyStroke("ENTER")))
+        assertFalse("Plain Enter must remain with the editor/IME",
+            com.intellij.openapi.actionSystem.ex.ActionUtil.getActions(area).any {
+                it.shortcutSet.shortcuts.contains(com.intellij.openapi.actionSystem.KeyboardShortcut(KeyStroke.getKeyStroke("ENTER"), null))
+            })
     }
 }

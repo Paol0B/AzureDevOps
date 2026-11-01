@@ -46,7 +46,7 @@ class InlineCommentPopupTest : LightPlatformTestCase() {
         fun components(container: java.awt.Container): List<java.awt.Component> = container.components.flatMap {
             listOf(it) + (if (it is java.awt.Container) components(it) else emptyList())
         }
-        val area = components(component).filterIsInstance<javax.swing.JTextArea>().single()
+        val area = components(component).filterIsInstance<ReviewCommentInput>().single()
         val submit = components(component).filterIsInstance<javax.swing.JButton>().single { it.text == "Add Review Comment" }
         area.text = "Unsent review text"
         val first = component.createPopup()
@@ -54,16 +54,14 @@ class InlineCommentPopupTest : LightPlatformTestCase() {
             submit.doClick()
             assertTrue(entered.await(5, java.util.concurrent.TimeUnit.SECONDS))
             assertFalse("Native Escape must stay disabled during posting", first.isCancelKeyEnabled)
-            val escape = java.awt.event.KeyEvent(area, java.awt.event.KeyEvent.KEY_PRESSED,
-                System.currentTimeMillis(), 0, java.awt.event.KeyEvent.VK_ESCAPE, java.awt.event.KeyEvent.CHAR_UNDEFINED)
-            area.keyListeners.forEach { it.keyPressed(escape) }
+            invokeReviewShortcut(area, "ESCAPE")
             assertEquals("Escape must not discard a comment while posting", 0, cancellations)
             first.cancel()
             val reopened = drafts.getOrCreate(key) { error("Draft must already exist") }
             assertSame(component, reopened)
             assertEquals("Unsent review text", area.text)
             assertFalse("Reopening must not enable a duplicate post", submit.isEnabled)
-            assertFalse("Text must be frozen while its captured content is being posted", area.isEditable)
+            assertFalse("Text must be frozen while its captured content is being posted", area.isEnabled)
             val replacement = reopened.createPopup()
             Disposer.dispose(replacement)
         } finally {
