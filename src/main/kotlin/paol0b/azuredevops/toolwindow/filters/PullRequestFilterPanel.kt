@@ -306,6 +306,7 @@ class PullRequestFilterPanel(
         val activeQuickFilter = getActiveQuickFilter()
 
         val items = mutableListOf<QuickFilterMenuItem>(
+            QuickFilterMenuItem.Filter(PullRequestQuickFilter.RELEVANT_TO_YOU),
             QuickFilterMenuItem.Filter(PullRequestQuickFilter.OPEN),
             QuickFilterMenuItem.Filter(PullRequestQuickFilter.YOUR_PULL_REQUESTS),
             QuickFilterMenuItem.Filter(PullRequestQuickFilter.ASSIGNED_TO_YOU),
@@ -328,6 +329,7 @@ class PullRequestFilterPanel(
             override fun onChosen(selectedValue: QuickFilterMenuItem, finalChoice: Boolean): PopupStep<*>? {
                 when (selectedValue) {
                     is QuickFilterMenuItem.Filter -> when (selectedValue.filter) {
+                        PullRequestQuickFilter.RELEVANT_TO_YOU -> applyQuickFilter(PullRequestSearchValue.DEFAULT)
                         PullRequestQuickFilter.OPEN -> applyQuickFilter(
                             PullRequestSearchValue(state = PullRequestSearchValue.State.OPEN, showAllOrg = true)
                         )
@@ -602,7 +604,7 @@ class PullRequestFilterPanel(
         var count = 0
         if (currentValue.state != def.state) count++
         if (currentValue.author != null) count++
-        if (currentValue.review != null) count++
+        if (currentValue.review != def.review) count++
         if (currentValue.sort != null) count++
         if (currentValue.selectedProjectIds.isNotEmpty()) count++
         if (currentValue.repositoryFilter != null) count++
@@ -614,6 +616,9 @@ class PullRequestFilterPanel(
     private fun getActiveQuickFilter(): PullRequestQuickFilter? {
         val v = currentValue
         return when {
+            v.state == PullRequestSearchValue.State.OPEN &&
+                v.review == PullRequestSearchValue.ReviewState.RELEVANT_TO_YOU && v.author == null ->
+                PullRequestQuickFilter.RELEVANT_TO_YOU
             v.state == PullRequestSearchValue.State.OPEN &&
                 v.author?.id == "@me" && v.review == null ->
                 PullRequestQuickFilter.YOUR_PULL_REQUESTS

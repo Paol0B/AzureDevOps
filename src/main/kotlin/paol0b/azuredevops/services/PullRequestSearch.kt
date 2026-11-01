@@ -65,8 +65,19 @@ data class PullRequestSearchCriteria(
     val status: String,
     val creatorId: String? = null,
     val reviewerId: String? = null,
-    val repositoryId: String? = null
+    val repositoryId: String? = null,
+    val relevantUserId: String? = null
 ) {
+    /** Azure criteria are ANDed; creator OR reviewer requires two server queries. */
+    fun alternatives(): List<PullRequestSearchCriteria> {
+        val userId = relevantUserId ?: return listOf(this)
+        require(userId.isNotBlank()) { "Unable to identify your Azure DevOps account." }
+        return listOf(
+            copy(creatorId = userId, reviewerId = null, relevantUserId = null),
+            copy(reviewerId = userId, relevantUserId = null)
+        )
+    }
+
     fun listUrl(endpoint: String, pageSize: Int, skip: Int): String {
         val parameters = linkedMapOf("searchCriteria.status" to status)
         creatorId?.let { parameters["searchCriteria.creatorId"] = it }
@@ -100,6 +111,52 @@ data class PullRequestSearchResult(val pullRequests: List<PullRequest>, val prog
 
 /** The result cap counts matches, not the number of PRs examined for a text search. */
 object PullRequestSearchPager {
+    /** Share the result cap and scan budget across project scopes and OR alternatives. */
+    fun searchScopes(
+        query: String,
+        criteria: PullRequestSearchCriteria,
+        endpoints: List<String>,
+        pageSize: Int,
+        maxResults: Int,
+        fetchPage: (String, PullRequestSearchCriteria, Int, Int) -> List<PullRequest>,
+        isCancelled: () -> Boolean = { false },
+        accept: (PullRequest) -> Boolean = { true },
+        onPage: (List<PullRequest>, PullRequestSearchProgress) -> Unit = { _, _ -> },
+        budget: PullRequestSearchBudget = PullRequestSearchBudget()
+    ): PullRequestSearchResult {
+        val searches = endpoints.flatMap { endpoint -> criteria.alternatives().map { endpoint to it } }
+        val results = linkedMapOf<Triple<String?, String?, Int>, PullRequest>()
+        var scanned = 0
+        var complete = true
+        for ((index, scope) in searches.withIndex()) {
+            val previouslyScanned = scanned
+            val scopeResult = search(
+                query, pageSize, maxResults - results.size,
+                fetchPage = { top, skip -> fetchPage(scope.first, scope.second, top, skip) },
+                isCancelled = isCancelled, budget = budget,
+                accept = { identity(it) !in results && accept(it) },
+                onPage = { matches, progress ->
+                    onPage((results.values + matches).distinctBy(::identity),
+                        PullRequestSearchProgress(previouslyScanned + progress.scanned, false))
+                }
+            )
+            scopeResult.pullRequests.forEach { results[identity(it)] = it }
+            scanned += scopeResult.progress.scanned
+            complete = complete && scopeResult.progress.complete
+            if (results.size >= maxResults || budget.exhausted) {
+                complete = complete && index == searches.lastIndex
+                break
+            }
+        }
+        return PullRequestSearchResult(results.values.toList(), PullRequestSearchProgress(scanned, complete))
+    }
+
+    private fun identity(pr: PullRequest) = Triple(
+        pr.repository?.project?.id ?: pr.repository?.project?.name,
+        pr.repository?.id ?: pr.repository?.name,
+        pr.pullRequestId
+    )
+
     fun search(
         query: String,
         pageSize: Int,
@@ -112,7 +169,7 @@ object PullRequestSearchPager {
     ): PullRequestSearchResult {
         require(pageSize > 0 && maxResults > 0)
         val matches = mutableListOf<PullRequest>()
-        val seen = mutableSetOf<Int>()
+        val seen = mutableSetOf<Triple<String?, String?, Int>>()
         val text = query.trim()
         var skip = 0
         var scanned = 0
@@ -128,7 +185,7 @@ object PullRequestSearchPager {
             // Azure DevOps applies $skip before dropping PRs the caller cannot read, so advance by the requested size
             skip += requestedSize
             scanned += page.size
-            val fresh = page.filter { seen.add(it.pullRequestId) }
+            val fresh = page.filter { seen.add(identity(it)) }
             check(fresh.isNotEmpty()) { "Azure DevOps repeated a PR page. Search results are incomplete; please narrow the project or repository." }
             matches.addAll(fresh.filter {
                 accept(it) && (text.isEmpty() || it.title.contains(text, true) ||

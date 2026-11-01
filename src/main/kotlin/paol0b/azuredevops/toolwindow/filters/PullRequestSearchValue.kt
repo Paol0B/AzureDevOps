@@ -51,6 +51,7 @@ data class PullRequestSearchValue(
 
     /** Review state filter values, adapted for Azure DevOps PR reviewer votes. */
     enum class ReviewState(val displayName: String) {
+        RELEVANT_TO_YOU("Relevant to me"),
         NO_REVIEW("No reviews"),
         APPROVED("Approved review"),
         CHANGES_REQUESTED("Changes requested"),
@@ -88,7 +89,7 @@ data class PullRequestSearchValue(
     }
 
     companion object {
-        val DEFAULT = PullRequestSearchValue(state = State.OPEN, showAllOrg = true)
+        val DEFAULT = PullRequestSearchValue(state = State.OPEN, review = ReviewState.RELEVANT_TO_YOU, showAllOrg = true)
         val EMPTY = PullRequestSearchValue()
     }
 }
@@ -97,7 +98,8 @@ data class PullRequestSearchValue(
  * Quick filter presets, modeled after GHPRListQuickFilter.
  */
 enum class PullRequestQuickFilter(val displayName: String) {
-    OPEN("Open"),
+    RELEVANT_TO_YOU("Relevant to me"),
+    OPEN("Open (all organization)"),
     YOUR_PULL_REQUESTS("Your pull requests"),
     ASSIGNED_TO_YOU("Assigned to you"),
     REVIEW_REQUESTS("Review requests");

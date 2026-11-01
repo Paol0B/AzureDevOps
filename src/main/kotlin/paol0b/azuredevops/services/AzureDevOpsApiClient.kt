@@ -575,37 +575,17 @@ The plugin will automatically use your authenticated account for this repository
             showAllOrg -> listOf(buildOrgApiUrl("/git/pullrequests"))
             else -> listOf(buildApiUrl(config.project, config.repository, "/pullrequests"))
         }
-        val results = mutableListOf<PullRequest>()
-        val seen = mutableSetOf<Int>()
-        val limit = effectiveMaxTotal()
-        var scanned = 0
-        var complete = true
-        val scanBudget = PullRequestSearchBudget()
-        for ((index, endpoint) in endpoints.withIndex()) {
-            val previouslyScanned = scanned
-            val scopeResult = PullRequestSearchPager.search(
-                query, effectivePageSize(), limit - results.size,
-                fetchPage = { pageSize, skip ->
-                    val url = criteria.listUrl(endpoint, pageSize, skip)
-                    gson.fromJson(executeGet(url, config.personalAccessToken), PullRequestListResponse::class.java).value
-                },
-                isCancelled = isCancelled,
-                budget = scanBudget,
-                accept = accept,
-                onPage = { matches, progress ->
-                    val accumulated = (results + matches).distinctBy { it.pullRequestId }
-                    onPage(accumulated, PullRequestSearchProgress(previouslyScanned + progress.scanned, false))
-                }
-            )
-            results.addAll(scopeResult.pullRequests.filter { seen.add(it.pullRequestId) })
-            scanned += scopeResult.progress.scanned
-            complete = complete && scopeResult.progress.complete
-            if (results.size >= limit || scanBudget.exhausted) {
-                complete = complete && index == endpoints.lastIndex
-                break
-            }
-        }
-        onComplete(results.toList(), PullRequestSearchProgress(scanned, complete))
+        val result = PullRequestSearchPager.searchScopes(
+            query, criteria, endpoints, effectivePageSize(), effectiveMaxTotal(),
+            fetchPage = { endpoint, serverCriteria, pageSize, skip ->
+                val url = serverCriteria.listUrl(endpoint, pageSize, skip)
+                gson.fromJson(executeGet(url, config.personalAccessToken), PullRequestListResponse::class.java).value
+            },
+            isCancelled = isCancelled,
+            accept = accept,
+            onPage = onPage
+        )
+        onComplete(result.pullRequests, result.progress)
     }
 
     /** Summary of a project for the PR project filter. id is required (used for filtering),
