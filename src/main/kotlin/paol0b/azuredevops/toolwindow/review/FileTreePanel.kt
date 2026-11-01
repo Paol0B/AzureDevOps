@@ -181,6 +181,7 @@ class FileTreePanel(
 
     init {
         tree.apply {
+            emptyText.text = "Loading changed files..."
             isRootVisible = false
             showsRootHandles = true
             addCheckboxTreeListener(object : CheckboxTreeListener {
@@ -225,11 +226,22 @@ class FileTreePanel(
 
     fun loadFileChanges(changes: List<PullRequestChange>) {
         allChanges = changes
+        tree.emptyText.text = "No changed files"
         changes.forEach {
             localReviewState.bindLegacyReviewedFile(pullRequestId, reviewScope, it.effectivePath(), ReviewedFilesState.hash(it))
         }
         renderFilteredChanges()
         syncReviewedFiles()
+    }
+
+    fun showLoadError(message: String?) {
+        allChanges = emptyList()
+        cachedChanges = emptyList()
+        rootNode.removeAllChildren()
+        fileNodeMap.clear()
+        treeModel.reload()
+        val detail = message?.takeIf { it.isNotBlank() } ?: "Unknown error"
+        tree.emptyText.text = "Failed to load changed files: $detail"
     }
 
     private fun renderFilteredChanges() {
