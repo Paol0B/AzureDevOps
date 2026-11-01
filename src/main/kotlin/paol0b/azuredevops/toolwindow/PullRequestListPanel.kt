@@ -205,6 +205,7 @@ class PullRequestListPanel(
                     val lookup = PullRequestLookup.parse(searchValue.searchQuery)
                     val explicitLookup = lookup != null && !searchValue.searchQuery.orEmpty().trim().matches(Regex("\\d+"))
                     val needsCurrentUser = searchValue.author?.id == "@me" || searchValue.review in setOf(
+                        PullRequestSearchValue.ReviewState.RELEVANT_TO_YOU,
                         PullRequestSearchValue.ReviewState.ASSIGNED_TO_YOU,
                         PullRequestSearchValue.ReviewState.AWAITING_YOUR_REVIEW,
                         PullRequestSearchValue.ReviewState.REVIEWED_BY_YOU
@@ -233,7 +234,9 @@ class PullRequestListPanel(
                     apiClient.searchPullRequestsStreaming(
                         query = searchValue.searchQuery.orEmpty(),
                         criteria = PullRequestSearchCriteria(
-                            searchValue.state?.apiValue ?: "active", creatorId, reviewerId, searchValue.repositoryFilter?.id
+                            searchValue.state?.apiValue ?: "active", creatorId, reviewerId, searchValue.repositoryFilter?.id,
+                            relevantUserId = if (!explicitLookup && searchValue.review == PullRequestSearchValue.ReviewState.RELEVANT_TO_YOU)
+                                resolvedCurrentUserId.orEmpty() else null
                         ),
                         selectedProjectIds = searchValue.selectedProjectIds,
                         showAllOrg = searchValue.showAllOrg,
@@ -399,6 +402,9 @@ class PullRequestListPanel(
     ): Boolean {
         val reviewers = pr.reviewers ?: emptyList()
         return when (review) {
+            PullRequestSearchValue.ReviewState.RELEVANT_TO_YOU -> {
+                userId != null && (pr.createdBy?.id == userId || reviewers.any { it.id == userId })
+            }
             PullRequestSearchValue.ReviewState.NO_REVIEW -> {
                 reviewers.isEmpty() || reviewers.all { it.vote == 0 || it.vote == null }
             }
